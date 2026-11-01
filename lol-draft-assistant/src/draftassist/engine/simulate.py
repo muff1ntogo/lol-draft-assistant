@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import random
+import sys
 import time
 from dataclasses import dataclass
 
@@ -47,7 +48,8 @@ def synthetic_data(seed: int = 7, n_champs: int = 170) -> tuple[EngineData, OurT
                     if rng.random() < 0.6:
                         matchups[(r, a, b)] = _clamp(rng.gauss(0.5, 0.03), 0.40, 0.60)
         synergy = {frozenset(rng.sample(ids, 2)): _clamp(rng.gauss(0.5, 0.02), 0.44, 0.56) for _ in range(400)}
-        brackets[name] = BracketStats(meta, matchups, synergy)
+        ban_rates = {c: rng.uniform(0.0, 0.35) if rng.random() < 0.3 else rng.uniform(0.0, 0.03) for c in ids}
+        brackets[name] = BracketStats(meta, matchups, synergy, ban_rates)
 
     tiers = {}
     for r in ROLES:
@@ -103,6 +105,7 @@ def main() -> None:
     parser.add_argument("--side", default="blue", choices=["blue", "red"])
     parser.add_argument("--seed", type=int, default=7)
     args = parser.parse_args()
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # reasons use U+2212; Windows consoles may not
 
     data, team = synthetic_data(args.seed)
     engine = DraftEngine(data, team)

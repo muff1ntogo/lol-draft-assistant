@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Literal
 
 ROLES: tuple[str, ...] = ("top", "jungle", "mid", "adc", "support")
 ROLE_LABELS = {"top": "Top", "jungle": "Jungle", "mid": "Mid", "adc": "ADC", "support": "Support"}
@@ -38,16 +39,21 @@ class BracketStats:
     meta: Mapping[int, Mapping[str, RoleStat]]  # champ -> role -> stats
     matchups: Mapping[tuple[str, int, int], float] = field(default_factory=dict)  # (role, a, b) -> a's lane WR
     synergy: Mapping[frozenset[int], float] = field(default_factory=dict)  # {a, b} -> duo WR
+    ban_rates: Mapping[int, float] = field(default_factory=dict)  # champ -> share of games banned
 
     def role_stat(self, champ: int, role: str) -> RoleStat | None:
         return self.meta.get(champ, {}).get(role)
 
-    def matchup_wr(self, role: str, a: int, b: int) -> float:
+    def matchup_wr_or_none(self, role: str, a: int, b: int) -> float | None:
         if (wr := self.matchups.get((role, a, b))) is not None:
             return wr
         if (wr := self.matchups.get((role, b, a))) is not None:
             return 1 - wr
-        return 0.5
+        return None
+
+    def matchup_wr(self, role: str, a: int, b: int) -> float:
+        wr = self.matchup_wr_or_none(role, a, b)
+        return 0.5 if wr is None else wr
 
     def synergy_wr(self, a: int, b: int) -> float:
         return self.synergy.get(frozenset((a, b)), 0.5)
@@ -95,6 +101,18 @@ class OurTeam:
 
 
 @dataclass(frozen=True)
+class LaneBanConfig:
+    """Lane ban score options (see engine/lane_ban.py)."""
+    adjust_for_bans: bool = True  # w = pick_rate / (1 - ban_rate)
+    delta_baseline: Literal["fifty", "champion_avg"] = "fifty"
+    tier_adj: Mapping[str, float] = field(
+        default_factory=lambda: {"main": 0.0, "comfortable": 0.0, "learning": -2.0})
+    gamma: float = 1.0  # weight of the lane term in ban value
+    pp_to_logodds: float = 0.04  # slope of logit at 50% is 4 per unit probability
+    neutral_band: float = 0.05  # |Ban| below this is shown as neutral
+
+
+@dataclass(frozen=True)
 class EngineConfig:
     alpha: float = 1.0  # weight on meta strength for our picks
     beta: float = 1.0  # weight on comfort
@@ -103,7 +121,7 @@ class EngineConfig:
     enemy_bracket: str = "gold"  # enemy prior
     team_bracket: str = "gold"  # duo synergy for our side (mixed-elo team average)
     enemy_strength_weight: float = 10.0  # enemy model: log(pick rate) + w * logit(win rate)
-    protect_weight: float = 0.15
     risk_weight: float = 0.1
     risk_horizon: int = 3  # counter risk is full once the enemy has this many picks left
     flex_bonus: float = 0.02
+    lane_ban: LaneBanConfig = field(default_factory=LaneBanConfig)

@@ -8,6 +8,7 @@ from draftassist.engine.model import (
     BracketStats,
     EngineConfig,
     EngineData,
+    LaneBanConfig,
     OurTeam,
     RoleStat,
     logit,
@@ -171,11 +172,27 @@ def test_counter_risk_warning_and_flex(engine):
     assert sugs[KSANTE].reason.endswith("watch for Gnar")
 
 
-def test_ban_reason_protects_our_pool(engine):
+def test_ban_reason_uses_lane_ban_score(engine):
+    # Gnar is common in top and our best answer (K'Sante) loses the lane 44-56.
     sugs = engine.suggest_bans(state(), k=50)
     gnar = next(x for x in sugs if x.champ_id == GNAR)
-    assert gnar.reason.startswith("Their Gnar: ") and gnar.reason.endswith("hard counters our K'Sante")
+    assert gnar.reason == "Common vs our top (PR 8%); our best answer K'Sante only −6.0pp"
     assert gnar.enemy_prob > 0
+
+
+def test_lane_term_weight_gamma():
+    s = state()
+    on = {x.champ_id: x for x in DraftEngine(DATA, TEAM).suggest_bans(s, k=50)}
+    off = {x.champ_id: x for x in DraftEngine(DATA, TEAM, EngineConfig(lane_ban=LaneBanConfig(gamma=0.0))).suggest_bans(s, k=50)}
+    assert on[GNAR].value > off[GNAR].value
+    assert off[GNAR].reason.startswith("Their Gnar: ")
+
+
+def test_lane_ban_tables_cover_all_roles(engine):
+    tables = engine.lane_ban_tables(state())
+    assert set(tables) == {"top", "jungle", "mid", "adc", "support"}
+    top = tables["top"]
+    assert top.row(GNAR).via == KSANTE and top.row(GNAR).resp == pytest.approx(-6.0)
 
 
 def test_phase2_bans_only_target_enemy_open_roles(engine):

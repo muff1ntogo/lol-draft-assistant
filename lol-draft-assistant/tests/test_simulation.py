@@ -1,5 +1,9 @@
 """Phase 1 acceptance: a simulated 20-step draft completes in both formats, no banned or picked
 champion is ever suggested, and each suggestion set returns in under 200 ms."""
+import os
+import subprocess
+import sys
+
 import pytest
 
 from draftassist.engine.engine import DraftEngine
@@ -55,3 +59,11 @@ def test_simulation_is_deterministic(synthetic):
     a, _ = run_draft(DraftEngine(data, team), TOURNAMENT, "blue")
     b, _ = run_draft(DraftEngine(data, team), TOURNAMENT, "blue")
     assert a.actions == b.actions
+
+
+def test_cli_runs_on_a_non_utf8_console():
+    env = {**os.environ, "PYTHONIOENCODING": "cp950"}
+    out = subprocess.run([sys.executable, "-m", "draftassist.engine.simulate", "--format", "tournament"],
+                         capture_output=True, env=env, timeout=60)
+    assert out.returncode == 0, out.stderr.decode(errors="replace")
+    assert b"Model P(win)" in out.stdout

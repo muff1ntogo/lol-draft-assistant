@@ -13,6 +13,7 @@ import math
 from dataclasses import dataclass
 from itertools import combinations, permutations
 
+from draftassist.engine.lane_ban import BracketLaneData, RoleBanTable, role_ban_table, team_lane_ban
 from draftassist.engine.model import (
     ROLE_LABELS,
     ROLES,
@@ -71,10 +72,15 @@ def _pct(p: float) -> str:
     return "<1%" if 0 < p < 0.005 else f"{p:.0%}"
 
 
+def _pp(x: float) -> str:
+    return f"{x:+.1f}".replace("-", "−") + "pp"
+
+
 class DraftEngine:
     def __init__(self, data: EngineData, team: OurTeam, config: EngineConfig | None = None):
         self.data, self.team, self.cfg = data, team, config or EngineConfig()
         self._champs = sorted(data.champions())
+        self._lane_data = BracketLaneData(data, team, self.cfg.enemy_bracket)
         self._assign_cache: dict[tuple, tuple[float, dict[int, str]]] = {}
 
     # ---------- lookups ----------
@@ -198,23 +204,40 @@ class DraftEngine:
             raise ValueError("not our turn")
         return self.suggest_bans(state, k) if step.kind == "ban" else self.suggest_picks(state, k, role)
 
-    def suggest_bans(self, state: DraftState, k: int = 3) -> list[Suggestion]:
-        """Ban value = P(enemy picks c) * harm(c) + protect_weight * protect(c).
-        Phase 2 bans only consider the enemy's open roles and protect our locked picks."""
+    def _lane_ban_tables(self, state: DraftState, ev: Evaluation) -> dict[str, RoleBanTable]:
+        our_by_role = {r: c for c, r in ev.our_roles.items()}
+        their_filled = set(ev.their_roles.values())
+        unavailable = state.unavailable()
+        return {
+            r: role_ban_table(
+                self._lane_data, r,
+                {c: e.tier for c, e in self.team.pools.get(r, {}).items()},
+                unavailable=unavailable,
+                locked=our_by_role.get(r),
+                enemy_filled=r in their_filled,
+                config=self.cfg.lane_ban,
+            )
+            for r in ROLES
+        }
+
+    def lane_ban_tables(self, state: DraftState) -> dict[str, RoleBanTable]:
+        """Per-role lane ban tables (Opp / PR / Resp / via / Ban) for the Prep page and API."""
         self._assign_cache.clear()
-        cfg = self.cfg
+        return self._lane_ban_tables(state, self._evaluate(state))
+
+    def suggest_bans(self, state: DraftState, k: int = 3) -> list[Suggestion]:
+        """Ban value = P(enemy picks c) * harm(c) + gamma * 0.04 * TeamLaneBan(c).
+        Phase 2 bans only consider the enemy's open roles; filled roles add no lane value."""
+        self._assign_cache.clear()
+        lane_cfg = self.cfg.lane_ban
         ours, theirs = state.our_picks, state.their_picks
         ev = self._evaluate(state)
         base = ev.terms.total
         role_probs = self._enemy_role_probs(state, ev.their_roles)
         phase2 = state.step is not None and state.step.phase == 2
         unavailable = state.unavailable()
-
-        # Champions a ban could protect: our locked picks, plus (in phase 1) our pool for open roles.
-        targets = list(ev.our_roles.items())
-        if not phase2:
-            open_roles = [r for r in ROLES if r not in ev.our_roles.values()]
-            targets += [(c, r) for r in open_roles for c in sorted(self.team.pools.get(r, {})) if c not in unavailable]
+        tables = self._lane_ban_tables(state, ev)
+        team_lane = team_lane_ban(tables.values())
 
         out = []
         for c in self._champs:
@@ -226,24 +249,25 @@ class DraftEngine:
                 continue
             their_roles = self._assign_plus(THEM, tuple(theirs), c, list(ROLES))
             harm = base - self._terms(ours, ev.our_roles, theirs + [c], their_roles).total
-            protect, target_wr, target = 0.0, 0.5, None
-            for o, r in targets:
-                wr = self._our_bracket(r).matchup_wr(r, c, o)
-                if logit(wr) > protect:
-                    protect, target_wr, target = logit(wr), wr, o
-            value = p * harm + cfg.protect_weight * protect
+            lift = lane_cfg.gamma * lane_cfg.pp_to_logodds * team_lane.get(c, 0.0)
+            value = p * harm + lift
             likely_role = max(rp, key=rp.get) if rp else their_roles[c]
-            reason = self._ban_reason(c, p, likely_role, p * harm, cfg.protect_weight * protect, target, target_wr)
+            reason = self._ban_reason(c, p, likely_role, p * harm, lift, tables)
             out.append(Suggestion(c, self.data.name(c), "ban", value, reason, role=likely_role, enemy_prob=p))
         out.sort(key=lambda s: (-s.value, s.champ_id))
         return out[:k]
 
-    def _ban_reason(self, c: int, p: float, role: str, threat: float, protect: float,
-                    target: int | None, target_wr: float) -> str:
+    def _ban_reason(self, c: int, p: float, role: str, threat: float, lift: float,
+                    tables: dict[str, RoleBanTable]) -> str:
+        rows = [(t.role, row) for t in tables.values() if (row := t.row(c)) is not None and row.ban > 0]
+        if rows and lift > max(threat, 0):
+            lane_role, row = max(rows, key=lambda t: t[1].ban)
+            label = ROLE_LABELS[lane_role]
+            head = f"Common vs our {label if label.isupper() else label.lower()} (PR {row.pick_rate:.0%})"
+            if row.via is None:
+                return f"{head}; {row.via_note.strip('()')}"
+            return f"{head}; our best answer {self.data.name(row.via)} only {_pp(row.resp)}"
         head = f"Their {self.data.name(c)}: {_pct(p)} likely"
-        if target is not None and protect > max(threat, 0):
-            verb = "hard counters" if target_wr >= 0.54 else "counters"
-            return f"{head}, {verb} our {self.data.name(target)}"
         stat = self._enemy().role_stat(c, role)
         return f"{head}, {stat.win_rate:.0%} WR {ROLE_LABELS[role]}" if stat else head
 
