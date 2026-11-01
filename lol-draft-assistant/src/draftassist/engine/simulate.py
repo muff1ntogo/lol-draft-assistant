@@ -22,11 +22,13 @@ def _clamp(x: float, lo: float, hi: float) -> float:
     return min(max(x, lo), hi)
 
 
-def synthetic_data(seed: int = 7, n_champs: int = 170) -> tuple[EngineData, OurTeam]:
+def synthetic_data(seed: int = 7, n_champs: int = 170,
+                   names: dict[int, str] | None = None) -> tuple[EngineData, OurTeam]:
     """Deterministic fake stats shaped like the real thing: ~170 champions, 1-2 roles each,
-    three brackets, dense lane matchups and sparse duo synergy."""
+    three brackets, dense lane matchups and sparse duo synergy. Pass `names` (champ_id -> name,
+    e.g. from the champions table) to generate stats over real champion ids."""
     rng = random.Random(seed)
-    ids = sorted(rng.sample(range(1, 1000), n_champs))
+    ids = sorted(names) if names else sorted(rng.sample(range(1, 1000), n_champs))
     champ_roles: dict[int, list[str]] = {}
     for i, c in enumerate(ids):
         roles = [ROLES[i % len(ROLES)]]
@@ -55,7 +57,7 @@ def synthetic_data(seed: int = 7, n_champs: int = 170) -> tuple[EngineData, OurT
     for r in ROLES:
         pool = rng.sample([c for c in ids if r in champ_roles[c]], 4)
         tiers[r] = dict(zip(pool, ("main", "comfortable", "comfortable", "learning")))
-    names = {c: f"Champ{c}" for c in ids}
+    names = dict(names) if names else {c: f"Champ{c}" for c in ids}
     return EngineData(brackets, names), OurTeam.from_tiers(tiers, TEAM_BRACKETS)
 
 

@@ -1,0 +1,20 @@
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --panel-2: #1f2630;
+  --line: #2d3540;
+  --text: #e6edf3;
+  --muted: #8b96a3;
+  --blue: #4c9aff;
+  --red: #ff6b6b;
+  --gold: #e3b341;
+  --good: #3fb950;
+  --warn: #f0883e;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; }
+img { display: block; }

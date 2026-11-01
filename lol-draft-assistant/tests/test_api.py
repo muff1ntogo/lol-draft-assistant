@@ -1,11 +1,12 @@
 from fastapi.testclient import TestClient
 
-from draftassist.api.main import app
+from draftassist.api.main import create_app
 from draftassist.engine.model import ROLES
 
 
-def test_prep_lane_bans_returns_a_table_per_role():
-    resp = TestClient(app).get("/api/prep/lane-bans")
+def test_prep_lane_bans_returns_a_table_per_role(make_services):
+    with TestClient(create_app(make_services())) as client:
+        resp = client.get("/api/prep/lane-bans")
     assert resp.status_code == 200
     body = resp.json()
     assert body["data_source"] == "fixture" and body["note"]
@@ -19,3 +20,15 @@ def test_prep_lane_bans_returns_a_table_per_role():
             expected = "positive" if r["ban"] > 0.05 else "negative" if r["ban"] < -0.05 else "neutral"
             assert r["band"] == expected
             assert 0 < r["pr"] <= 100
+
+
+def test_root_explains_how_to_build_ui_when_missing(make_services, tmp_path):
+    with TestClient(create_app(make_services(), web_dist=tmp_path)) as client:
+        assert "npm run build" in client.get("/").text
+
+
+def test_uvicorn_can_serve_websockets():
+    # TestClient doesn't need a websocket library, but uvicorn does: without one the live socket 404s.
+    import importlib.util
+
+    assert importlib.util.find_spec("websockets") or importlib.util.find_spec("wsproto")

@@ -38,6 +38,9 @@ class Settings:
     db_path: Path = PROJECT_ROOT / "data" / "draftassist.sqlite"
     cache_dir: Path = PROJECT_ROOT / "cache"
     ddragon_locale: str = "en_US"
+    draft_format: str = "auto"  # auto | tournament | ranked
+    lcu_mode: str = "client"  # client (real League client) | demo (simulated draft) | off
+    record_sessions: bool = True  # dump every champ select event to fixtures/lcu/recorded/
 
     @property
     def has_riot_api_key(self) -> bool:
@@ -57,4 +60,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
         db_path=Path(get("DRAFTASSIST_DB") or defaults.db_path),
         cache_dir=Path(get("DRAFTASSIST_CACHE") or defaults.cache_dir),
         ddragon_locale=get("DDRAGON_LOCALE") or defaults.ddragon_locale,
+        draft_format=get("DRAFT_FORMAT") or defaults.draft_format,
+        lcu_mode=get("DRAFTASSIST_LCU") or defaults.lcu_mode,
+        record_sessions=(get("DRAFTASSIST_RECORD") or "1") == "1",
     )

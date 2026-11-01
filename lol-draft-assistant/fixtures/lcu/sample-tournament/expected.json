@@ -1,0 +1,7 @@
+{
+ "format": "tournament",
+ "our_side": "red",
+ "states": [
+  {"actions": [268, 150, 0, 254, 222, 497, 103], "hovers": [[897, "top"], [113, "jungle"]], "actor_role": "top", "seconds_left": 25.0}
+ ]
+}

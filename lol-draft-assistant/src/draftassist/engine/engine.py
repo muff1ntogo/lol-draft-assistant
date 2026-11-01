@@ -69,6 +69,8 @@ class Suggestion:
     enemy_prob: float | None = None  # ban / enemy_pick: P(enemy picks it next)
     relevance: float | None = None  # ban: share of its roles the enemy can still fill (API only)
     warnings: tuple[str, ...] = ()  # e.g. "\u26a0 hovered by Mid"
+    counter_id: int | None = None  # pick: best enemy counter still open
+    counter_risk: float = 0.0  # pick: that counter's lane edge in log-odds, scaled by picks left
 
 
 def _pct(p: float) -> str:
@@ -301,7 +303,7 @@ class DraftEngine:
             likely_role = max(rp, key=rp.get) if rp else max(shares, key=shares.get)
             reason = self._ban_reason(c, p, likely_role, p * harm, lift, tables)
             hover = state.hovered_by(c)
-            warnings = (f"\u26a0 hovered by {ROLE_LABELS[hover]}",) if hover else ()
+            warnings = (f"\u26a0 hovered by {ROLE_LABELS.get(hover, 'a teammate')}",) if hover is not None else ()
             out.append(Suggestion(c, self.data.name(c), "ban", value, reason, role=likely_role, enemy_prob=p,
                                   relevance=rel, warnings=warnings))
         out.sort(key=lambda s: (-s.value, s.champ_id))
@@ -363,9 +365,39 @@ class DraftEngine:
             flex = cfg.flex_bonus * max(len(flex_roles) - 1, 0)
             value = win - cfg.risk_weight * risk + flex
             reason = self._pick_reason(c, r_c, ours, ev.their_roles, flex_roles, flex, cfg.risk_weight * risk, counter)
-            out.append(Suggestion(c, self.data.name(c), "pick", value, reason, role=r_c, win_prob=win))
+            out.append(Suggestion(c, self.data.name(c), "pick", value, reason, role=r_c, win_prob=win,
+                                  counter_id=counter, counter_risk=risk))
         out.sort(key=lambda s: (-s.value, s.champ_id))
         return validate_suggestions(state, "pick", out[:k])
+
+    def threats(self, state: DraftState, k: int = 2) -> list[Suggestion]:
+        """The enemy's biggest threats among their locked picks: meta strength in their role, plus
+        their lane edge over our champion there, plus half their duo synergy. Not suggestions, so
+        not guarded (they are picked champions by definition)."""
+        self._assign_cache.clear()
+        ev = self._evaluate(state)
+        enemy = self._enemy()
+        our_by_role = {r: c for c, r in ev.our_roles.items()}
+        out = []
+        for c, r in ev.their_roles.items():
+            meta = self._m(c, r, enemy)
+            opp = our_by_role.get(r)
+            lane_wr = 1 - self._our_bracket(r).matchup_wr(r, opp, c) if opp is not None else 0.5
+            lane = logit(lane_wr)
+            partners = [(logit(enemy.synergy_wr(c, o)), o) for o in ev.their_roles if o != c]
+            best_syn = max(partners, default=(0.0, None))
+            syn = sum(s for s, _ in partners) / 2
+            if opp is not None and lane > max(meta, best_syn[0], 0):
+                reason = f"{ROLE_LABELS[r]}: {lane_wr:.0%} lane vs our {self.data.name(opp)}"
+            elif best_syn[1] is not None and best_syn[0] > max(meta, 0):
+                reason = f"{ROLE_LABELS[r]}: pairs with their {self.data.name(best_syn[1])}"
+            else:
+                stat = enemy.role_stat(c, r)
+                wr = stat.win_rate if stat else self.cfg.off_role_wr
+                reason = f"{ROLE_LABELS[r]}: {wr:.0%} WR in {self.cfg.enemy_bracket.title()}"
+            out.append(Suggestion(c, self.data.name(c), "threat", meta + lane + syn, reason, role=r))
+        out.sort(key=lambda s: (-s.value, s.champ_id))
+        return out[:k]
 
     def likely_enemy_picks(self, state: DraftState, k: int = 3) -> list[Suggestion]:
         """The enemy's most likely next picks (shown on their turn)."""
