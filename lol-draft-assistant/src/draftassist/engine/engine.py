@@ -9,6 +9,7 @@ side's own meta (+ comfort for us). Pure functions over immutable inputs; no I/O
 """
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from itertools import combinations, permutations
@@ -26,6 +27,8 @@ from draftassist.engine.model import (
     sigmoid,
 )
 from draftassist.engine.state import DraftState
+
+log = logging.getLogger(__name__)
 
 US, THEM = "us", "them"
 _LO_TO_PROB = 0.25  # d sigmoid / dx at 0.5: converts small log-odds terms to win-prob units
@@ -73,6 +76,18 @@ class Suggestion:
     counter_risk: float = 0.0  # pick: that counter's lane edge in log-odds, scaled by picks left
 
 
+def _with_known_brackets(team: OurTeam, data: EngineData, fallback: str) -> OurTeam:
+    """A role whose bracket has no stats uses the enemy bracket (logged) instead of failing."""
+    missing = {r: b for r, b in team.brackets.items() if b not in data.brackets}
+    if not missing:
+        return team
+    if fallback not in data.brackets:
+        fallback = next(iter(data.brackets))
+    log.warning("no stats for bracket(s) %s; using %s for %s", sorted(set(missing.values())), fallback,
+                ", ".join(sorted(missing)))
+    return OurTeam(team.pools, {r: (fallback if r in missing else b) for r, b in team.brackets.items()})
+
+
 def _pct(p: float) -> str:
     return "<1%" if 0 < p < 0.005 else f"{p:.0%}"
 
@@ -83,9 +98,10 @@ def _pp(x: float) -> str:
 
 class DraftEngine:
     def __init__(self, data: EngineData, team: OurTeam, config: EngineConfig | None = None):
-        self.data, self.team, self.cfg = data, team, config or EngineConfig()
+        self.cfg = config or EngineConfig()
+        self.data, self.team = data, _with_known_brackets(team, data, self.cfg.enemy_bracket)
         self._champs = sorted(data.champions())
-        self._lane_data = BracketLaneData(data, team, self.cfg.enemy_bracket)
+        self._lane_data = BracketLaneData(data, self.team, self.cfg.enemy_bracket)
         self._role_shares = self._enemy_role_shares()
         self._assign_cache: dict[tuple, tuple[float, dict[int, str]]] = {}
 

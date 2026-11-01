@@ -211,3 +211,11 @@ def test_suggestions_are_deterministic():
     assert a == b
     assert [x.value for x in a] == sorted((x.value for x in a), reverse=True)
     assert all(math.isfinite(x.value) for x in a)
+
+
+def test_bracket_without_stats_falls_back_instead_of_crashing(caplog):
+    team = OurTeam.from_tiers({"adc": {KAISA: "main"}}, {**BRACKETS, "adc": "platinum"})
+    eng = DraftEngine(DATA, team)  # DATA has gold and iron only
+    assert eng.team.brackets["adc"] == "gold"
+    assert "platinum" in caplog.text
+    assert eng.suggest(state(*SIX_SKIPPED_BANS), k=3)

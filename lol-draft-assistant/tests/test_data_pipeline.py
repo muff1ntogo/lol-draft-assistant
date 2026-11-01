@@ -352,3 +352,26 @@ def test_coverage_report(engine, session):
     assert gold.missing == [(2, "top", 150)]
     assert gold.sparse_matchups == [("top", 1, 2, 40)]
     assert cov["iron"].matches == 0 and cov["iron"].covered == 0
+
+
+def test_any_player_bracket_gets_stats(engine, session):
+    # A player set to a bracket outside the spec's three (e.g. Plat ADC) must not break startup.
+    from draftassist.data.pools import set_players
+
+    add_champions(session, BLUE + RED)
+    import_bootstrap(engine, "16.21", [
+        {"champion": f"Champ{c}", "role": ("top", "jungle", "mid", "adc", "support")[i % 5], "play": 1000,
+         "win": 500, "pick_rate": 0.1, "ban_rate": 0.0, "role_rate": 0.9} for i, c in enumerate(BLUE + RED)])
+    set_players(engine, [{"role": "adc", "riot_id": "Adc#EUW", "rank": "Plat IV", "bracket": "platinum"}])
+    inp = load_engine_inputs(engine)
+    assert {"iron", "gold", "emerald", "platinum"} <= set(inp.data.brackets)
+    assert inp.sources["platinum"] == "opgg"
+
+
+def test_coverage_and_crawl_default_to_brackets_in_use(engine, session):
+    from draftassist.data.crawler import brackets_in_use
+    from draftassist.data.pools import set_players
+
+    assert brackets_in_use(engine) == ("iron", "gold", "emerald")
+    set_players(engine, [{"role": "adc", "riot_id": "Adc#EUW", "bracket": "platinum"}])
+    assert brackets_in_use(engine) == ("iron", "gold", "platinum", "emerald")

@@ -18,6 +18,7 @@ from sqlalchemy import Engine
 from sqlmodel import Session, select
 
 from draftassist.data.aggregate import PAIR_K, ROLE_K, shrink
+from draftassist.data.crawler import brackets_in_use
 from draftassist.data.ddragon import BASE_URL
 from draftassist.data.pools import load_team
 from draftassist.db.models import (
@@ -33,7 +34,6 @@ from draftassist.engine.simulate import TEAM_BRACKETS, synthetic_data
 
 log = logging.getLogger(__name__)
 
-BRACKETS = ("iron", "gold", "emerald")
 MIN_CRAWL_MATCHES = 1000  # below this a bracket's crawl is too thin to replace the bootstrap
 FIXTURE_NOTE = "Synthetic stats and pools (real stats arrive with the Phase 3 crawl, pools with Phase 4)"
 PLACEHOLDER_POOL_NOTE = "placeholder pools (each role's most-picked champions) until pools are imported"
@@ -126,17 +126,18 @@ def load_engine_inputs(db: Engine) -> EngineInputs:
             brackets: dict[str, BracketStats] = {}
             sources: dict[str, str] = {}
             boot = bootstrap_stats(s, patch)
-            for b in BRACKETS:
+            needed = brackets_in_use(db)
+            for b in needed:
                 crawl = crawl_bracket_stats(s, patch, b)
                 if crawl is not None:
                     brackets[b], sources[b] = crawl, "crawl"
                 elif boot is not None:
                     brackets[b], sources[b] = boot[0], "opgg"
-        if len(brackets) == len(BRACKETS):
+        if len(brackets) == len(needed):
             data = EngineData(brackets, names)
             kinds = set(sources.values())
             source = kinds.pop() if len(kinds) == 1 else "mixed"
-            per_bracket = ", ".join(f"{b} {sources[b]}" for b in BRACKETS)
+            per_bracket = ", ".join(f"{b} {sources[b]}" for b in needed)
             boot_note = f" (OP.GG all-tier, patch {boot[1]})" if "opgg" in sources.values() else ""
             team = load_team(db)
             note = f"Stats: {per_bracket}{boot_note}"

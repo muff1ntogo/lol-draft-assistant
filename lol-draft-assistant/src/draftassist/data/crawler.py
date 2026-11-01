@@ -26,12 +26,23 @@ from draftassist.db.models import Champion, CrawledMatch, MatchBan, MatchPartici
 
 log = logging.getLogger(__name__)
 
-BRACKETS = ("iron", "gold", "emerald")
+BRACKETS = ("iron", "gold", "emerald")  # the spec's brackets: our players' plus the Gold enemy prior
+LEAGUE_TIERS = ("iron", "bronze", "silver", "gold", "platinum", "emerald", "diamond")  # league-v4 tiers with divisions
 DIVISIONS = ("I", "II", "III", "IV")
 QUEUES = (420, 440)  # ranked Solo/Duo, ranked Flex
 POSITIONS = {"TOP": "top", "JUNGLE": "jungle", "MIDDLE": "mid", "BOTTOM": "adc", "UTILITY": "support"}
 MIN_DURATION_S = 300  # shorter games are remakes
 LOOKBACK_S = 14 * 86_400
+
+
+def brackets_in_use(db: Engine, enemy_bracket: str = "gold") -> tuple[str, ...]:
+    """The spec's brackets plus any bracket a player is set to, in ladder order."""
+    from draftassist.db.models import Player
+
+    with Session(db) as s:
+        used = {p.bracket for p in s.exec(select(Player)).all()}
+    used |= set(BRACKETS) | {enemy_bracket}
+    return tuple(t for t in LEAGUE_TIERS if t in used) + tuple(sorted(used - set(LEAGUE_TIERS)))
 
 
 def patch_of(version: str) -> str:
@@ -79,7 +90,7 @@ def parse_match(match: dict) -> ParsedMatch | None:
 
 @dataclass
 class CrawlStats:
-    stored: dict[str, int] = field(default_factory=lambda: dict.fromkeys(BRACKETS, 0))
+    stored: dict[str, int] = field(default_factory=dict)
     skipped_other_patch: int = 0
     skipped_invalid: int = 0
     players_crawled: int = 0

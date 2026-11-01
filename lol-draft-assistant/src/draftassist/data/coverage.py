@@ -13,7 +13,7 @@ from itertools import combinations
 from sqlalchemy import Engine
 from sqlmodel import Session, select
 
-from draftassist.data.crawler import BRACKETS, current_patch
+from draftassist.data.crawler import brackets_in_use, current_patch
 from draftassist.db.models import BootstrapRoleStats, BracketTotal, Champion, ChampRoleStats, Matchup
 
 MIN_GAMES = 200
@@ -48,7 +48,8 @@ def real_lanes(s: Session, patch: str) -> list[tuple[int, str, float]]:
     return sorted({(r.champ_id, r.role, 0.0) for r in rows})
 
 
-def coverage(db: Engine, patch: str, brackets=BRACKETS) -> dict[str, BracketCoverage]:
+def coverage(db: Engine, patch: str, brackets=None) -> dict[str, BracketCoverage]:
+    brackets = brackets or brackets_in_use(db)
     out = {}
     with Session(db) as s:
         lanes = real_lanes(s, patch)
