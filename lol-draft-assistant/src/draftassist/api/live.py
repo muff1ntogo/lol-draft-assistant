@@ -83,7 +83,7 @@ def _ban_card(catalog: ChampionCatalog, s: Suggestion, hovered: set[int], weight
         card["components"] = {
             name: {"raw": round(raw, 5), "weighted": round(weight * raw, 5)}
             for name, raw, weight in (("threat", s.threat, weights.threat), ("matchup", s.matchup, weights.matchup),
-                                      ("comp", s.comp, weights.comp))}
+                                      ("comp", s.comp, weights.comp), ("own", s.own_loss or 0.0, weights.own))}
     return card
 
 

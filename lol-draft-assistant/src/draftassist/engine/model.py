@@ -113,17 +113,19 @@ class LaneBanConfig:
 
 @dataclass(frozen=True)
 class BanWeights:
-    """ban value = relevance * discount * (threat * Threat + matchup * Matchup + comp * Comp).
+    """ban value = relevance * discount * (threat * Threat + matchup * Matchup + comp * Comp)
+                   - own * OwnLoss
     The settings slider "Meta threat <-> Our matchups" keeps threat + matchup = 2.5."""
     threat: float = 1.0
     matchup: float = 1.5
     comp: float = 1.0
+    own: float = 1.0  # self-ban penalty: what banning one of our own pool champions costs us
 
     @classmethod
-    def from_slider(cls, towards_matchups: float, comp: float = 1.0) -> BanWeights:
+    def from_slider(cls, towards_matchups: float, comp: float = 1.0, own: float = 1.0) -> BanWeights:
         """towards_matchups in [0, 1]: 0 = all meta threat, 1 = all our matchups."""
         t = min(max(towards_matchups, 0.0), 1.0)
-        return cls(threat=2.5 * (1 - t), matchup=2.5 * t, comp=comp)
+        return cls(threat=2.5 * (1 - t), matchup=2.5 * t, comp=comp, own=own)
 
 
 @dataclass(frozen=True)

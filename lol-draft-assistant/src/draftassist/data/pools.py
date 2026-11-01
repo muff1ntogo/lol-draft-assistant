@@ -291,13 +291,14 @@ def load_team(db: Engine) -> OurTeam | None:
     """Our team from imported pools (None if nothing imported). Brackets from the players table.
     Comfort comes from the manual tier and the player's recent games with the champion
     (learning/comfort.py); with no games it is the plain tier comfort."""
-    from draftassist.learning.comfort import comfort_score
+    from draftassist.learning.comfort import comfort_score, configured_cap
 
     pools = load_pools(db)
     if not any(pools.values()):
         return None
     brackets = {p["role"]: p["bracket"] for p in list_players(db)}
-    return OurTeam({r: {e.champ_id: PoolChamp(e.manual_tier, comfort_score(e.manual_tier, e.games, e.wins)) for e in entries}
+    cap = configured_cap(db)
+    return OurTeam({r: {e.champ_id: PoolChamp(e.manual_tier, comfort_score(e.manual_tier, e.games, e.wins, cap)) for e in entries}
                     for r, entries in pools.items()}, brackets)
 
 

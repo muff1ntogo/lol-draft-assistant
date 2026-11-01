@@ -37,7 +37,12 @@ def test_comfort_formula_and_tiers():
     assert wr_adj("comfortable", 10, 8) == pytest.approx((8 + 10 * 0.5) / 20)
     for tier in ("main", "comfortable", "learning"):
         assert comfort_score(tier, 0, 0) == pytest.approx(tier_comfort(tier))  # continuous with v1
-    assert comfort_score("comfortable", 20, 10) == pytest.approx(0.6 * 0 * 10 + 0.4 * math.log(21))
+    assert comfort_score("comfortable", 20, 10, games_cap=None) == pytest.approx(0.6 * 0 * 10 + 0.4 * math.log(21))
+    # capped (default 10 games): more games stop adding comfort, the win rate still counts every game
+    assert comfort_score("comfortable", 20, 10) == pytest.approx(0.4 * math.log(11))
+    assert comfort_score("comfortable", 50, 25) == comfort_score("comfortable", 20, 10)
+    assert comfort_score("comfortable", 50, 40) > comfort_score("comfortable", 50, 25)
+    assert scored_tier("comfortable", 50, 40) == "main"  # tiers count every game
     assert scored_tier("learning", 15, 9) == "main"  # 15+ games and wr_adj >= 50%
     assert scored_tier("learning", 15, 5) == "comfortable"  # 15 games but losing
     assert scored_tier("main", 4, 4) == "learning" and scored_tier("main", 5, 0) == "comfortable"
@@ -284,3 +289,23 @@ def test_client_linked_player_gets_api_puuid_for_history(db, tmp_path):
         p = s.exec(select(Player).where(Player.role == "top")).one()
         assert (p.client_puuid, p.api_puuid) == (client_puuid, "API-PUUID-ENCRYPTED")
     assert roles_by_puuid(db)[client_puuid] == "top"
+
+
+
+def test_comfort_cap_setting_drives_engine_and_pools(make_services, db):
+    from draftassist.data.settings_store import get_engine_settings, save_engine_settings
+
+    import_pools(db, parse_pool_text("TOP\nK'Sante: main", {c: (n, n) for c, n in REAL_NAMES.items()}))
+    add_games(db, "unresolved:top", 897, "top", 20, 10)
+    save_engine_settings(db, alpha=1.5, beta=0.3)
+    svc = make_services(db=db)
+    with TestClient(create_app(svc, stats_refresh_s=0)) as client:
+        body = client.get("/api/settings").json()
+        assert body["comfort_games_cap"] == 10 and body["alpha"] == 1.5 and body["beta"] == 0.3
+        put = dict(ban_weights=body["ban_weights"], ban_declared_intents=False, comfort_games_cap=5)
+        assert client.put("/api/settings", json=put).status_code == 200
+        assert client.put("/api/settings", json={**put, "comfort_games_cap": 0}).status_code == 422
+        top = client.get("/api/pools").json()["pools"]["top"][0]
+    assert get_engine_settings(db) == {"alpha": 1.5, "beta": 0.3, "comfort_games_cap": 5}  # alpha/beta kept
+    assert top["comfort"] == pytest.approx(round(comfort_score("main", 30, 20, games_cap=5), 2))  # 20W 10L
+    assert svc.engine.team.entry(897, "top").comfort == pytest.approx(comfort_score("main", 30, 20, games_cap=5))

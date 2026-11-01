@@ -35,7 +35,7 @@ from draftassist.data.pools import (
     set_players,
 )
 from draftassist.data.provider import ChampionCatalog, load_catalog, load_engine_inputs, stats_version
-from draftassist.data.settings_store import engine_config, save_alpha_beta, save_ban_settings, settings_payload
+from draftassist.data.settings_store import engine_config, save_ban_settings, save_engine_settings, settings_payload
 from draftassist.learning.comfort import accept as accept_tiers
 from draftassist.learning.comfort import set_locked
 from draftassist.learning.jobs import LearningResult, run_in_background
@@ -407,16 +407,19 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
 
     @app.put("/api/settings")
     def put_settings(request: Request, ban_weights: dict = Body(...), ban_declared_intents: bool = Body(False),
-                     alpha: float | None = Body(None), beta: float | None = Body(None)) -> dict:
+                     alpha: float | None = Body(None), beta: float | None = Body(None),
+                     comfort_games_cap: int | None = Body(None)) -> dict:
         svc: Services = request.app.state.services
         db = _db(svc)
         try:
-            weights = BanWeights(float(ban_weights["threat"]), float(ban_weights["matchup"]), float(ban_weights["comp"]))
+            weights = BanWeights(float(ban_weights["threat"]), float(ban_weights["matchup"]),
+                                 float(ban_weights["comp"]), float(ban_weights.get("own", BanWeights().own)))
             save_ban_settings(db, weights, ban_declared_intents)
-            if alpha is not None or beta is not None:
-                current = engine_config(db)
-                save_alpha_beta(db, float(alpha if alpha is not None else current.alpha),
-                                float(beta if beta is not None else current.beta))
+            save_engine_settings(db, alpha=alpha, beta=beta, comfort_games_cap=comfort_games_cap)
+            if comfort_games_cap is not None:
+                from draftassist.learning.comfort import rescore
+
+                rescore(db)  # stored comfort shown on the Pools page uses the new cap
         except (KeyError, TypeError, ValueError) as e:
             raise HTTPException(422, f"invalid settings: {e}") from None
         svc.reload()

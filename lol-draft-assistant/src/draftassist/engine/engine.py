@@ -77,6 +77,7 @@ class Suggestion:
     threat: float | None = None  # ban: Threat component (log-odds, unweighted)
     matchup: float | None = None  # ban: Matchup component
     comp: float | None = None  # ban: Comp component
+    own_loss: float | None = None  # ban: what banning our own pool champion costs us (log-odds)
     discount: float | None = None  # ban: 1 - P(enemy team bans it too) in blind bans, else 1
 
 
@@ -94,6 +95,8 @@ class BanCandidate:
     lanes: dict[str, float]  # role -> this champion's lane ban score (pp) in our tables
     comp_target: int | None  # our locked pick it counters most
     comp_wr: float
+    own_loss: float = 0.0
+    own_role: str | None = None  # the role of ours that would lose it
 
 
 def enemy_team_ban_prob(ban_rate: float) -> float:
@@ -333,7 +336,12 @@ class DraftEngine:
         Comp    = sum over our locked picks of X's lane edge (logit) against them, weighted by the
                   chance the enemy still has that lane open. 0 before our first pick.
         relevance (ban-guardrails.md) drops bans on roles the enemy already filled; discount (Flex,
-        blind simultaneous bans) is 1 - P(the enemy team bans X too)."""
+        blind simultaneous bans) is 1 - P(the enemy team bans X too).
+
+        OwnLoss = for one of our own pool champions, in a role we haven't locked yet: how much better
+                  it is than that player's best other available option (alpha * meta + beta * comfort,
+                  log-odds); 0 if it isn't their best. Subtracted with weight `own`, outside the
+                  enemy-side multipliers: banning our own pick costs us whatever the enemy does."""
         self._assign_cache.clear()
         cfg, w = self.cfg, self.cfg.ban_weights
         ev = self._evaluate(state)
@@ -346,6 +354,7 @@ class DraftEngine:
         enemy = self._enemy()
         blind = state.format.simultaneous_bans and state.step is not None and state.step.kind == "ban"
         locked = [(o, r) for o, r in ev.our_roles.items()]
+        own_best = self._own_best_two(state, ev)
 
         out = []
         for c in self._champs:
@@ -370,13 +379,41 @@ class DraftEngine:
                     comp_target, comp_wr = o, wr
             discount = 1 - enemy_team_ban_prob(enemy.ban_rates.get(c, 0.0)) if blind else 1.0
             weighted = w.threat * threat + w.matchup * matchup + w.comp * comp
+            own_loss, own_role = 0.0, None
+            for r, best in own_best.items():
+                if c in self.team.pools.get(r, {}) and best and best[0][1] == c:
+                    loss = best[0][0] - (best[1][0] if len(best) > 1 else best[0][0])
+                    if loss > own_loss:
+                        own_loss, own_role = loss, r
             shares = self._role_shares.get(c, {})
             likely_role = max(rp, key=rp.get) if rp else (max(shares, key=shares.get) if shares else None)
             lanes = {t.role: row.ban for t in tables.values() if (row := t.row(c)) is not None}
-            out.append(BanCandidate(c, threat, matchup, comp, rel, discount, rel * discount * weighted, p,
-                                    likely_role, lanes, comp_target, comp_wr))
+            out.append(BanCandidate(c, threat, matchup, comp, rel, discount,
+                                    rel * discount * weighted - w.own * own_loss, p,
+                                    likely_role, lanes, comp_target, comp_wr, own_loss, own_role))
         out.sort(key=lambda b: (-b.value, b.champ_id))
         self._last_tables = tables
+        return out
+
+    def _own_best_two(self, state: DraftState, ev: Evaluation) -> dict[str, list[tuple[float, int]]]:
+        """Per role we haven't locked: our two best available options by pick weight (pool champions,
+        plus the best off-pool champion as a fallback). Used for the self-ban penalty."""
+        unavailable = state.unavailable()
+        out = {}
+        for r in ROLES:
+            if r in ev.our_roles.values():
+                continue
+            pool = [c for c in self.team.pools.get(r, {}) if c not in unavailable]
+            if not pool:
+                continue
+            bracket = self._our_bracket(r)
+            off_pool = max((self._weight(US, c, r) for c in self._champs
+                            if c not in unavailable and c not in self.team.pools.get(r, {}) and bracket.role_stat(c, r)),
+                           default=None)
+            ranked = sorted(((self._weight(US, c, r), c) for c in pool), key=lambda t: (-t[0], t[1]))
+            if off_pool is not None:
+                ranked = sorted(ranked + [(off_pool, -1)], key=lambda t: (-t[0], t[1]))
+            out[r] = ranked[:2]
         return out
 
     def ban_breakdown(self, state: DraftState) -> list[dict]:
@@ -384,7 +421,8 @@ class DraftEngine:
         w = self.cfg.ban_weights
         return [{"champ": self.data.name(b.champ_id), "champ_id": b.champ_id, "Threat": b.threat,
                  "Matchup": b.matchup, "Comp": b.comp, "a*Threat": w.threat * b.threat,
-                 "b*Matchup": w.matchup * b.matchup, "c*Comp": w.comp * b.comp, "rel": b.relevance,
+                 "b*Matchup": w.matchup * b.matchup, "c*Comp": w.comp * b.comp, "OwnLoss": b.own_loss,
+                 "d*OwnLoss": w.own * b.own_loss, "rel": b.relevance,
                  "discount": b.discount, "value": b.value} for b in self._ban_candidates(state)]
 
     def _declared_intents(self, state: DraftState) -> frozenset[int]:
@@ -434,9 +472,11 @@ class DraftEngine:
     def _ban_suggestion(self, state: DraftState, b: BanCandidate, tables: dict[str, RoleBanTable]) -> Suggestion:
         hover = state.hovered_by(b.champ_id)
         warnings = (f"⚠ hovered by {ROLE_LABELS.get(hover, 'a teammate')}",) if hover is not None else ()
+        if b.own_loss > 0 and b.own_role:
+            warnings += (f"⚠ our {_role_noun(b.own_role, possessive=True)} best pick",)
         return Suggestion(b.champ_id, self.data.name(b.champ_id), "ban", b.value, self._ban_reason(b, tables),
                           role=b.likely_role, enemy_prob=b.enemy_prob, relevance=b.relevance, warnings=warnings,
-                          threat=b.threat, matchup=b.matchup, comp=b.comp, discount=b.discount)
+                          threat=b.threat, matchup=b.matchup, comp=b.comp, discount=b.discount, own_loss=b.own_loss)
 
     def _ban_reason(self, b: BanCandidate, tables: dict[str, RoleBanTable]) -> str:
         """One line from the largest positive weighted component."""

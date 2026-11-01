@@ -4,7 +4,10 @@ For every pool champion, from the player's games with it in that role over the l
 
     wr_adj  = (wins + k * prior) / (games + k),   k = 10, prior from the manual tier
               (main 53%, comfortable 50%, learning 46%)
-    comfort = 0.6 * (wr_adj - 0.5) * 10 + 0.4 * log(1 + recent_games)
+    comfort = 0.6 * (wr_adj - 0.5) * 10 + 0.4 * log(1 + min(recent_games, cap))
+
+The cap (Settings, default 10 games) stops comfort growing without limit with the number of games;
+tiers below still count every game.
 
     main        = 15+ recent games and wr_adj >= 50%
     comfortable = 5+ recent games
@@ -27,6 +30,7 @@ from draftassist.db.models import Player, PlayerGame, PoolEntry
 from draftassist.engine.model import TIER_PRIOR_WR
 
 PRIOR_K = 10
+DEFAULT_GAMES_CAP = 10  # games beyond this add no more comfort (Settings: comfort_games_cap)
 WINDOW_DAYS = 60
 MAIN_GAMES = 15
 COMFORTABLE_GAMES = 5
@@ -37,8 +41,15 @@ def wr_adj(manual_tier: str, games: int, wins: int) -> float:
     return (wins + PRIOR_K * prior) / (games + PRIOR_K)
 
 
-def comfort_score(manual_tier: str, games: int, wins: int) -> float:
-    return 0.6 * (wr_adj(manual_tier, games, wins) - 0.5) * 10 + 0.4 * math.log(1 + games)
+def comfort_score(manual_tier: str, games: int, wins: int, games_cap: int | None = DEFAULT_GAMES_CAP) -> float:
+    counted = games if not games_cap else min(games, games_cap)
+    return 0.6 * (wr_adj(manual_tier, games, wins) - 0.5) * 10 + 0.4 * math.log(1 + counted)
+
+
+def configured_cap(db: Engine) -> int | None:
+    from draftassist.data.settings_store import get_engine_settings
+
+    return get_engine_settings(db)["comfort_games_cap"]
 
 
 def scored_tier(manual_tier: str, games: int, wins: int) -> str:
@@ -60,11 +71,12 @@ class TierChange:
     wins: int
 
 
-def rescore(db: Engine, now_ms: int | None = None) -> list[TierChange]:
+def rescore(db: Engine, now_ms: int | None = None, games_cap: int | None = None) -> list[TierChange]:
     """Recompute games, wins, last played, comfort and scored tier for every pool entry from the
     player's recent games. Returns the open proposals (scored tier differs, not locked)."""
     now_ms = now_ms if now_ms is not None else int(time.time() * 1000)
     since = now_ms - WINDOW_DAYS * 86_400_000
+    cap = games_cap if games_cap is not None else configured_cap(db)
     proposals = []
     with Session(db) as s:
         roles = {p.puuid: p.role for p in s.exec(select(Player)).all()}
@@ -78,7 +90,7 @@ def rescore(db: Engine, now_ms: int | None = None) -> list[TierChange]:
             e.games, e.wins = len(games), sum(g.win for g in games)
             e.last_played = (datetime.fromtimestamp(max(g.game_start_ms for g in games) / 1000, timezone.utc)
                              if games else None)
-            e.comfort = comfort_score(e.manual_tier, e.games, e.wins)
+            e.comfort = comfort_score(e.manual_tier, e.games, e.wins, cap)
             e.scored_tier = scored_tier(e.manual_tier, e.games, e.wins)
             s.add(e)
             if e.scored_tier != e.manual_tier and not e.tier_locked:
@@ -91,6 +103,7 @@ def accept(db: Engine, role: str, champ_id: int | None = None) -> int:
     """Accept scored tiers: one champion, or (champ_id None) every proposal in the role
     ("all" for every role). Locked entries are never changed. Returns how many changed."""
     changed = 0
+    cap = configured_cap(db)
     with Session(db) as s:
         roles = {p.puuid: p.role for p in s.exec(select(Player)).all()}
         for e in s.exec(select(PoolEntry)).all():
@@ -100,7 +113,7 @@ def accept(db: Engine, role: str, champ_id: int | None = None) -> int:
                 continue
             if e.scored_tier != e.manual_tier:
                 e.manual_tier = e.scored_tier
-                e.comfort = comfort_score(e.manual_tier, e.games, e.wins)
+                e.comfort = comfort_score(e.manual_tier, e.games, e.wins, cap)
                 s.add(e)
                 changed += 1
         s.commit()

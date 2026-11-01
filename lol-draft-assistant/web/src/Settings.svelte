@@ -1,6 +1,7 @@
 <script>
   let slider = $state(0.6);
-  let weights = $state({ threat: 1.0, matchup: 1.5, comp: 1.0 });
+  let weights = $state({ threat: 1.0, matchup: 1.5, comp: 1.0, own: 1.0 });
+  let cap = $state(10);
   let declared = $state(false);
   let alpha = $state(1.0);
   let beta = $state(1.0);
@@ -12,6 +13,7 @@
     declared = s.ban_declared_intents;
     alpha = s.alpha;
     beta = s.beta;
+    cap = s.comfort_games_cap ?? 10;
   });
 
   function fromSlider() {
@@ -24,7 +26,7 @@
     const res = await fetch('/api/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ban_weights: weights, ban_declared_intents: declared, alpha, beta }),
+      body: JSON.stringify({ ban_weights: weights, ban_declared_intents: declared, alpha, beta, comfort_games_cap: cap }),
     });
     const body = await res.json();
     if (res.ok) {
@@ -50,6 +52,15 @@
       Meta threat {weights.threat.toFixed(2)} · Our matchups {weights.matchup.toFixed(2)} (the two always add up to 2.5)
     </p>
 
+    <label class="row">
+      Self-ban penalty
+      <input type="number" min="0" max="10" step="0.1" bind:value={weights.own} />
+    </label>
+    <p class="muted">
+      Banning one of our own players' best picks costs us how much better it is than their next option; this
+      weight scales that cost (0 = ignore it, 1 = count it fully). Such bans are flagged "our … best pick".
+    </p>
+
     <details>
       <summary>Advanced</summary>
       <div class="advanced">
@@ -57,18 +68,20 @@
         <label>Matchup weight (b) <input type="number" min="0" max="10" step="0.1" bind:value={weights.matchup} /></label>
         <label>Comp weight (c) <input type="number" min="0" max="10" step="0.1" bind:value={weights.comp} /></label>
       </div>
-      <p class="muted">ban value = relevance × enemy-ban discount × (a × Threat + b × Matchup + c × Comp)</p>
+      <p class="muted">ban value = relevance × enemy-ban discount × (a × Threat + b × Matchup + c × Comp) − self-ban penalty × our loss</p>
     </details>
 
     <h2 class="sub">Pick suggestions</h2>
     <div class="advanced">
       <label>Meta weight (α) <input type="number" min="0" max="5" step="0.1" bind:value={alpha} /></label>
       <label>Comfort weight (β) <input type="number" min="0" max="5" step="0.1" bind:value={beta} /></label>
+      <label>Comfort games cap <input type="number" min="1" max="200" step="1" bind:value={cap} /></label>
     </div>
     <p class="muted">
       Each pick scores α × the champion's strength in that player's bracket + β × the player's comfort on it.
-      Comfort grows with recent games on the champion (spec formula), so with many games it can outweigh meta;
-      lower β if suggestions stick to comfort picks too much.
+      Comfort grows with recent games on the champion, up to the cap: games beyond it add nothing more
+      (at {cap} games the games part tops out at {(0.4 * Math.log(1 + cap)).toFixed(2)} log-odds, × β = {(beta * 0.4 * Math.log(1 + cap)).toFixed(2)}).
+      Tiers still count every game.
     </p>
 
     <label class="check">
@@ -86,6 +99,9 @@
   h1 { font-size: 32px; margin: 8px 0 16px; }
   h2 { font-size: 20px; margin: 0 0 12px; }
   h2.sub { font-size: 17px; margin: 18px 0 6px; }
+  .row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+  .row input { width: 80px; background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+               border-radius: 6px; padding: 4px 6px; font: inherit; }
   section { background: var(--panel); border-radius: 8px; padding: 18px 20px; }
   .slider { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; font-size: 16px; }
   input[type='range'] { width: 100%; }

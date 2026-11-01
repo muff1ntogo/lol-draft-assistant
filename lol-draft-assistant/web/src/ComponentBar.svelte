@@ -12,7 +12,9 @@
   const total = $derived(positive.reduce((a, b) => a + b, 0));
   const fmt = (x) => `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(x).toFixed(3)}`;
   const tip = $derived(
-    NAMES.map(([k, label]) => `${label} ${fmt(components?.[k]?.weighted ?? 0)}`).join(' · ') + ' (log-odds, weighted)',
+    NAMES.map(([k, label]) => `${label} ${fmt(components?.[k]?.weighted ?? 0)}`).join(' · ') +
+      (components?.own?.weighted ? ` · Self-ban −${Math.abs(components.own.weighted).toFixed(3)}` : '') +
+      ' (log-odds, weighted)',
   );
 </script>
 
