@@ -2,13 +2,74 @@
   // Per-role lane ban tables (ban-score.md) with each opponent's final team ban value
   // (ban-value-matchups.md). Ban colour: teal = banning helps us, amber = it hurts us, grey = even;
   // validated against the panel surface, and every value is also printed signed.
+  import Champ from './Champ.svelte';
+
   let data = $state(null);
+  let sheet = $state(null);
   fetch('/api/prep/lane-bans').then((r) => r.json()).then((d) => (data = d));
+  fetch('/api/prep').then((r) => r.json()).then((d) => (sheet = d));
+  const pct = (p) => `${Math.round(p * 100)}%`;
   const signed = (x, digits) => `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(x).toFixed(digits)}`;
 </script>
 
 <main class="page">
   <h1>Prep</h1>
+  {#if sheet}
+    <div class="sheet">
+      {#each ['blue', 'red'] as side}
+        <section class="bans {side}">
+          <h2>Priority bans · {side} side</h2>
+          <ol>
+            {#each sheet.bans[side].bans as b}
+              <li><Champ champ={b.champ} size={36} /><div><strong>{b.champ.name}</strong><span>{b.reason}</span></div></li>
+            {:else}<li class="muted">No useful ban</li>{/each}
+          </ol>
+        </section>
+      {/each}
+      <p class="muted small wide">{sheet.notes.bans}</p>
+
+      <section class="wide">
+        <h2>Best 3 this patch</h2>
+        <div class="best">
+          {#each sheet.best as r}
+            <div>
+              <h3>{r.role_label} <small>{r.bracket}</small></h3>
+              {#each r.best as b}
+                <div class="pickrow">
+                  <Champ champ={b.champ} size={36} />
+                  <div><strong>{b.champ.name}</strong><span>{b.tier} · {b.win_rate == null ? '—' : pct(b.win_rate)} WR · comfort {b.comfort}</span></div>
+                </div>
+              {:else}<p class="muted">empty pool</p>{/each}
+            </div>
+          {/each}
+        </div>
+      </section>
+
+      <section>
+        <h2>Safe blind first picks</h2>
+        {#each sheet.blind_safe as b}
+          <div class="pickrow">
+            <Champ champ={b.champ} size={36} />
+            <div><strong>{b.champ.name}</strong>
+              <span>{b.role_label} · {pct(b.win_prob)} as blue's first pick{#if b.worst_counter} · worst counter {b.worst_counter.name}{/if}</span></div>
+          </div>
+        {:else}<p class="muted">None of our pool champions is safe to blind pick right now.</p>{/each}
+        <p class="muted small">{sheet.notes.blind_safe}</p>
+      </section>
+
+      <section>
+        <h2>Flex picks</h2>
+        {#each sheet.flex as f}
+          <div class="pickrow">
+            <Champ champ={f.champ} size={36} />
+            <div><strong>{f.champ.name}</strong><span>{Object.entries(f.tiers).map(([r, t]) => `${r} ${t}`).join(' · ')}</span></div>
+          </div>
+        {:else}<p class="muted">No champion is in two of our pools.</p>{/each}
+      </section>
+    </div>
+  {/if}
+
+  <h2 class="lanehead">Lane ban tables</h2>
   <p class="muted">
     Lane ban scores per role: how much banning each opponent improves that player's expected lane matchup
     (pp), and its final team ban value (meta threat + our matchups + counters, log-odds).
@@ -57,4 +118,20 @@
   .ban.negative { color: #c98500; }
   .ban.neutral { color: #8b96a3; }
   .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+  .sheet { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .wide { grid-column: 1 / -1; }
+  .bans.blue { border-top: 3px solid #2f6fb7; }
+  .bans.red { border-top: 3px solid #c0423a; }
+  ol { margin: 0; padding-left: 20px; }
+  li { margin: 6px 0; }
+  li, .pickrow { display: flex; align-items: center; gap: 10px; }
+  li div, .pickrow div { display: flex; flex-direction: column; }
+  li span, .pickrow span { font-size: 13px; color: #c9d1d9; }
+  .pickrow { margin: 6px 0; }
+  .best { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+  h3 { font-size: 15px; margin: 0 0 6px; }
+  h3 small { color: var(--muted); font-weight: 400; }
+  .lanehead { font-size: 22px; margin: 8px 0; }
+  @media (max-width: 1100px) { .sheet { grid-template-columns: 1fr; } .best { grid-template-columns: 1fr 1fr; } }
 </style>

@@ -35,7 +35,13 @@ from draftassist.data.pools import (
     set_players,
 )
 from draftassist.data.provider import ChampionCatalog, load_catalog, load_engine_inputs, stats_version
-from draftassist.data.settings_store import engine_config, save_ban_settings, settings_payload
+from draftassist.data.settings_store import engine_config, save_alpha_beta, save_ban_settings, settings_payload
+from draftassist.learning.comfort import accept as accept_tiers
+from draftassist.learning.comfort import set_locked
+from draftassist.learning.jobs import LearningResult, run_in_background
+from draftassist.learning.prep import prep_sheet
+from draftassist.learning.report import draft_report, model_check
+from draftassist.learning.style import set_hand_style, team_summary
 from draftassist.db.session import init_db
 from draftassist.engine.engine import DraftEngine
 from draftassist.engine.formats import TOURNAMENT, get_format
@@ -60,6 +66,7 @@ class Services:
     lcu_mode: str = "off"
     settings: Settings | None = None
     loaded_version: tuple | None = None  # stats_version() the engine was built from
+    learning: dict | None = None  # last learning run: {"running", "finished_at", "summary"}
 
     @property
     def engine(self) -> DraftEngine:
@@ -89,6 +96,35 @@ class Services:
         if self.players is not None:
             self.players.invalidate()
         self.loaded_version = version
+
+    def make_riot(self):
+        if self.settings is None or not self.settings.has_riot_api_key:
+            return None
+        from draftassist.data.riot import RiotClient
+
+        settings = self.settings
+        return lambda: RiotClient(settings.riot_api_key, settings.cache_dir)
+
+    def learn(self) -> bool:
+        """Start the learning job (link players, collect games, re-score tiers) in the background.
+        False if one is already running. The engine reloads between drafts when it is done."""
+        if self.db is None or (self.learning or {}).get("running"):
+            return False
+        import time as _time
+
+        self.learning = {**(self.learning or {}), "running": True}
+
+        def done(res: LearningResult) -> None:
+            self.learning = {"running": False, "finished_at": _time.time(), "summary": {
+                "logged_games": res.logged_games, "history_games": res.history_games,
+                "proposals": len(res.proposals), "history_error": res.history_error}}
+            self.refresh_stats()
+
+        def failed() -> None:
+            self.learning = {**(self.learning or {}), "running": False, "summary": {"error": "learning job failed (see log)"}}
+
+        run_in_background(self.db, self.make_riot(), done, failed)
+        return True
 
     def in_draft(self) -> bool:
         """True while a champ select is running (suggestions must not change under the shot-caller)."""
@@ -126,7 +162,11 @@ def build_services(settings: Settings) -> Services:
     recorder = SessionRecorder(RECORDINGS) if settings.record_sessions and client else None
     logger = DraftLogger(db) if client or settings.demo_log else None
 
+    services_ref: list[Services] = []
+
     def verify_later(draft_id: int) -> None:
+        if services_ref:
+            services_ref[0].learn()  # tiers update after each logged game
         if client and settings.has_riot_api_key:
             from draftassist.data.postgame import schedule_verification
             from draftassist.data.riot import RiotClient
@@ -137,7 +177,9 @@ def build_services(settings: Settings) -> Services:
                        recorder, logger, players, verify_later)
     if logger is not None:
         logger.context = lambda: (live.engine, live.catalog)
-    return Services(hub, live, db, players, settings.lcu_mode, settings, stats_version(db))
+    svc = Services(hub, live, db, players, settings.lcu_mode, settings, stats_version(db))
+    services_ref.append(svc)
+    return svc
 
 
 async def run_demo(live: LiveService, interval: float = 1.5, seed: int = 0) -> None:
@@ -264,6 +306,8 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         svc = services or build_services(load_settings())
         app.state.services = svc
         svc.hub.bind(asyncio.get_running_loop())
+        if services is None and svc.lcu_mode == "client":
+            svc.learn()  # catch up on games played since the last run
         demo_task = None
         every = stats_refresh_s if stats_refresh_s is not None else (svc.settings.stats_refresh_s if svc.settings else 0)
         refresh_task = asyncio.create_task(refresh_stats_forever(svc, every)) if every > 0 else None
@@ -333,8 +377,13 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         tier_order = {"main": 0, "comfortable": 1, "learning": 2}
         return {
             "players": list_players(db),
+            "learning": svc.learning or {"running": False},
             "pools": {r: [{"champ": svc.catalog.card(e.champ_id), "manual_tier": e.manual_tier,
-                           "scored_tier": e.scored_tier, "tier_locked": e.tier_locked, "games": e.games, "wins": e.wins}
+                           "scored_tier": e.scored_tier, "tier_locked": e.tier_locked, "games": e.games, "wins": e.wins,
+                           "comfort": round(e.comfort, 2),
+                           "last_played": e.last_played.isoformat() if e.last_played else None,
+                           "proposal": (e.scored_tier if e.scored_tier and e.scored_tier != e.manual_tier
+                                        and not e.tier_locked else None)}
                           for e in sorted(entries, key=lambda e: (tier_order.get(e.manual_tier, 9), e.champ_id))]
                       for r, entries in pools.items()},
             "using_placeholder_pools": not any(pools.values()),
@@ -357,16 +406,68 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         return settings_payload(_db(request.app.state.services))
 
     @app.put("/api/settings")
-    def put_settings(request: Request, ban_weights: dict = Body(...), ban_declared_intents: bool = Body(False)) -> dict:
+    def put_settings(request: Request, ban_weights: dict = Body(...), ban_declared_intents: bool = Body(False),
+                     alpha: float | None = Body(None), beta: float | None = Body(None)) -> dict:
         svc: Services = request.app.state.services
         db = _db(svc)
         try:
             weights = BanWeights(float(ban_weights["threat"]), float(ban_weights["matchup"]), float(ban_weights["comp"]))
             save_ban_settings(db, weights, ban_declared_intents)
+            if alpha is not None or beta is not None:
+                current = engine_config(db)
+                save_alpha_beta(db, float(alpha if alpha is not None else current.alpha),
+                                float(beta if beta is not None else current.beta))
         except (KeyError, TypeError, ValueError) as e:
             raise HTTPException(422, f"invalid settings: {e}") from None
         svc.reload()
         return settings_payload(db)
+
+    # ---------- learning ----------
+    @app.post("/api/pools/accept")
+    def post_accept(request: Request, role: str = Body(...), champ_id: int | None = Body(None)) -> dict:
+        svc: Services = request.app.state.services
+        changed = accept_tiers(_db(svc), role, champ_id)
+        svc.reload()
+        return {"changed": changed}
+
+    @app.post("/api/pools/lock")
+    def post_lock(request: Request, role: str = Body(...), champ_id: int = Body(...), locked: bool = Body(...)) -> dict:
+        svc: Services = request.app.state.services
+        if not set_locked(_db(svc), role, champ_id, locked):
+            raise HTTPException(404, "no such pool entry")
+        svc.reload()
+        return {"locked": locked}
+
+    @app.get("/api/learning")
+    def get_learning(request: Request) -> dict:
+        return request.app.state.services.learning or {"running": False}
+
+    @app.post("/api/learning/run")
+    def post_learning(request: Request) -> dict:
+        svc: Services = request.app.state.services
+        return {"started": svc.learn(), **(svc.learning or {})}
+
+    @app.get("/api/team")
+    def get_team(request: Request) -> dict:
+        return team_summary(_db(request.app.state.services))
+
+    @app.put("/api/team/style")
+    def put_team_style(request: Request, style: str | None = Body(None, embed=True)) -> dict:
+        db = _db(request.app.state.services)
+        try:
+            set_hand_style(db, style or None)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        return team_summary(db)
+
+    @app.get("/api/prep")
+    def get_prep(request: Request) -> dict:
+        svc: Services = request.app.state.services
+        return {"data_source": svc.data_source, **prep_sheet(svc.engine, svc.catalog.card)}
+
+    @app.get("/api/model-check")
+    def get_model_check(request: Request) -> dict:
+        return model_check(_db(request.app.state.services))
 
     # ---------- history ----------
     @app.get("/api/history")
@@ -382,6 +483,12 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         body = recap(_db(svc), svc.engine, svc.catalog, draft_id)
         if body is None:
             raise HTTPException(404, "no such game")
+        report = draft_report(_db(svc), svc.engine, draft_id)
+        if report is not None:
+            card = svc.catalog.card
+            for d in report["deviations"]:
+                d["picked"], d["suggested"] = card(d["picked"]), card(d["suggested"])
+        body["report"] = report
         return body
 
     @app.get("/api/art/{version}/{kind}/{key}")

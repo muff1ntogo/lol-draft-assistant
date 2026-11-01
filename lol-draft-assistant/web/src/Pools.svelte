@@ -15,6 +15,41 @@
     players = data.players.map((p) => ({ ...p }));
   }
 
+  async function post(url, body) {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return res.json();
+  }
+
+  async function acceptTier(role, champ_id = null) {
+    const r = await post('/api/pools/accept', { role, champ_id });
+    message = `${r.changed} tier${r.changed === 1 ? '' : 's'} updated.`;
+    await load();
+  }
+
+  async function toggleLock(role, e) {
+    await post('/api/pools/lock', { role, champ_id: e.champ.id, locked: !e.tier_locked });
+    await load();
+  }
+
+  async function learn() {
+    message = '';
+    await post('/api/learning/run', {});
+    await load();
+    const poll = setInterval(async () => {
+      const state = await (await fetch('/api/learning')).json();
+      if (!state.running) {
+        clearInterval(poll);
+        await load();
+        const s = state.summary ?? {};
+        message = s.error ?? `Updated from games: ${s.proposals ?? 0} tier change${s.proposals === 1 ? '' : 's'} to review` +
+          (s.history_error ? ` (match history unavailable: ${s.history_error})` : '');
+      }
+    }, 2000);
+  }
+
+  const record = (e) => (e.games ? `${e.wins}W ${e.games - e.wins}L` : 'no games');
+  const proposals = (entries) => entries.filter((e) => e.proposal).length;
+
   async function savePlayers() {
     message = '';
     const res = await fetch('/api/players', {
@@ -76,21 +111,40 @@
   </section>
 
   <section>
-    <h2>Champion pools</h2>
+    <div class="poolhead">
+      <h2>Champion pools</h2>
+      <button class="secondary" onclick={learn} disabled={data?.learning?.running}>
+        {data?.learning?.running ? 'Updating from games…' : 'Update from games'}
+      </button>
+    </div>
+    <p class="muted">
+      Tiers are re-scored from each player's last 60 days of ranked games (Solo/Duo, Flex, Ranked 5s) after every
+      logged game. A suggested change waits for you to accept it; a locked tier is never changed.
+    </p>
     {#if data?.using_placeholder_pools}
       <p class="warn">No pools imported yet: suggestions use each role's most-picked champions.</p>
     {/if}
     <div class="roles">
       {#each Object.entries(data?.pools ?? {}) as [role, entries]}
         <div class="role">
-          <h3>{LABELS[role]}</h3>
+          <h3>{LABELS[role]}
+            {#if proposals(entries) > 1}<button class="link" onclick={() => acceptTier(role)}>accept all {proposals(entries)}</button>{/if}
+          </h3>
           {#each entries as e}
             <div class="entry">
               <Champ champ={e.champ} size={32} />
-              <span class="name">{e.champ.name}</span>
+              <div class="who">
+                <span class="name">{e.champ.name}</span>
+                <span class="rec" title="Last 60 days in this role · comfort {e.comfort}">{record(e)} · comfort {e.comfort}</span>
+              </div>
               <span class="tier {e.manual_tier}">{e.manual_tier}</span>
-              <span class="scored" title="Scored tier (v2, from results)">{e.scored_tier ?? '—'}</span>
-              {#if e.tier_locked}<span title="Tier locked">🔒</span>{/if}
+              <button class="lock" class:on={e.tier_locked} title={e.tier_locked ? 'Tier locked: click to unlock' : 'Lock this tier'}
+                      onclick={() => toggleLock(role, e)}>{e.tier_locked ? '🔒' : '🔓'}</button>
+              {#if e.proposal}
+                <button class="proposal" title="Scored from recent games: click to accept" onclick={() => acceptTier(role, e.champ.id)}>
+                  → {e.proposal}
+                </button>
+              {/if}
             </div>
           {:else}
             <p class="muted">empty</p>
@@ -112,7 +166,7 @@
 </main>
 
 <style>
-  .page { max-width: 1100px; margin: 0 auto; padding: 20px 28px 60px; }
+  .page { max-width: 1440px; margin: 0 auto; padding: 20px 28px 60px; }
   h1 { font-size: 32px; margin: 8px 0 16px; }
   h2 { font-size: 20px; margin: 28px 0 10px; }
   h3 { font-size: 16px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; }
@@ -126,15 +180,24 @@
   button { margin-top: 10px; background: var(--blue); color: white; border: 0; border-radius: 6px;
            padding: 8px 16px; font: inherit; cursor: pointer; }
   button:disabled { opacity: 0.5; cursor: default; }
-  .roles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  .roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
   .role { background: var(--panel); border-radius: 8px; padding: 12px; }
-  .entry { display: grid; grid-template-columns: 32px 1fr auto auto auto; align-items: center; gap: 8px; margin: 6px 0; }
+  .entry { display: grid; grid-template-columns: 32px 1fr auto auto; grid-auto-rows: auto; align-items: center; gap: 4px 8px;
+           margin: 8px 0; }
+  .who { display: flex; flex-direction: column; min-width: 0; }
+  .rec { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lock { background: none; border: 0; padding: 0; margin: 0; cursor: pointer; font-size: 14px; opacity: 0.45; }
+  .lock.on { opacity: 1; }
+  .proposal { grid-column: 2 / -1; justify-self: start; margin: 0; padding: 2px 8px; font-size: 12px; background: #3d3214;
+              color: var(--gold); border: 1px solid #6b5a1f; border-radius: 4px; }
+  .poolhead { display: flex; align-items: center; justify-content: space-between; }
+  .secondary { margin: 0; background: var(--panel-2); border: 1px solid var(--line); }
+  .link { margin: 0 0 0 8px; padding: 0; background: none; color: var(--gold); font-size: 12px; text-transform: none; }
   .name { font-size: 15px; }
   .tier { font-size: 12px; padding: 2px 6px; border-radius: 4px; background: var(--panel-2); }
   .tier.main { color: var(--good); }
   .tier.comfortable { color: var(--blue); }
   .tier.learning { color: var(--warn); }
-  .scored { font-size: 12px; color: var(--muted); }
   .muted { color: var(--muted); }
   .warn { color: var(--gold); }
   .ok { color: var(--good); }

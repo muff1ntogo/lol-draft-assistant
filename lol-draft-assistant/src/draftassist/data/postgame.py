@@ -34,7 +34,7 @@ def verify_draft(db: Engine, riot: RiotClient, draft_id: int) -> str:
         match = riot.match(match_id_for(draft.game_id))
         if not match:
             return "not-found"
-        our_puuids = {p.puuid for p in s.exec(select(Player)).all() if p.resolved}
+        our_puuids = {p.api_puuid for p in s.exec(select(Player)).all() if p.api_puuid}
         our_picks = {a.champ_id for a in s.exec(select(DraftAction).where(
             DraftAction.draft_id == draft_id, DraftAction.type == "pick", DraftAction.side == draft.side)).all()}
         participants = match["info"]["participants"]

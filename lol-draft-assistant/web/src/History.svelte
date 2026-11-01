@@ -11,6 +11,9 @@
   let selected = $state(null);
   let recap = $state(null);
   let showTable = $state(false);
+  let check = $state(null);
+  fetch('/api/model-check').then((r) => r.json()).then((d) => (check = d));
+  const signedPp = (x) => `${x > 0 ? '+' : x < 0 ? '\u2212' : '±'}${Math.abs(x).toFixed(1)}pp`;
 
   async function loadList() {
     const q = new URLSearchParams(Object.entries(chosen).filter(([, v]) => v));
@@ -48,6 +51,21 @@
 
 <main class="history">
   <aside class="list">
+    {#if check}
+      <div class="check" title="Brier score: mean squared error of our win predictions. A 50% coin flip scores 0.25; lower is better.">
+        <div class="checkhead">Model check <span>{check.games} game{check.games === 1 ? '' : 's'}</span></div>
+        {#if check.brier != null}
+          <div class="brier"><strong>{check.brier.toFixed(3)}</strong> Brier <span class="muted">vs 0.250 coin flip</span></div>
+        {/if}
+        <div class="muted small">{check.verdict}</div>
+        {#if check.calibration}
+          <table class="calib">
+            <thead><tr><th>Predicted</th><th>Games</th><th>Won</th></tr></thead>
+            <tbody>{#each check.calibration as b}<tr><td>{b.bin}</td><td>{b.games}</td><td>{Math.round(b.actual * 100)}%</td></tr>{/each}</tbody>
+          </table>
+        {/if}
+      </div>
+    {/if}
     <div class="filters">
       {#each [['queue', 'Queue'], ['side', 'Side'], ['result', 'Result'], ['patch', 'Patch']] as [key, label]}
         <select bind:value={chosen[key]} onchange={loadList} aria-label={label}>
@@ -92,6 +110,24 @@
         <div class="pred">Predicted {pct(h.pred_win_prob)} → {h.result === 'win' ? 'Won' : h.result === 'loss' ? 'Lost' : '—'}</div>
       </header>
       {#if recap.note}<p class="note">{recap.note}</p>{/if}
+      {#if recap.report}
+        {@const r = recap.report}
+        <div class="report">
+          <div class="verdict">{r.verdict}{#if r.brier != null} <span class="muted">· Brier {r.brier.toFixed(3)}</span>{/if}</div>
+          <div class="factors">
+            {#each r.factors as f}
+              <span class="factor"><b class:pos={f.pp > 0} class:neg={f.pp < 0}>{signedPp(f.pp)}</b> {f.factor}</span>
+            {/each}
+          </div>
+          <div class="muted small">{r.note}</div>
+          {#each r.deviations as d}
+            <div class="dev">
+              Step {d.step}: we picked {d.picked.name} ({d.rank ? `our #${d.rank}` : 'not on our list'}); our #1 was {d.suggested.name}:
+              <b class:pos={d.delta_pp > 0} class:neg={d.delta_pp < 0}>{signedPp(d.delta_pp)}</b> by the model
+            </div>
+          {/each}
+        </div>
+      {/if}
 
       <div class="bans">
         {#each ['blue', 'red'] as side}
@@ -222,6 +258,19 @@
   .facts { display: flex; flex-wrap: wrap; gap: 14px; color: #c9d1d9; font-size: 15px; }
   .pred { font-size: 18px; font-weight: 600; }
   .note { color: #e3b341; font-size: 13px; margin: 6px 2px 0; }
+  .check { background: var(--panel); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; cursor: help; }
+  .checkhead { font-weight: 700; display: flex; justify-content: space-between; }
+  .checkhead span { color: #8b96a3; font-weight: 400; font-size: 13px; }
+  .brier strong { font-size: 22px; }
+  .small { font-size: 12px; }
+  .calib { width: 100%; font-size: 12px; margin-top: 6px; }
+  .report { background: var(--panel); border-radius: 8px; padding: 12px 16px; margin-top: 10px; display: grid; gap: 6px; }
+  .verdict { font-size: 17px; font-weight: 700; }
+  .factors { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 14px; color: #c9d1d9; }
+  .factor b, .dev b { font-variant-numeric: tabular-nums; }
+  .pos { color: #1baf7a; }
+  .neg { color: #c98500; }
+  .dev { font-size: 14px; color: #c9d1d9; }
   .bans { display: flex; justify-content: space-between; gap: 20px; margin: 14px 0; }
   .banside { display: flex; align-items: center; gap: 6px; padding: 8px 10px; background: var(--panel); border-radius: 8px; }
   .banside.blue { border-top: 3px solid #2f6fb7; }

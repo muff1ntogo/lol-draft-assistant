@@ -2,12 +2,16 @@
   let slider = $state(0.6);
   let weights = $state({ threat: 1.0, matchup: 1.5, comp: 1.0 });
   let declared = $state(false);
+  let alpha = $state(1.0);
+  let beta = $state(1.0);
   let message = $state('');
 
   fetch('/api/settings').then((r) => r.json()).then((s) => {
     weights = { ...s.ban_weights };
     slider = s.slider ?? 0.6;
     declared = s.ban_declared_intents;
+    alpha = s.alpha;
+    beta = s.beta;
   });
 
   function fromSlider() {
@@ -20,7 +24,7 @@
     const res = await fetch('/api/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ban_weights: weights, ban_declared_intents: declared }),
+      body: JSON.stringify({ ban_weights: weights, ban_declared_intents: declared, alpha, beta }),
     });
     const body = await res.json();
     if (res.ok) {
@@ -56,6 +60,17 @@
       <p class="muted">ban value = relevance × enemy-ban discount × (a × Threat + b × Matchup + c × Comp)</p>
     </details>
 
+    <h2 class="sub">Pick suggestions</h2>
+    <div class="advanced">
+      <label>Meta weight (α) <input type="number" min="0" max="5" step="0.1" bind:value={alpha} /></label>
+      <label>Comfort weight (β) <input type="number" min="0" max="5" step="0.1" bind:value={beta} /></label>
+    </div>
+    <p class="muted">
+      Each pick scores α × the champion's strength in that player's bracket + β × the player's comfort on it.
+      Comfort grows with recent games on the champion (spec formula), so with many games it can outweigh meta;
+      lower β if suggestions stick to comfort picks too much.
+    </p>
+
     <label class="check">
       <input type="checkbox" bind:checked={declared} />
       Flex / Solo: allow suggesting a ban on a champion a teammate has declared as their pick
@@ -70,6 +85,7 @@
   .page { max-width: 800px; margin: 0 auto; padding: 20px 28px 60px; }
   h1 { font-size: 32px; margin: 8px 0 16px; }
   h2 { font-size: 20px; margin: 0 0 12px; }
+  h2.sub { font-size: 17px; margin: 18px 0 6px; }
   section { background: var(--panel); border-radius: 8px; padding: 18px 20px; }
   .slider { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; font-size: 16px; }
   input[type='range'] { width: 100%; }

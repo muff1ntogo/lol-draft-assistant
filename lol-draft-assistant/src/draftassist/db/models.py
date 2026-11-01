@@ -18,6 +18,7 @@ class Champion(SQLModel, table=True):
     name: str  # display name, e.g. "Wukong"
     roles: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     patch: str = Field(index=True)  # Data Dragon version this row was loaded from
+    tags: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))  # classes: Tank, Mage, ...
 
 
 class ChampRoleStats(SQLModel, table=True):
@@ -59,11 +60,15 @@ class Synergy(SQLModel, table=True):
 class Player(SQLModel, table=True):
     __tablename__ = "players"
 
-    puuid: str = Field(primary_key=True)  # "unresolved:<role>" until account-v1 or the client gives the real one
+    puuid: str = Field(primary_key=True)  # internal key: "unresolved:<role>" until linked, then one of the ids below
     riot_id: str  # "Name#TAG"
     role: str
     rank: str
     bracket: str
+    # The League client and the public Riot API use different PUUIDs for the same account: the client's
+    # is a plain UUID, the API's is encrypted per API key. Champ select needs the first, match-v5 the second.
+    client_puuid: str | None = None
+    api_puuid: str | None = None
 
     @property
     def resolved(self) -> bool:
@@ -192,3 +197,17 @@ class AppSetting(SQLModel, table=True):
 
     key: str = Field(primary_key=True)
     value: str  # JSON
+
+
+class PlayerGame(SQLModel, table=True):
+    """One of our players' recent games (comfort scoring): from match-v5 history or our own logs."""
+    __tablename__ = "player_games"
+
+    puuid: str = Field(primary_key=True)  # players.puuid (a placeholder until the player is linked)
+    match_id: str = Field(primary_key=True)  # EUW1_<gameId>, or draft-<id> for a logged game without one
+    champ_id: int
+    role: str | None
+    win: bool
+    queue_id: int | None = None
+    game_start_ms: int  # epoch ms
+    source: str  # match-v5 | logged

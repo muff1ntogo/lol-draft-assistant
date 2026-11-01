@@ -155,8 +155,9 @@ def stats_version(db: Engine) -> tuple:
     with db.connect() as conn:
         totals = tuple(conn.execute(text("SELECT patch, bracket, matches FROM bracket_totals ORDER BY patch, bracket")))
         boot = conn.execute(text("SELECT MAX(fetched_at), COUNT(*) FROM bootstrap_role_stats")).one()
-        pools = conn.execute(text("SELECT COUNT(*), COALESCE(SUM(champ_id), 0), "
-                                  "COALESCE(SUM(LENGTH(manual_tier)), 0) FROM pool_entries")).one()
+        pools = conn.execute(text("SELECT COUNT(*), COALESCE(SUM(champ_id), 0), COALESCE(SUM(LENGTH(manual_tier)), 0), "
+                                  "COALESCE(SUM(games), 0), COALESCE(SUM(wins), 0), COALESCE(SUM(tier_locked), 0) "
+                                  "FROM pool_entries")).one()
         players = tuple(conn.execute(text("SELECT puuid, role, bracket FROM players ORDER BY role")))
     return totals, tuple(boot), tuple(pools), players
 

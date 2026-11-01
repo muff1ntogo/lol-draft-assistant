@@ -41,6 +41,25 @@ def placeholder_puuid(role: str) -> str:
     return f"unresolved:{role}"
 
 
+def is_client_puuid(puuid: str) -> bool:
+    """The League client's PUUIDs are plain UUIDs (36 chars); the Riot API's are encrypted (78)."""
+    return len(puuid) == 36 and puuid.count("-") == 4
+
+
+def backfill_player_ids(db: Engine) -> None:
+    """Players linked before both ids were kept: sort the key into client or API PUUID."""
+    with Session(db) as s:
+        for p in s.exec(select(Player)).all():
+            if not p.resolved:
+                continue
+            if is_client_puuid(p.puuid) and not p.client_puuid:
+                p.client_puuid = p.puuid
+            elif not is_client_puuid(p.puuid) and not p.api_puuid:
+                p.api_puuid = p.puuid
+            s.add(p)
+        s.commit()
+
+
 def _norm(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
@@ -125,7 +144,8 @@ def _move_player(s: Session, old: Player, new_puuid: str) -> Player:
     """Re-key a player (e.g. placeholder -> real PUUID), carrying their pool entries along."""
     if old.puuid == new_puuid:
         return old
-    new = Player(puuid=new_puuid, riot_id=old.riot_id, role=old.role, rank=old.rank, bracket=old.bracket)
+    new = Player(puuid=new_puuid, riot_id=old.riot_id, role=old.role, rank=old.rank, bracket=old.bracket,
+                 client_puuid=old.client_puuid, api_puuid=old.api_puuid)
     s.add(new)
     s.flush()
     for e in s.exec(select(PoolEntry).where(PoolEntry.puuid == old.puuid)).all():
@@ -163,7 +183,9 @@ def set_players(db: Engine, players: list[dict], resolver=None) -> list[dict]:
                     log.warning("could not resolve %s: %s", riot_id, e)
                     puuid = None
                 if puuid:
-                    _move_player(s, player, puuid)
+                    player = _move_player(s, player, puuid)
+                    player.api_puuid = puuid
+                    s.add(player)
         s.commit()
     return list_players(db)
 
@@ -178,9 +200,13 @@ def resolve_from_session(db: Engine, members: list[dict]) -> int:
     with Session(db) as s:
         for player in s.exec(select(Player)).all():
             puuid = by_riot_id.get(player.riot_id.lower()) if player.riot_id else None
-            if puuid and not player.resolved and s.get(Player, puuid) is None:
-                _move_player(s, player, puuid)
-                resolved += 1
+            if not puuid or player.client_puuid == puuid:
+                continue
+            if not player.resolved and s.get(Player, puuid) is None:
+                player = _move_player(s, player, puuid)
+            player.client_puuid = puuid
+            s.add(player)
+            resolved += 1
         s.commit()
     return resolved
 
@@ -194,8 +220,14 @@ def list_players(db: Engine) -> list[dict]:
 
 
 def roles_by_puuid(db: Engine) -> dict[str, str]:
+    """Champ select PUUID (the client's) -> role."""
     with Session(db) as s:
-        return {p.puuid: p.role for p in s.exec(select(Player)).all() if p.resolved}
+        out = {}
+        for p in s.exec(select(Player)).all():
+            for puuid in (p.client_puuid, p.puuid if p.resolved else None):
+                if puuid:
+                    out[puuid] = p.role
+        return out
 
 
 class PlayerDirectoryDb:
@@ -257,12 +289,15 @@ def load_pools(db: Engine) -> dict[str, list[PoolEntry]]:
 
 def load_team(db: Engine) -> OurTeam | None:
     """Our team from imported pools (None if nothing imported). Brackets from the players table.
-    v1 comfort comes from the manual tier; v2 re-scores it from results."""
+    Comfort comes from the manual tier and the player's recent games with the champion
+    (learning/comfort.py); with no games it is the plain tier comfort."""
+    from draftassist.learning.comfort import comfort_score
+
     pools = load_pools(db)
     if not any(pools.values()):
         return None
     brackets = {p["role"]: p["bracket"] for p in list_players(db)}
-    return OurTeam({r: {e.champ_id: PoolChamp(e.manual_tier, tier_comfort(e.manual_tier)) for e in entries}
+    return OurTeam({r: {e.champ_id: PoolChamp(e.manual_tier, comfort_score(e.manual_tier, e.games, e.wins)) for e in entries}
                     for r, entries in pools.items()}, brackets)
 
 

@@ -144,9 +144,14 @@ class RiotClient:
         path = f"/lol/league/v4/entries/RANKED_SOLO_5x5/{tier}/{division}"
         return self.get(PLATFORM, path, {"page": page}, ttl=7 * DAY) or []
 
-    def match_ids(self, puuid: str, queue: int, start_time: int, count: int = 20) -> list[str]:
+    def match_ids(self, puuid: str, queue: int | None, start_time: int, count: int = 20, start: int = 0) -> list[str]:
+        """Ranked match ids since start_time; queue None = every ranked queue (Solo/Duo, Flex, Ranked 5s)."""
         path = f"/lol/match/v5/matches/by-puuid/{puuid}/ids"
-        params = {"queue": queue, "type": "ranked", "startTime": start_time, "count": count}
+        params = {"type": "ranked", "startTime": start_time, "count": count}
+        if queue is not None:
+            params["queue"] = queue
+        if start:
+            params["start"] = start
         return self.get(REGION, path, params, ttl=0.25 * DAY) or []
 
     def match(self, match_id: str) -> dict | None:

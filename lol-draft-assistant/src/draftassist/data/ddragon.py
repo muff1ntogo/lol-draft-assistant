@@ -39,7 +39,7 @@ def fetch_champions(client: httpx.Client, version: str, cache_dir: Path, locale:
 
 def parse_champions(payload: dict, version: str) -> list[Champion]:
     return [
-        Champion(champ_id=int(c["key"]), key=c["id"], name=c["name"], patch=version)
+        Champion(champ_id=int(c["key"]), key=c["id"], name=c["name"], patch=version, tags=list(c.get("tags", [])))
         for c in payload["data"].values()
     ]
 
@@ -52,7 +52,7 @@ def load_champions(session: Session, champions: list[Champion]) -> int:
         if row is None:
             session.add(champ)
         else:
-            row.key, row.name, row.patch = champ.key, champ.name, champ.patch
+            row.key, row.name, row.patch, row.tags = champ.key, champ.name, champ.patch, champ.tags
             session.add(row)
     session.commit()
     return len(champions)

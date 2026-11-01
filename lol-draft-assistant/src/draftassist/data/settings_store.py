@@ -37,14 +37,38 @@ def save_ban_settings(db: Engine, weights: BanWeights, ban_declared_intents: boo
         s.commit()
 
 
+ENGINE_KEY = "engine"
+
+
+def get_alpha_beta(db: Engine) -> tuple[float, float]:
+    with Session(db) as s:
+        row = s.get(AppSetting, ENGINE_KEY)
+    v = json.loads(row.value) if row else {}
+    d = EngineConfig()
+    return float(v.get("alpha", d.alpha)), float(v.get("beta", d.beta))
+
+
+def save_alpha_beta(db: Engine, alpha: float, beta: float) -> None:
+    for name, value in (("alpha", alpha), ("beta", beta)):
+        if not 0 <= value <= 5:
+            raise ValueError(f"{name} must be between 0 and 5")
+    with Session(db) as s:
+        row = s.get(AppSetting, ENGINE_KEY) or AppSetting(key=ENGINE_KEY, value="{}")
+        row.value = json.dumps({"alpha": alpha, "beta": beta})
+        s.add(row)
+        s.commit()
+
+
 def engine_config(db: Engine) -> EngineConfig:
     weights, declared = get_ban_settings(db)
-    return EngineConfig(ban_weights=weights, ban_declared_intents=declared)
+    alpha, beta = get_alpha_beta(db)
+    return EngineConfig(alpha=alpha, beta=beta, ban_weights=weights, ban_declared_intents=declared)
 
 
 def settings_payload(db: Engine) -> dict:
     weights, declared = get_ban_settings(db)
     on_slider = abs(weights.threat + weights.matchup - 2.5) < 1e-9
+    alpha, beta = get_alpha_beta(db)
     return {"ban_weights": {"threat": weights.threat, "matchup": weights.matchup, "comp": weights.comp},
             "slider": round(weights.matchup / 2.5, 4) if on_slider else None,
-            "ban_declared_intents": declared}
+            "ban_declared_intents": declared, "alpha": alpha, "beta": beta}
