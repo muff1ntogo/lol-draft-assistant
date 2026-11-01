@@ -10,3 +10,6 @@ web/dist/
 
 # Day-one LCU recordings contain player names and PUUIDs
 fixtures/lcu/recorded/
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal

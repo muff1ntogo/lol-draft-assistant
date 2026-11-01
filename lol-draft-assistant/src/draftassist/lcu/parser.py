@@ -7,6 +7,13 @@ Mapping onto the configured draft order: completed ban/pick actions are queued p
 in action-id order, then the format's steps are filled in order. In tournament draft this is
 exactly the completion order; for standard ranked's simultaneous bans it puts each side's bans
 in its own ban steps.
+
+Verified against a recorded Ranked Flex champ select (fixtures/lcu/flex-ranked-sample):
+- a skipped ban comes through as championId -1 (0 means "not chosen yet");
+- ranked bans are one simultaneous turn and the enemy's stay hidden until `ten_bans_reveal`, so
+  hidden enemy bans hold their place as skipped until revealed, letting our own completed bans
+  count straight away;
+- the two picks of one turn can lock in either order.
 """
 from __future__ import annotations
 
@@ -21,6 +28,7 @@ from draftassist.engine.state import SKIPPED, DraftState
 # LCU assignedPosition -> engine role
 POSITIONS = {"top": "top", "jungle": "jungle", "middle": "mid", "bottom": "adc", "utility": "support"}
 TEAM_SIDE: dict[int, Side] = {1: "blue", 2: "red"}
+TOURNAMENT_BANS_BEFORE_PICKS = 6  # standard ranked has 10
 
 
 class SessionParseError(ValueError):
@@ -55,15 +63,22 @@ class LiveDraft:
     actor_cell_id: int | None  # whose action is in progress
     actor_role: str | None  # our player's role when it's our pick
     game_id: int | None
+    ally_action: str | None = None  # "ban" | "pick" while one of our actions is in progress
+    ally_ban_hovers: frozenset[int] = frozenset()  # champions teammates are about to ban
 
 
 def detect_format(session: dict) -> DraftFormat:
-    """Tournament draft bans one at a time; standard ranked bans in one simultaneous turn."""
-    for turn in _req(session, "actions", "session"):
-        bans = [a for a in turn if _req(a, "type", "actions[]") == "ban"]
-        if len(bans) > 1:
-            return get_format("ranked")
-    return get_format("tournament")
+    """Standard ranked (Solo/Duo, Flex) has all 10 bans before the first pick; tournament draft
+    (Ranked 5s, Clash) has 6. Counted in action-id order, so it doesn't depend on how the client
+    groups actions into turns. Without any pick actions listed, simultaneous bans mean ranked."""
+    turns = _req(session, "actions", "session")
+    actions = sorted((a for turn in turns for a in turn if _req(a, "type", "actions[]") in ("ban", "pick")),
+                     key=lambda a: _req(a, "id", "actions[]"))
+    first_pick = next((i for i, a in enumerate(actions) if a["type"] == "pick"), None)
+    if first_pick is not None:
+        return get_format("ranked" if first_pick > TOURNAMENT_BANS_BEFORE_PICKS else "tournament")
+    simultaneous = any(sum(1 for a in turn if a.get("type") == "ban") > 1 for turn in turns)
+    return get_format("ranked" if simultaneous else "tournament")
 
 
 def parse_session(session: dict, format_name: str = "auto",
@@ -88,26 +103,41 @@ def parse_session(session: dict, format_name: str = "auto",
     completed: dict[tuple[str, str], deque[int]] = defaultdict(deque)
     pending_picks: dict[int, int] = {}  # actor cell -> hovered champion (incomplete pick action)
     locked: dict[int, int] = {}  # actor cell -> locked champion (completed pick action)
-    actor_cell = None
+    ally_cell = enemy_cell = ally_action = None
+    ally_ban_hovers: set[int] = set()
     for a in actions:
-        side = our_side if _req(a, "isAllyAction", "actions[]") else their_side
+        ally = _req(a, "isAllyAction", "actions[]")
+        side = our_side if ally else their_side
         champ = _req(a, "championId", "actions[]")
         if _req(a, "completed", "actions[]"):
-            completed[(side, a["type"])].append(champ)
-            if a["type"] == "pick":
+            if a["type"] == "ban":
+                completed[(side, "ban")].append(champ if champ > 0 else SKIPPED)  # -1 = skipped
+            elif champ > 0:
+                completed[(side, "pick")].append(champ)
                 locked[_req(a, "actorCellId", "actions[]")] = champ
         else:
             if a.get("isInProgress"):
-                actor_cell = _req(a, "actorCellId", "actions[]")
-            if a["type"] == "pick" and side == our_side and champ:
+                cell = _req(a, "actorCellId", "actions[]")
+                if ally and ally_cell is None:
+                    ally_cell, ally_action = cell, a["type"]
+                elif not ally and enemy_cell is None:
+                    enemy_cell = cell
+                if ally and a["type"] == "ban" and champ > 0:
+                    ally_ban_hovers.add(champ)
+            if a["type"] == "pick" and side == our_side and champ > 0:
                 pending_picks[_req(a, "actorCellId", "actions[]")] = champ
+    actor_cell = ally_cell if ally_cell is not None else enemy_cell
 
     steps: list[int] = []
-    for step in fmt.steps:
+    for i, step in enumerate(fmt.steps):
         queue = completed.get((step.side, step.kind))
-        if not queue:
+        if queue:
+            steps.append(queue.popleft())
+        elif step.kind == "ban" and fmt.name == "ranked" and any(
+                completed.get((s.side, "ban")) for s in fmt.steps[i + 1:] if s.kind == "ban"):
+            steps.append(SKIPPED)  # simultaneous bans: the other side's aren't revealed yet
+        else:
             break
-        steps.append(queue.popleft())
 
     def slots(team: list[dict], ours: bool) -> tuple[Slot, ...]:
         out = []
@@ -142,4 +172,6 @@ def parse_session(session: dict, format_name: str = "auto",
         actor_cell_id=actor_cell,
         actor_role=actor_role,
         game_id=session.get("gameId") or None,
+        ally_action=ally_action,
+        ally_ban_hovers=frozenset(ally_ban_hovers - taken),
     )

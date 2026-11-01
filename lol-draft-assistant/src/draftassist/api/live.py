@@ -132,9 +132,12 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
     if finished:
         center = {"mode": "locked", "win_prob": round(ev.win_prob, 4),
                   "threats": [{"champ": card(t.champ_id), "reason": t.reason} for t in engine.threats(st, k=2)]}
-    elif st.is_our_turn and step.kind == "ban":
-        center = {"mode": "our_ban", "title": "BAN",
-                  "cards": [_ban_card(catalog, s, hovered) for s in engine.suggest_bans(st, k=3)]}
+    elif live.ally_action == "ban" or (st.is_our_turn and step.kind == "ban"):
+        # Ranked bans are simultaneous: show ours while any teammate is still banning, minus the
+        # champions teammates are already about to ban.
+        about_to_ban = live.ally_ban_hovers
+        bans = [s for s in engine.suggest_bans(st, k=3 + len(about_to_ban)) if s.champ_id not in about_to_ban][:3]
+        center = {"mode": "our_ban", "title": "BAN", "cards": [_ban_card(catalog, s, hovered) for s in bans]}
     elif st.is_our_turn:
         role = live.actor_role if live.actor_role in open_roles else None
         picks = engine.suggest_picks(st, k=3, role=role)

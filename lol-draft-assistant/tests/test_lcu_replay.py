@@ -20,17 +20,24 @@ def test_replay_sequence(folder, make_services):
     svc = make_services()
     events = sorted(folder.glob("*-session.json"))
     expected_file = folder / "expected.json"
-    expected = json.loads(expected_file.read_text(encoding="utf-8"))["states"] if expected_file.is_file() else None
+    expected = json.loads(expected_file.read_text(encoding="utf-8")) if expected_file.is_file() else None
     prev = ()
+    state = None
     for i, path in enumerate(events):
         session = json.loads(path.read_text(encoding="utf-8"))
         state = parse_session(session).state
-        assert state.actions[: len(prev)] == prev, f"{path.name}: draft went backwards"
+        # Never goes backwards: nothing locked disappears (the two picks of a turn may lock in
+        # either order, and hidden ranked bans are filled in when revealed).
+        assert len(state.actions) >= len(prev), f"{path.name}: draft got shorter"
+        assert {c for c in prev if c} <= set(state.actions), f"{path.name}: a locked champion disappeared"
         prev = state.actions
-        if expected is not None and i < len(expected):
-            assert list(state.actions) == expected[i]["actions"]
+        if expected is not None and i < len(expected.get("states", [])):
+            assert list(state.actions) == expected["states"][i]["actions"]
         view = svc.live.view(session)  # strict guards: raises on any violation
         assert view["status"] == "champ_select", f"{path.name}: {view}"
+    if expected is not None and "final_actions" in expected:
+        assert list(state.actions) == expected["final_actions"]
+        assert state.format.name == expected["format"] and state.our_side == expected["our_side"]
 
 
 def test_there_is_at_least_one_sequence():

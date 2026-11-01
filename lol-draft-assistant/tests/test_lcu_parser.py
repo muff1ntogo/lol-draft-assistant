@@ -68,8 +68,24 @@ def test_renamed_action_field_fails_loudly():
 def test_format_detection():
     assert detect_format(load_sample()) is TOURNAMENT
     ranked = copy.deepcopy(load_sample())
-    ranked["actions"] = [[{**a, "type": "ban"} for a in ranked["actions"][0] * 2]]
+    ranked["actions"] = [[{**a, "type": "ban"} for a in ranked["actions"][0] * 2]]  # no picks listed
     assert detect_format(ranked) is STANDARD_RANKED
+
+
+def split_turns(event):
+    """The same session with every action in its own turn (client grouping is undocumented)."""
+    return {**event, "actions": [[a] for turn in event["actions"] for a in turn]}
+
+
+@pytest.mark.parametrize("fmt", [TOURNAMENT, STANDARD_RANKED], ids=lambda f: f.name)
+@pytest.mark.parametrize("grouping", ["grouped", "one-per-turn"])
+def test_format_detected_however_turns_are_grouped(fmt, grouping):
+    """Ranked Flex / Solo (10 bans, then B RR BB RR BB R) vs tournament draft (6 bans first)."""
+    data, team = synthetic_data()
+    for event in demo_sessions(DraftEngine(data, team), fmt, "red"):
+        e = split_turns(event) if grouping == "one-per-turn" else event
+        assert detect_format(e) is fmt
+        assert parse_session(e).state.format is fmt
 
 
 @pytest.mark.parametrize("fmt", [TOURNAMENT, STANDARD_RANKED], ids=lambda f: f.name)
@@ -91,3 +107,25 @@ def test_demo_draft_round_trips(fmt, side):
             assert champ not in live.state.unavailable() and role in ("top", "jungle", "mid", "adc", "support")
     assert len(prev) == 20 and hovers_seen == 5
     assert parse_session(events[-1]).timer_phase == "FINALIZATION"
+
+
+def test_recorded_flex_fixture_contains_no_identities():
+    """The committed Ranked Flex recording was sanitized: no names, Riot IDs, PUUIDs, chat or game ids."""
+    folder = SAMPLE.parent / "flex-ranked-sample"
+    for f in folder.glob("*-session.json"):
+        s = json.loads(f.read_text(encoding="utf-8"))
+        assert "chatDetails" not in s and s.get("gameId") in (0, 1, None)
+        for m in s["myTeam"] + s["theirTeam"]:
+            assert m.get("gameName", "").startswith("Player") or not m.get("gameName")
+            assert (m.get("puuid") or "puuid-").startswith("puuid-")
+
+
+def test_recorded_flex_skipped_bans_and_hidden_enemy_bans():
+    folder = SAMPLE.parent / "flex-ranked-sample"
+    events = sorted(folder.glob("*-session.json"))
+    banning = parse_session(json.loads(events[9].read_text(encoding="utf-8")))  # mid ban phase
+    assert banning.ally_action == "ban" and banning.state.format is STANDARD_RANKED
+    ours = [c for s, c in zip(banning.state.format.steps, banning.state.actions) if s.side == "blue"]
+    assert ours and all(c > 0 for c in ours)  # every completed ban of ours already counts
+    final = parse_session(json.loads(events[-1].read_text(encoding="utf-8"))).state
+    assert -1 not in final.actions and final.bans("red") == [35, 122]  # three enemy bans skipped
