@@ -41,6 +41,7 @@ class Settings:
     draft_format: str = "auto"  # auto | tournament | ranked
     lcu_mode: str = "client"  # client (real League client) | demo (simulated draft) | off
     record_sessions: bool = True  # dump every champ select event to fixtures/lcu/recorded/
+    demo_log: bool = False  # demo mode writes its simulated games to History (use a scratch DRAFTASSIST_DB)
 
     @property
     def has_riot_api_key(self) -> bool:
@@ -63,4 +64,5 @@ def load_settings(env_file: Path | None = None) -> Settings:
         draft_format=get("DRAFT_FORMAT") or defaults.draft_format,
         lcu_mode=get("DRAFTASSIST_LCU") or defaults.lcu_mode,
         record_sessions=(get("DRAFTASSIST_RECORD") or "1") == "1",
+        demo_log=get("DRAFTASSIST_DEMO_LOG") == "1",
     )

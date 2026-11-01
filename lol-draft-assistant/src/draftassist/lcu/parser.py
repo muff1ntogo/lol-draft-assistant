@@ -11,6 +11,7 @@ in its own ban steps.
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -40,6 +41,8 @@ class Slot:
     champ_id: int  # locked champion, 0 if none
     hover_id: int  # pick intent / hovered champion, 0 if none
     is_local: bool = False
+    puuid: str | None = None
+    riot_id: str | None = None  # "gameName#tagLine" when the client exposes it
 
 
 @dataclass(frozen=True)
@@ -63,8 +66,11 @@ def detect_format(session: dict) -> DraftFormat:
     return get_format("tournament")
 
 
-def parse_session(session: dict, format_name: str = "auto") -> LiveDraft:
+def parse_session(session: dict, format_name: str = "auto",
+                  roles_by_puuid: Mapping[str, str] | None = None) -> LiveDraft:
+    """`roles_by_puuid` (our players table) fills in roles when the client assigns no position."""
     fmt = detect_format(session) if format_name == "auto" else get_format(format_name)
+    known_roles = roles_by_puuid or {}
     my_team = _req(session, "myTeam", "session")
     their_team = _req(session, "theirTeam", "session")
     local_cell = _req(session, "localPlayerCellId", "session")
@@ -112,7 +118,10 @@ def parse_session(session: dict, format_name: str = "auto") -> LiveDraft:
             hover = 0
             if ours and not champ:
                 hover = pending_picks.get(cell) or selected or m.get("championPickIntent", 0) or 0
-            out.append(Slot(cell, POSITIONS.get(m.get("assignedPosition") or ""), champ, hover, cell == local_cell))
+            puuid = m.get("puuid") or None
+            role = POSITIONS.get(m.get("assignedPosition") or "") or (known_roles.get(puuid) if ours else None)
+            riot_id = f"{m['gameName']}#{m.get('tagLine', '')}" if m.get("gameName") else None
+            out.append(Slot(cell, role, champ, hover, cell == local_cell, puuid, riot_id))
         return tuple(out)
 
     our_slots, their_slots = slots(my_team, True), slots(their_team, False)

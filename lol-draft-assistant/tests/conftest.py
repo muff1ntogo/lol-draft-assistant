@@ -47,18 +47,22 @@ REAL_NAMES = {
 
 @pytest.fixture
 def make_services():
+    from draftassist.api.draftlog import DraftLogger
     from draftassist.api.live import LiveHub, LiveService
+    from draftassist.data.pools import PlayerDirectoryDb
     from draftassist.api.main import Services
     from draftassist.data.provider import ChampionCatalog
     from draftassist.engine.engine import DraftEngine
     from draftassist.engine.simulate import synthetic_data
 
-    def build(draft_format: str = "auto") -> Services:
+    def build(draft_format: str = "auto", db=None) -> Services:
         data, team = synthetic_data(names=REAL_NAMES)
         engine = DraftEngine(data, team)
         catalog = ChampionCatalog("16.21.1", {c: (n.replace("'", "").replace(" ", ""), n) for c, n in REAL_NAMES.items()})
         hub = LiveHub()
-        live = LiveService(engine, catalog, hub, "fixture", "test data", draft_format)
-        return Services(engine, catalog, "fixture", "test data", hub, live, lcu_mode="off")
+        logger = DraftLogger(db) if db is not None else None
+        players = PlayerDirectoryDb(db) if db is not None else None
+        live = LiveService(engine, catalog, hub, "fixture", "test data", draft_format, logger=logger, players=players)
+        return Services(hub, live, db, players, lcu_mode="off")
 
     return build

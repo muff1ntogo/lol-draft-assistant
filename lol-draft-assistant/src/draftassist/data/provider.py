@@ -5,7 +5,8 @@ from the OP.GG bootstrap (all-tier). Sources are never mixed inside a bracket. W
 towards 50% here (k = 50 role, 200 matchup/synergy). If neither source exists, everything falls
 back to synthetic data over the real champion ids.
 
-Pools are placeholders (each role's most-picked champions) until pools are imported in Phase 4.
+Our team comes from imported pools (data/pools.py); before any import, each role gets placeholder
+pools (its most-picked champions).
 """
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ from sqlmodel import Session, select
 
 from draftassist.data.aggregate import PAIR_K, ROLE_K, shrink
 from draftassist.data.ddragon import BASE_URL
+from draftassist.data.pools import load_team
 from draftassist.db.models import (
     BootstrapRoleStats,
     BracketTotal,
@@ -136,8 +138,13 @@ def load_engine_inputs(db: Engine) -> EngineInputs:
             source = kinds.pop() if len(kinds) == 1 else "mixed"
             per_bracket = ", ".join(f"{b} {sources[b]}" for b in BRACKETS)
             boot_note = f" (OP.GG all-tier, patch {boot[1]})" if "opgg" in sources.values() else ""
-            note = f"Stats: {per_bracket}{boot_note}; {PLACEHOLDER_POOL_NOTE}"
-            return EngineInputs(data, placeholder_team(data), catalog, source, note, sources)
+            team = load_team(db)
+            note = f"Stats: {per_bracket}{boot_note}"
+            if team is None:
+                team, note = placeholder_team(data), f"{note}; {PLACEHOLDER_POOL_NOTE}"
+            elif source == "crawl":
+                note = None  # real stats and real pools: nothing to warn about
+            return EngineInputs(data, team, catalog, source, note, sources)
 
     data, team = synthetic_data(names=names or None)
-    return EngineInputs(data, team, catalog, "fixture", FIXTURE_NOTE)
+    return EngineInputs(data, load_team(db) or team, catalog, "fixture", FIXTURE_NOTE)

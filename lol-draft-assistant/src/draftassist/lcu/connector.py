@@ -17,6 +17,7 @@ SESSION = "/lol-champ-select/v1/session"
 GAMEFLOW_PHASE = "/lol-gameflow/v1/gameflow-phase"
 GAMEFLOW_SESSION = "/lol-gameflow/v1/session"
 CURRENT_SUMMONER = "/lol-summoner/v1/current-summoner"
+END_OF_GAME = "/lol-end-of-game/v1/eog-stats-block"
 
 
 class ReadOnlyLcu:
@@ -34,12 +35,13 @@ class ReadOnlyLcu:
 
 class LcuConnector:
     """Calls on_session(session | None) for every champ select change (None = champ select ended),
-    on_phase(phase, gameflow_session) for gameflow changes, and on_status(text) for connection state.
-    Callbacks run on the connector thread."""
+    on_phase(phase, gameflow_session) for gameflow changes, on_end_of_game(stats) when a game ends,
+    and on_status(text) for connection state. Callbacks run on the connector thread."""
 
     def __init__(self, on_session: Callable[[dict | None], None], on_phase: Callable[[str, dict | None], None],
-                 on_status: Callable[[str], None]):
+                 on_status: Callable[[str], None], on_end_of_game: Callable[[dict | None], Any] | None = None):
         self.on_session, self.on_phase, self.on_status = on_session, on_phase, on_status
+        self.on_end_of_game = on_end_of_game
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
@@ -62,6 +64,8 @@ class LcuConnector:
             self.on_phase(phase or "None", await lcu.get(GAMEFLOW_SESSION))
             if phase == "ChampSelect":
                 self.on_session(await lcu.get(SESSION))
+            elif phase == "EndOfGame" and self.on_end_of_game is not None:
+                self.on_end_of_game(await lcu.get(END_OF_GAME))
 
         @connector.ws.register(SESSION, event_types=("CREATE", "UPDATE", "DELETE"))
         async def champ_select(connection, event):
@@ -69,7 +73,10 @@ class LcuConnector:
 
         @connector.ws.register(GAMEFLOW_PHASE, event_types=("UPDATE",))
         async def gameflow(connection, event):
-            self.on_phase(event.data, await ReadOnlyLcu(connection).get(GAMEFLOW_SESSION))
+            lcu = ReadOnlyLcu(connection)
+            self.on_phase(event.data, await lcu.get(GAMEFLOW_SESSION))
+            if event.data == "EndOfGame" and self.on_end_of_game is not None:
+                self.on_end_of_game(await lcu.get(END_OF_GAME))
 
         @connector.close
         async def closed(connection):

@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from collections.abc import Callable
+from typing import Any, Protocol
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from draftassist.api.draftlog import DraftLogger
 from draftassist.data.provider import ChampionCatalog
 from draftassist.engine.engine import DraftEngine, Suggestion
 from draftassist.engine.guards import strict_mode
@@ -20,6 +22,14 @@ from draftassist.lcu.parser import LiveDraft, SessionParseError, parse_session
 from draftassist.lcu.recorder import SessionRecorder
 
 log = logging.getLogger(__name__)
+
+class PlayerDirectory(Protocol):
+    """Our players: PUUID -> role for the parser, and filling PUUIDs from champ select teammates."""
+
+    def roles_by_puuid(self) -> dict[str, str]: ...
+
+    def resolve_from_session(self, members: list[dict]) -> int: ...
+
 
 HOVER_FLAG_RISK = 0.2  # log-odds; a hover whose best open counter wins its lane ~55%+ gets flagged
 IDLE_PHASES = {"None", "Lobby", "Matchmaking", "ReadyCheck"}  # gameflow phases that clear the screen
@@ -161,34 +171,43 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
 
 
 class LiveService:
-    """Turns client events into Live screen payloads. Safe to call from the connector thread."""
+    """Turns client events into Live screen payloads and draft logs. Safe to call from the
+    connector thread."""
 
     def __init__(self, engine: DraftEngine, catalog: ChampionCatalog, hub: LiveHub, data_source: str,
-                 note: str | None, draft_format: str = "auto", recorder: SessionRecorder | None = None):
+                 note: str | None, draft_format: str = "auto", recorder: SessionRecorder | None = None,
+                 logger: DraftLogger | None = None, players: PlayerDirectory | None = None,
+                 on_game_logged: Callable[[int], None] | None = None):
         self.engine, self.catalog, self.hub = engine, catalog, hub
         self.data_source, self.note, self.draft_format, self.recorder = data_source, note, draft_format, recorder
+        self.logger, self.players, self.on_game_logged = logger, players, on_game_logged
         self.client_status = "starting"
         self.gameflow_phase: str | None = None
         self.queue_id: int | None = None
+        self._resolved_for: int | None = None  # game id whose teammates were already matched to players
 
     def _waiting(self) -> dict:
         return {"status": "waiting", "message": "Waiting for champ select", "client": self.client_status,
                 "gameflow_phase": self.gameflow_phase, "data_source": self.data_source, "note": self.note}
 
-    def view(self, session: dict | None) -> dict:
+    def _build(self, session: dict | None) -> tuple[dict, LiveDraft | None]:
         if session is None:
-            return self._waiting()
+            return self._waiting(), None
         try:
-            live = parse_session(session, self.draft_format)
-            return build_live_view(self.engine, self.catalog, live, self.data_source, self.note)
+            roles = self.players.roles_by_puuid() if self.players else None
+            live = parse_session(session, self.draft_format, roles)
+            return build_live_view(self.engine, self.catalog, live, self.data_source, self.note), live
         except SessionParseError as e:
             log.error("could not parse champ select session: %s", e)
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": str(e)}, None
         except Exception:
             if strict_mode():
                 raise
             log.exception("live view failed")
-            return {"status": "error", "message": "Suggestion error (see server log)"}
+            return {"status": "error", "message": "Suggestion error (see server log)"}, None
+
+    def view(self, session: dict | None) -> dict:
+        return self._build(session)[0]
 
     def handle_session(self, session: dict | None) -> dict:
         if self.recorder is not None:
@@ -199,8 +218,14 @@ class LiveService:
         latest = self.hub.latest
         if session is None and latest.get("status") == "champ_select" and latest.get("phase") == "Locked in":
             return latest  # game is loading: keep win % and threats up until the client goes idle
-        payload = self.view(session)
+        payload, live = self._build(session)
         self.hub.publish_threadsafe(payload)
+        if live is not None:
+            if self.players is not None and self._resolved_for != (live.game_id or -1):
+                self._resolved_for = live.game_id or -1
+                self.players.resolve_from_session(session.get("myTeam") or [])
+            if self.logger is not None:
+                self.logger.observe(live, payload)
         return payload
 
     def handle_phase(self, phase: str, gameflow_session: dict | None) -> None:
@@ -209,8 +234,21 @@ class LiveService:
             self.queue_id = (gameflow_session.get("gameData") or {}).get("queue", {}).get("id")
             if self.recorder is not None and phase == "ChampSelect":
                 self.recorder.record("gameflow", gameflow_session)
+        if self.logger is not None:
+            self.logger.set_queue(self.queue_id)
+            self.logger.on_phase(phase)
         if phase in IDLE_PHASES:
             self.hub.publish_threadsafe(self._waiting())
+
+    def handle_end_of_game(self, eog: dict | None) -> int | None:
+        if self.recorder is not None and eog:
+            self.recorder.record("eog", eog)
+        if self.logger is None:
+            return None
+        draft_id = self.logger.on_end_of_game(eog)
+        if draft_id is not None and self.on_game_logged is not None:
+            self.on_game_logged(draft_id)
+        return draft_id
 
     def handle_status(self, status: str) -> None:
         self.client_status = status

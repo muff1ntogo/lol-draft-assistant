@@ -59,11 +59,15 @@ class Synergy(SQLModel, table=True):
 class Player(SQLModel, table=True):
     __tablename__ = "players"
 
-    puuid: str = Field(primary_key=True)
+    puuid: str = Field(primary_key=True)  # "unresolved:<role>" until account-v1 or the client gives the real one
     riot_id: str  # "Name#TAG"
     role: str
     rank: str
     bracket: str
+
+    @property
+    def resolved(self) -> bool:
+        return not self.puuid.startswith("unresolved:")
 
 
 class PoolEntry(SQLModel, table=True):
@@ -92,6 +96,9 @@ class Draft(SQLModel, table=True):
     result: str | None = None  # win | loss | None while unknown
     pred_win_prob: float | None = None
     style_tag: str | None = None
+    draft_format: str | None = None  # tournament | ranked
+    result_source: str | None = None  # lcu (end-of-game stats) | match-v5
+    match_verified: bool = False  # result and side confirmed against match-v5
 
 
 class DraftAction(SQLModel, table=True):

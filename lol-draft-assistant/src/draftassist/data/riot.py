@@ -151,3 +151,11 @@ class RiotClient:
 
     def match(self, match_id: str) -> dict | None:
         return self.get(REGION, f"/lol/match/v5/matches/{match_id}")
+
+    def account_puuid(self, riot_id: str) -> str | None:
+        """'Name#TAG' -> PUUID (account-v1), None if no such account."""
+        from urllib.parse import quote
+
+        name, _, tag = riot_id.partition("#")
+        body = self.get(REGION, f"/riot/account/v1/accounts/by-riot-id/{quote(name)}/{quote(tag)}")
+        return body.get("puuid") if body else None

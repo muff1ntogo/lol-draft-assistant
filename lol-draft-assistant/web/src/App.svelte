@@ -1,5 +1,12 @@
 <script>
   import Live from './Live.svelte';
+  import Pools from './Pools.svelte';
+  import History from './History.svelte';
+
+  const PAGES = { live: 'Live', pools: 'Pools', history: 'History' };
+  const pageFromHash = () => (location.hash.slice(2) in PAGES ? location.hash.slice(2) : 'live');
+  let page = $state(pageFromHash());
+  window.addEventListener('hashchange', () => (page = pageFromHash()));
 
   let view = $state({ status: 'waiting', message: 'Connecting to the assistant…' });
   let connected = $state(false);
@@ -28,14 +35,27 @@
   );
 </script>
 
+<nav>
+  {#each Object.entries(PAGES) as [key, label]}
+    <a href={`#/${key}`} class:active={page === key}>{label}</a>
+  {/each}
+  {#if view.status === 'champ_select' && page !== 'live'}
+    <a href="#/live" class="alert">Champ select live →</a>
+  {/if}
+</nav>
+
 {#if !connected}
   <div class="banner offline">Reconnecting to the assistant…</div>
 {/if}
-{#if view.data_source === 'fixture'}
-  <div class="banner fixture">{view.note ?? 'Synthetic data'}</div>
+{#if view.note}
+  <div class="banner fixture">{view.note}</div>
 {/if}
 
-{#if view.status === 'champ_select'}
+{#if page === 'pools'}
+  <Pools />
+{:else if page === 'history'}
+  <History />
+{:else if view.status === 'champ_select'}
   <Live {view} {secondsLeft} />
 {:else}
   <main class="idle">
@@ -46,6 +66,10 @@
 {/if}
 
 <style>
+  nav { display: flex; gap: 4px; padding: 0 20px; background: #090c10; border-bottom: 1px solid var(--line); }
+  nav a { padding: 10px 16px; color: var(--muted); text-decoration: none; font-size: 15px; border-bottom: 2px solid transparent; }
+  nav a.active { color: var(--text); border-color: var(--gold); }
+  nav a.alert { margin-left: auto; color: var(--gold); }
   .banner { padding: 6px 16px; font-size: 14px; text-align: center; }
   .offline { background: #6e2a2a; }
   .fixture { background: #3d3214; color: var(--gold); }
