@@ -13,6 +13,8 @@ class DraftState:
     format: DraftFormat
     our_side: Side
     actions: tuple[int, ...] = ()
+    # Teammate pick intents: (champion, role). Provisional; never counted as picks.
+    hovers: tuple[tuple[int, str], ...] = ()
 
     def __post_init__(self) -> None:
         if len(self.actions) > len(self.format):
@@ -53,7 +55,12 @@ class DraftState:
         return self.picks(self.their_side)
 
     def unavailable(self) -> frozenset[int]:
+        """The single source of truth for availability: every completed ban or pick by either
+        team. Skipped bans (0) and hovers don't count."""
         return frozenset(c for c in self.actions if c != SKIPPED)
+
+    def hovered_by(self, champ: int) -> str | None:
+        return next((role for c, role in self.hovers if c == champ), None)
 
     def picks_left(self, side: Side, after: int | None = None) -> int:
         """Pick steps for `side` strictly after step index `after` (default: the current step)."""
@@ -68,4 +75,4 @@ class DraftState:
             raise ValueError("only a ban can be skipped")
         if champ != SKIPPED and champ in self.unavailable():
             raise ValueError(f"champion {champ} is already banned or picked")
-        return DraftState(self.format, self.our_side, self.actions + (champ,))
+        return DraftState(self.format, self.our_side, self.actions + (champ,))  # hovers are per-event

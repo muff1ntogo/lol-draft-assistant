@@ -125,3 +125,5 @@ class EngineConfig:
     risk_horizon: int = 3  # counter risk is full once the enemy has this many picks left
     flex_bonus: float = 0.02
     lane_ban: LaneBanConfig = field(default_factory=LaneBanConfig)
+    min_ban_relevance: float = 0.10  # bans below this share of still-open roles are wasted
+    role_share_floor: float = 0.001  # P(champ in role) for roles with no data, when inferring filled roles

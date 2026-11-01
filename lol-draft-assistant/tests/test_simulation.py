@@ -40,15 +40,14 @@ def test_simulated_draft(synthetic, fmt, side):
         before = DraftState(fmt, side, final.actions[: rec.step.index])
         unavailable = before.unavailable()
         filled = set(engine.evaluate(before).our_roles.values())
-        their_filled = set(engine.evaluate(before).their_roles.values())
         for sug in rec.suggestions:
             assert sug.champ_id not in unavailable, f"step {rec.step.index + 1} suggested unavailable {sug.name}"
             assert sug.kind == rec.step.kind
             assert sug.reason
             if sug.kind == "pick":
                 assert sug.role not in filled
-            elif rec.step.phase == 2:
-                assert sug.enemy_prob > 0 and sug.role not in their_filled
+            else:
+                assert sug.relevance >= engine.cfg.min_ban_relevance and sug.value > 0
 
     slowest = max(r.seconds for r in our_turns)
     assert slowest < BUDGET_SECONDS, f"slowest suggestion set took {slowest * 1000:.0f} ms"

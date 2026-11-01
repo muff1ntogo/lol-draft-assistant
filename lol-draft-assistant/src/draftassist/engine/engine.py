@@ -13,6 +13,7 @@ import math
 from dataclasses import dataclass
 from itertools import combinations, permutations
 
+from draftassist.engine.guards import validate_suggestions
 from draftassist.engine.lane_ban import BracketLaneData, RoleBanTable, role_ban_table, team_lane_ban
 from draftassist.engine.model import (
     ROLE_LABELS,
@@ -60,12 +61,14 @@ class Evaluation:
 class Suggestion:
     champ_id: int
     name: str
-    kind: str  # ban | pick
+    kind: str  # ban | pick | enemy_pick
     value: float
     reason: str
-    role: str | None = None  # pick: our role for it; ban: the enemy's most likely role for it
+    role: str | None = None  # pick: our role for it; ban / enemy_pick: the enemy's most likely role
     win_prob: float | None = None  # pick: P(win) after the pick
-    enemy_prob: float | None = None  # ban: P(enemy picks it)
+    enemy_prob: float | None = None  # ban / enemy_pick: P(enemy picks it next)
+    relevance: float | None = None  # ban: share of its roles the enemy can still fill (API only)
+    warnings: tuple[str, ...] = ()  # e.g. "\u26a0 hovered by Mid"
 
 
 def _pct(p: float) -> str:
@@ -81,6 +84,7 @@ class DraftEngine:
         self.data, self.team, self.cfg = data, team, config or EngineConfig()
         self._champs = sorted(data.champions())
         self._lane_data = BracketLaneData(data, team, self.cfg.enemy_bracket)
+        self._role_shares = self._enemy_role_shares()
         self._assign_cache: dict[tuple, tuple[float, dict[int, str]]] = {}
 
     # ---------- lookups ----------
@@ -105,6 +109,16 @@ class DraftEngine:
         if side == US:
             return self.cfg.alpha * self._m(champ, role, self._our_bracket(role)) + self.cfg.beta * self._comfort(champ, role)
         return self._m(champ, role, self._enemy())
+
+    def _enemy_role_shares(self) -> dict[int, dict[str, float]]:
+        """P(champion is played in role) from the enemy bracket's pick rates."""
+        shares = {}
+        for c in self._champs:
+            rates = {r: s.pick_rate for r in ROLES if (s := self._enemy().role_stat(c, r)) and s.pick_rate > 0}
+            total = sum(rates.values())
+            if total > 0:
+                shares[c] = {r: v / total for r, v in rates.items()}
+        return shares
 
     # ---------- role assignment ----------
     def _assign(self, side: str, champs: tuple[int, ...], roles: tuple[str, ...] = ROLES) -> tuple[float, dict[int, str]]:
@@ -160,6 +174,34 @@ class DraftEngine:
 
     def win_prob(self, state: DraftState) -> float:
         return self.evaluate(state).win_prob
+
+    # ---------- wasted-ban filter ----------
+    def role_filled_probs(self, state: DraftState) -> dict[str, float]:
+        """P(enemy role r is filled), from a softmax over every assignment of their revealed picks
+        scored by sum of log P(champ played in role). A 60/40 flex pick fills mid 60%, jungle 40%."""
+        theirs = state.their_picks
+        filled = dict.fromkeys(ROLES, 0.0)
+        if not theirs:
+            return filled
+        floor = self.cfg.role_share_floor
+        scored = []
+        for perm in permutations(ROLES, len(theirs)):
+            s = sum(math.log(max(self._role_shares.get(c, {}).get(r, 0.0), floor)) for c, r in zip(theirs, perm))
+            scored.append((s, perm))
+        top = max(s for s, _ in scored)
+        weights = [(math.exp(s - top), perm) for s, perm in scored]
+        z = sum(w for w, _ in weights)
+        for w, perm in weights:
+            for r in perm:
+                filled[r] += w / z
+        return filled
+
+    def ban_relevance(self, state: DraftState) -> dict[int, float]:
+        """relevance(X) = sum_r P(X played in r) * (1 - P(r filled)), for every available champion."""
+        filled = self.role_filled_probs(state)
+        unavailable = state.unavailable()
+        return {c: sum(p * (1 - filled[r]) for r, p in self._role_shares.get(c, {}).items())
+                for c in self._champs if c not in unavailable}
 
     # ---------- enemy model ----------
     def _enemy_role_probs(self, state: DraftState, their_roles: dict[int, str]) -> dict[int, dict[str, float]]:
@@ -226,16 +268,17 @@ class DraftEngine:
         return self._lane_ban_tables(state, self._evaluate(state))
 
     def suggest_bans(self, state: DraftState, k: int = 3) -> list[Suggestion]:
-        """Ban value = P(enemy picks c) * harm(c) + gamma * 0.04 * TeamLaneBan(c).
-        Phase 2 bans only consider the enemy's open roles; filled roles add no lane value."""
+        """Ban value = relevance(c) * [P(enemy picks c) * harm(c) + gamma * 0.04 * TeamLaneBan(c)].
+        Champions with relevance < min_ban_relevance (roles the enemy already filled) and bans with
+        value <= 0 are never suggested."""
         self._assign_cache.clear()
         lane_cfg = self.cfg.lane_ban
         ours, theirs = state.our_picks, state.their_picks
         ev = self._evaluate(state)
         base = ev.terms.total
         role_probs = self._enemy_role_probs(state, ev.their_roles)
-        phase2 = state.step is not None and state.step.phase == 2
         unavailable = state.unavailable()
+        relevance = self.ban_relevance(state)
         tables = self._lane_ban_tables(state, ev)
         team_lane = team_lane_ban(tables.values())
 
@@ -243,19 +286,26 @@ class DraftEngine:
         for c in self._champs:
             if c in unavailable:
                 continue
+            rel = relevance.get(c, 0.0)
+            if rel < self.cfg.min_ban_relevance:
+                continue
             rp = role_probs.get(c, {})
             p = sum(rp.values())
-            if phase2 and p == 0:
-                continue
             their_roles = self._assign_plus(THEM, tuple(theirs), c, list(ROLES))
             harm = base - self._terms(ours, ev.our_roles, theirs + [c], their_roles).total
             lift = lane_cfg.gamma * lane_cfg.pp_to_logodds * team_lane.get(c, 0.0)
-            value = p * harm + lift
-            likely_role = max(rp, key=rp.get) if rp else their_roles[c]
+            value = rel * (p * harm + lift)
+            if value <= 0:
+                continue
+            shares = self._role_shares[c]
+            likely_role = max(rp, key=rp.get) if rp else max(shares, key=shares.get)
             reason = self._ban_reason(c, p, likely_role, p * harm, lift, tables)
-            out.append(Suggestion(c, self.data.name(c), "ban", value, reason, role=likely_role, enemy_prob=p))
+            hover = state.hovered_by(c)
+            warnings = (f"\u26a0 hovered by {ROLE_LABELS[hover]}",) if hover else ()
+            out.append(Suggestion(c, self.data.name(c), "ban", value, reason, role=likely_role, enemy_prob=p,
+                                  relevance=rel, warnings=warnings))
         out.sort(key=lambda s: (-s.value, s.champ_id))
-        return out[:k]
+        return validate_suggestions(state, "ban", out[:k], self.cfg.min_ban_relevance)
 
     def _ban_reason(self, c: int, p: float, role: str, threat: float, lift: float,
                     tables: dict[str, RoleBanTable]) -> str:
@@ -315,7 +365,20 @@ class DraftEngine:
             reason = self._pick_reason(c, r_c, ours, ev.their_roles, flex_roles, flex, cfg.risk_weight * risk, counter)
             out.append(Suggestion(c, self.data.name(c), "pick", value, reason, role=r_c, win_prob=win))
         out.sort(key=lambda s: (-s.value, s.champ_id))
-        return out[:k]
+        return validate_suggestions(state, "pick", out[:k])
+
+    def likely_enemy_picks(self, state: DraftState, k: int = 3) -> list[Suggestion]:
+        """The enemy's most likely next picks (shown on their turn)."""
+        self._assign_cache.clear()
+        ev = self._evaluate(state)
+        out = []
+        for c, rp in self._enemy_role_probs(state, ev.their_roles).items():
+            p = sum(rp.values())
+            role = max(rp, key=rp.get)
+            out.append(Suggestion(c, self.data.name(c), "enemy_pick", p, f"{_pct(p)} likely, {ROLE_LABELS[role]}",
+                                  role=role, enemy_prob=p))
+        out.sort(key=lambda s: (-s.value, s.champ_id))
+        return validate_suggestions(state, "enemy_pick", out[:k])
 
     def _pick_reason(self, c: int, role: str, ours: list[int], their_roles: dict[int, str],
                      flex_roles: list[str], flex: float, risk: float, counter: int | None) -> str:

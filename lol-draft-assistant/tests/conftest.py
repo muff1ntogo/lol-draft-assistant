@@ -17,6 +17,12 @@ SAMPLE_CHAMPIONS = {
 }
 
 
+@pytest.fixture(autouse=True)
+def strict_guards(monkeypatch):
+    """Suggestion guards raise instead of dropping (engine/guards.py)."""
+    monkeypatch.setenv("DRAFTASSIST_STRICT", "1")
+
+
 @pytest.fixture
 def engine(tmp_path: Path):
     return init_db(tmp_path / "test.sqlite")
