@@ -1,6 +1,6 @@
 """Crawl current-patch ranked matches for the Iron, Gold and Emerald brackets.
 
-1. Seed players per bracket from league-v4 (Solo/Duo ladder, all four divisions).
+1. Seed players per bracket (every tier from Iron to Emerald) from league-v4, all four divisions.
 2. For each seed (least recently crawled first, round-robin across brackets) pull ranked Solo/Duo
    and Flex match ids from the last two weeks.
 3. Fetch each new match; keep it if it is on the current patch and not a remake; store
@@ -26,8 +26,8 @@ from draftassist.db.models import Champion, CrawledMatch, MatchBan, MatchPartici
 
 log = logging.getLogger(__name__)
 
-BRACKETS = ("iron", "gold", "emerald")  # the spec's brackets: our players' plus the Gold enemy prior
 LEAGUE_TIERS = ("iron", "bronze", "silver", "gold", "platinum", "emerald", "diamond")  # league-v4 tiers with divisions
+BRACKETS = LEAGUE_TIERS[: LEAGUE_TIERS.index("emerald") + 1]  # crawled by default: every tier up to Emerald
 DIVISIONS = ("I", "II", "III", "IV")
 QUEUES = (420, 440)  # ranked Solo/Duo, ranked Flex
 POSITIONS = {"TOP": "top", "JUNGLE": "jungle", "MIDDLE": "mid", "BOTTOM": "adc", "UTILITY": "support"}
@@ -36,7 +36,7 @@ LOOKBACK_S = 14 * 86_400
 
 
 def brackets_in_use(db: Engine, enemy_bracket: str = "gold") -> tuple[str, ...]:
-    """The spec's brackets plus any bracket a player is set to, in ladder order."""
+    """Every tier up to Emerald, plus any bracket a player is set to (e.g. Diamond), in ladder order."""
     from draftassist.db.models import Player
 
     with Session(db) as s:
@@ -144,12 +144,17 @@ class Crawler:
                 deadline is not None and self._clock() >= deadline)
 
         queues = {b: self._next_players(b, 10_000) for b in self.brackets}
-        while not done() and any(queues.values()):
-            for bracket in self.brackets:
-                if done() or not queues[bracket]:
-                    continue
-                player = queues[bracket].pop(0)
-                self._crawl_player(player, bracket, start_time, ids_per_queue, stats, done)
+        with Session(self.db) as s:
+            have = {b: len(s.exec(select(CrawledMatch.match_id).where(
+                CrawledMatch.patch == self.patch, CrawledMatch.bracket == b)).all()) for b in self.brackets}
+        while not done():
+            # Serve the bracket with the fewest matches so far, so every bracket fills up evenly
+            # even when some brackets' seeds turn out inactive.
+            open_brackets = [b for b in self.brackets if queues[b]]
+            if not open_brackets:
+                break
+            bracket = min(open_brackets, key=lambda b: (have[b] + stats.stored[b], self.brackets.index(b)))
+            self._crawl_player(queues[bracket].pop(0), bracket, start_time, ids_per_queue, stats, done)
         return stats
 
     def _crawl_player(self, player: SeedPlayer, bracket: str, start_time: int, ids_per_queue: int,

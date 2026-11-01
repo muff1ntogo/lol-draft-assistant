@@ -320,7 +320,8 @@ def test_provider_uses_bootstrap_then_crawl(engine, session, tmp_path, monkeypat
     crawler.run(max_matches=10)
     aggregate(engine, "16.21")
     inp = load_engine_inputs(engine)
-    assert inp.sources == {"iron": "opgg", "gold": "crawl", "emerald": "opgg"} and inp.data_source == "mixed"
+    assert inp.sources["gold"] == "crawl" and set(inp.sources.values()) == {"opgg", "crawl"}
+    assert inp.data_source == "mixed"
     gold = inp.data.brackets["gold"]
     assert gold.role_stat(1, "top").win_rate == pytest.approx(shrink(1, 2, 50))
     assert gold.role_stat(1, "top").pick_rate == pytest.approx(2 / 2)  # picks / matches
@@ -364,7 +365,7 @@ def test_any_player_bracket_gets_stats(engine, session):
          "win": 500, "pick_rate": 0.1, "ban_rate": 0.0, "role_rate": 0.9} for i, c in enumerate(BLUE + RED)])
     set_players(engine, [{"role": "adc", "riot_id": "Adc#EUW", "rank": "Plat IV", "bracket": "platinum"}])
     inp = load_engine_inputs(engine)
-    assert {"iron", "gold", "emerald", "platinum"} <= set(inp.data.brackets)
+    assert {"iron", "bronze", "silver", "gold", "platinum", "emerald"} <= set(inp.data.brackets)
     assert inp.sources["platinum"] == "opgg"
 
 
@@ -372,6 +373,21 @@ def test_coverage_and_crawl_default_to_brackets_in_use(engine, session):
     from draftassist.data.crawler import brackets_in_use
     from draftassist.data.pools import set_players
 
-    assert brackets_in_use(engine) == ("iron", "gold", "emerald")
-    set_players(engine, [{"role": "adc", "riot_id": "Adc#EUW", "bracket": "platinum"}])
-    assert brackets_in_use(engine) == ("iron", "gold", "platinum", "emerald")
+    every_tier_to_emerald = ("iron", "bronze", "silver", "gold", "platinum", "emerald")
+    assert brackets_in_use(engine) == every_tier_to_emerald
+    set_players(engine, [{"role": "adc", "riot_id": "Adc#EUW", "bracket": "diamond"}])
+    assert brackets_in_use(engine) == every_tier_to_emerald + ("diamond",)
+
+
+def test_crawler_serves_the_emptiest_bracket_first(engine, session, tmp_path):
+    # Gold already has a match; the next run must go to Iron before Gold.
+    add_champions(session, BLUE + RED)
+    with Session(engine) as s:
+        s.add(SeedPlayer(puuid="g1", bracket="gold", tier="GOLD", division="I"))
+        s.add(SeedPlayer(puuid="i1", bracket="iron", tier="IRON", division="I"))
+        s.add(CrawledMatch(match_id="EUW1_1", patch="16.21", bracket="gold", queue_id=420, game_start_ms=0))
+        s.commit()
+    fake = FakeRiot({"g1": [make_match("EUW1_40", BLUE, RED)], "i1": [make_match("EUW1_41", BLUE, RED)]})
+    crawler = Crawler(riot_client(tmp_path, fake), engine, "16.21", brackets=("iron", "gold"), clock=lambda: 1_793_000_000)
+    stats = crawler.run(max_matches=1)
+    assert stats.stored == {"iron": 1, "gold": 0}
