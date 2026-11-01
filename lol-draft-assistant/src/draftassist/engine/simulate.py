@@ -55,7 +55,8 @@ def synthetic_data(seed: int = 7, n_champs: int = 170,
 
     tiers = {}
     for r in ROLES:
-        pool = rng.sample([c for c in ids if r in champ_roles[c]], 4)
+        in_role = [c for c in ids if r in champ_roles[c]]
+        pool = rng.sample(in_role, min(4, len(in_role)))
         tiers[r] = dict(zip(pool, ("main", "comfortable", "comfortable", "learning")))
     names = dict(names) if names else {c: f"Champ{c}" for c in ids}
     return EngineData(brackets, names), OurTeam.from_tiers(tiers, TEAM_BRACKETS)

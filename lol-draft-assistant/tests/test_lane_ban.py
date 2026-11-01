@@ -167,3 +167,12 @@ def test_ban_score_is_exact_change_in_expected_quality(seed):
     for x in w:
         rest = {k: v for k, v in w.items() if k != x}
         assert abs(scores[x].ban - (expected_quality(rest, resp) - mu)) < 1e-9
+
+
+def test_missing_data_never_favours_banning_our_own_pool_champion():
+    # OPP1 is also in our pool. With no matchup data, its Resp must equal every other opponent's
+    # (the same baseline), so no ban preference comes from missing data alone.
+    data = provider(matchups={}, role_wrs={("top", OPP1): 0.53, ("top", OURS_MAIN): 0.51})
+    rows = rows_by_opp(role_ban_table(data, "top", {OPP1: "main", OURS_MAIN: "main"}))
+    assert all(r.resp == pytest.approx(3.0) for r in rows.values())
+    assert all(r.ban == pytest.approx(0.0) for r in rows.values())

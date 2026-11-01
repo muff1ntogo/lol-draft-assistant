@@ -30,7 +30,7 @@ class ChampRoleStats(SQLModel, table=True):
     games: int = 0
     wins: int = 0
     picks: int = 0
-    bans: int = 0
+    bans: int = 0  # champion-level: matches where it was banned (same on each of its role rows)
 
 
 class Matchup(SQLModel, table=True):
@@ -104,3 +104,69 @@ class DraftAction(SQLModel, table=True):
     champ_id: int  # 0 = skipped ban
     our_rank: int | None = None  # rank of the actual choice among our suggestions
     suggestions_json: str | None = None
+
+
+# ---------- crawl (Phase 3) ----------
+class SeedPlayer(SQLModel, table=True):
+    """Ranked players per bracket whose match histories feed the crawl."""
+    __tablename__ = "seed_players"
+
+    puuid: str = Field(primary_key=True)
+    bracket: str = Field(index=True)
+    tier: str  # league-v4 tier, e.g. GOLD
+    division: str  # I-IV
+    last_crawled_at: datetime | None = None  # timezone-aware (UTC)
+
+
+class CrawledMatch(SQLModel, table=True):
+    __tablename__ = "crawled_matches"
+
+    match_id: str = Field(primary_key=True)  # e.g. EUW1_7123456789
+    patch: str = Field(index=True)  # major.minor, e.g. 16.21
+    bracket: str = Field(index=True)  # bracket of the seed player it was found through
+    queue_id: int
+    game_start_ms: int
+
+
+class MatchParticipant(SQLModel, table=True):
+    __tablename__ = "match_participants"
+
+    match_id: str = Field(primary_key=True, foreign_key="crawled_matches.match_id")
+    champ_id: int = Field(primary_key=True)
+    team_id: int  # 100 blue, 200 red
+    role: str  # engine role
+    win: bool
+
+
+class MatchBan(SQLModel, table=True):
+    __tablename__ = "match_bans"
+
+    match_id: str = Field(primary_key=True, foreign_key="crawled_matches.match_id")
+    team_id: int = Field(primary_key=True)
+    pick_turn: int = Field(primary_key=True)
+    champ_id: int  # -1 when no ban
+
+
+class BracketTotal(SQLModel, table=True):
+    """Matches aggregated per patch and bracket: the denominator for pick and ban rates."""
+    __tablename__ = "bracket_totals"
+
+    patch: str = Field(primary_key=True)
+    bracket: str = Field(primary_key=True)
+    matches: int = 0
+
+
+class BootstrapRoleStats(SQLModel, table=True):
+    """OP.GG lane meta (all-tier aggregate), used for a bracket until our crawl covers it."""
+    __tablename__ = "bootstrap_role_stats"
+
+    patch: str = Field(primary_key=True)
+    champ_id: int = Field(primary_key=True)
+    role: str = Field(primary_key=True)
+    games: int
+    wins: int
+    pick_rate: float
+    ban_rate: float
+    role_rate: float  # share of the champion's games played in this role
+    source: str = "opgg"
+    fetched_at: datetime  # timezone-aware (UTC)

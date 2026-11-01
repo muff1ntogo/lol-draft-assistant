@@ -90,11 +90,12 @@ def ban_scores(w: Mapping[int, float], resp: Mapping[int, float]) -> dict[int, B
 # ---------- per role ----------
 def _resp(data: LaneBanData, role: str, opp: int, answers: list[int], tiers: Mapping[int, str],
           cfg: LaneBanConfig) -> tuple[float, int | None, str | None]:
-    candidates = [p for p in answers if p != opp]
-    if not candidates:
+    if not answers:
         return 0.0, None, NO_ELIGIBLE_POOL
     best: tuple[float, int] | None = None
-    for p in candidates:
+    for p in answers:
+        if p == opp:  # no mirror matchups: if they have X, we can't play X
+            continue
         wr = data.matchup_wr(role, p, opp)
         if wr is None:
             continue
@@ -106,8 +107,9 @@ def _resp(data: LaneBanData, role: str, opp: int, answers: list[int], tiers: Map
             best = (value, p)
     if best is not None:
         return best[0], best[1], None
-    # No matchup data: the player's baseline with their best champion in the role.
-    role_wrs = [wr for p in candidates if (wr := data.role_wr(p, role)) is not None]
+    # No matchup data: the player's baseline with their best champion in the role. The same for
+    # every such opponent (X itself not excluded), so missing data never creates a ban preference.
+    role_wrs = [wr for p in answers if (wr := data.role_wr(p, role)) is not None]
     if not role_wrs:
         return 0.0, None, NO_MATCHUP_DATA
     top = max(role_wrs)
