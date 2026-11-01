@@ -13,3 +13,6 @@ fixtures/lcu/recorded/
 *.sqlite-wal
 *.sqlite-shm
 *.sqlite-journal
+
+# Visual review screenshots can show real player names: kept local
+tests/screenshots/

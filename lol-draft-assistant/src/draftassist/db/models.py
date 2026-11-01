@@ -99,6 +99,11 @@ class Draft(SQLModel, table=True):
     draft_format: str | None = None  # tournament | ranked
     result_source: str | None = None  # lcu (end-of-game stats) | match-v5
     match_verified: bool = False  # result and side confirmed against match-v5
+    game_length_s: int | None = None
+    patch: str | None = None  # major.minor the game was played on
+    ddragon_version: str | None = None  # champion art version for that patch, e.g. 16.21.1
+    players_json: str | None = None  # our role -> in-game name
+    recap_cache: str | None = None  # JSON: lane matchups computed on first view
 
 
 class DraftAction(SQLModel, table=True):
@@ -111,6 +116,8 @@ class DraftAction(SQLModel, table=True):
     champ_id: int  # 0 = skipped ban
     our_rank: int | None = None  # rank of the actual choice among our suggestions
     suggestions_json: str | None = None
+    win_prob_after: float | None = None  # model P(win) after this step (backfilled for old games)
+    role: str | None = None  # our picks: the role the client gave the player
 
 
 # ---------- crawl (Phase 3) ----------

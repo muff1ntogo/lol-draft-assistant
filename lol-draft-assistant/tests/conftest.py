@@ -63,6 +63,8 @@ def make_services():
         logger = DraftLogger(db) if db is not None else None
         players = PlayerDirectoryDb(db) if db is not None else None
         live = LiveService(engine, catalog, hub, "fixture", "test data", draft_format, logger=logger, players=players)
+        if logger is not None:
+            logger.context = lambda: (live.engine, live.catalog)
         return Services(hub, live, db, players, lcu_mode="off")
 
     return build

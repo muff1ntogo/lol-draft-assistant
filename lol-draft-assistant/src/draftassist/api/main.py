@@ -22,7 +22,7 @@ from sqlalchemy import Engine
 from sqlmodel import Session
 
 from draftassist.api.draftlog import DraftLogger
-from draftassist.api.history import history
+from draftassist.api.recap import history_filters, history_rows, recap
 from draftassist.api.live import LiveHub, LiveService
 from draftassist.config import PROJECT_ROOT, Settings, load_settings
 from draftassist.data import ddragon
@@ -135,6 +135,8 @@ def build_services(settings: Settings) -> Services:
 
     live = LiveService(engine, inputs.catalog, hub, inputs.data_source, inputs.note, settings.draft_format,
                        recorder, logger, players, verify_later)
+    if logger is not None:
+        logger.context = lambda: (live.engine, live.catalog)
     return Services(hub, live, db, players, settings.lcu_mode, settings, stats_version(db))
 
 
@@ -233,6 +235,17 @@ def lane_ban_report(engine: DraftEngine) -> list[dict]:
         }
         for r in ROLES
     ]
+
+
+class UIFiles(StaticFiles):
+    """The built UI. index.html is revalidated on every load so an updated app never runs a stale
+    bundle; the hashed asset files can be cached."""
+
+    def file_response(self, full_path, *args, **kwargs):
+        response = super().file_response(full_path, *args, **kwargs)
+        if str(full_path).endswith(".html"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 def _db(svc: Services) -> Engine:
@@ -357,12 +370,49 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
 
     # ---------- history ----------
     @app.get("/api/history")
-    def get_history(request: Request, limit: int = 50) -> list[dict]:
+    def get_history(request: Request, queue: str | None = None, side: str | None = None,
+                    result: str | None = None, patch: str | None = None) -> dict:
         svc: Services = request.app.state.services
-        return history(_db(svc), svc.catalog, limit)
+        rows = history_rows(_db(svc), svc.catalog, queue or None, side or None, result or None, patch or None)
+        return {"games": rows, "filters": history_filters(history_rows(_db(svc), svc.catalog))}
+
+    @app.get("/api/history/{draft_id}")
+    def get_recap(request: Request, draft_id: int) -> dict:
+        svc: Services = request.app.state.services
+        body = recap(_db(svc), svc.engine, svc.catalog, draft_id)
+        if body is None:
+            raise HTTPException(404, "no such game")
+        return body
+
+    @app.get("/api/art/{version}/{kind}/{key}")
+    def get_art(request: Request, version: str, kind: str, key: str):
+        """Data Dragon champion art pinned to a patch, fetched once and cached on disk."""
+        import re
+
+        from fastapi.responses import FileResponse
+
+        if not re.fullmatch(r"\d+\.\d+\.\d+", version) or not re.fullmatch(r"[A-Za-z0-9]+", key) \
+                or kind not in ("square", "loading"):
+            raise HTTPException(404)
+        svc: Services = request.app.state.services
+        cache_dir = svc.settings.cache_dir if svc.settings else PROJECT_ROOT / "cache"
+        ext = "png" if kind == "square" else "jpg"
+        path = cache_dir / "ddragon" / "art" / version / kind / f"{key}.{ext}"
+        if not path.is_file():
+            url = (f"{ddragon.BASE_URL}/cdn/{version}/img/champion/{key}.png" if kind == "square"
+                   else f"{ddragon.BASE_URL}/cdn/img/champion/loading/{key}_0.jpg")
+            try:
+                resp = httpx.get(url, timeout=15)
+            except httpx.HTTPError:
+                raise HTTPException(404) from None
+            if resp.status_code != 200:
+                raise HTTPException(404)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(resp.content)
+        return FileResponse(path, headers={"Cache-Control": "public, max-age=604800"})
 
     if (web_dist / "index.html").is_file():
-        app.mount("/", StaticFiles(directory=web_dist, html=True), name="web")
+        app.mount("/", UIFiles(directory=web_dist, html=True), name="web")
     else:
         @app.get("/", response_class=HTMLResponse)
         def no_ui() -> str:

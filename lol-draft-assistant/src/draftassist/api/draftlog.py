@@ -38,6 +38,8 @@ class _Pending:
     shown: dict[int, dict] = field(default_factory=dict)  # step index -> {"kind", "items": [...]}
     pred_win_prob: float | None = None
     draft_id: int | None = None
+    players: dict[str, str] = field(default_factory=dict)  # our role -> in-game name
+    pick_roles: dict[int, str] = field(default_factory=dict)  # our locked champion -> role
 
 
 def _snapshot(center: dict) -> dict | None:
@@ -88,9 +90,12 @@ def parse_eog(eog: dict | None) -> tuple[int | None, str | None, str | None]:
 
 
 class DraftLogger:
-    def __init__(self, db: Engine, clock=lambda: datetime.now(timezone.utc)):
+    def __init__(self, db: Engine, clock=lambda: datetime.now(timezone.utc), context=None):
+        """`context()` -> (DraftEngine, ChampionCatalog) of the live service, for P(win) after each
+        step and the game's patch; without it those fields are filled in on first view."""
         self.db = db
         self._clock = clock
+        self.context = context
         self.pending: _Pending | None = None
 
     # ---------- champ select ----------
@@ -114,6 +119,11 @@ class DraftLogger:
                     p.shown[i] = snap
         if center.get("mode") == "locked":
             p.pred_win_prob = center.get("win_prob")
+        for slot in live.our_slots:
+            if slot.role and slot.riot_id:
+                p.players[slot.role] = slot.riot_id.split("#")[0]
+            if slot.role and slot.champ_id:
+                p.pick_roles[slot.champ_id] = slot.role
         p.actions = st.actions
         if p.draft_id is not None:
             self._write(p)
@@ -152,6 +162,8 @@ class DraftLogger:
                 return None
             if game_id and not draft.game_id:
                 draft.game_id = game_id
+            if eog and eog.get("gameLength") is not None:
+                draft.game_length_s = int(eog["gameLength"])
             if result:
                 draft.result, draft.result_source = result, "lcu"
             if side and side != draft.side:
@@ -176,6 +188,16 @@ class DraftLogger:
             draft.queue_id = p.queue_id if p.queue_id is not None else draft.queue_id
             draft.draft_format = p.draft_format
             draft.pred_win_prob = p.pred_win_prob if p.pred_win_prob is not None else draft.pred_win_prob
+            if p.players:
+                draft.players_json = json.dumps(p.players)
+            win_probs: list[float | None] = [None] * len(p.actions)
+            if self.context is not None:
+                engine, catalog = self.context()
+                if catalog.patch and not draft.patch:
+                    draft.ddragon_version = catalog.patch
+                    draft.patch = ".".join(catalog.patch.split(".")[:2])
+                fmt = get_format(p.draft_format)
+                win_probs = [engine.win_prob(DraftState(fmt, p.side, p.actions[: i + 1])) for i in range(len(p.actions))]
             s.add(draft)
             s.flush()
             p.draft_id = draft.draft_id
@@ -183,7 +205,9 @@ class DraftLogger:
             for i, champ in enumerate(p.actions):
                 shown = p.shown.get(i)
                 ids = [item["champ_id"] for item in shown["items"]] if shown else []
+                ours_pick = steps[i].kind == "pick" and steps[i].side == p.side
                 s.add(DraftAction(draft_id=draft.draft_id, seq=i + 1, side=steps[i].side, type=steps[i].kind,
                                   champ_id=champ, our_rank=ids.index(champ) + 1 if champ in ids else None,
-                                  suggestions_json=json.dumps(shown) if shown else None))
+                                  suggestions_json=json.dumps(shown) if shown else None,
+                                  win_prob_after=win_probs[i], role=p.pick_roles.get(champ) if ours_pick else None))
             s.commit()

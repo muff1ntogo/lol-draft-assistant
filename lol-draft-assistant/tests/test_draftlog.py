@@ -57,20 +57,20 @@ def final_actions(events):
 def test_game_appears_in_history_with_result_side_and_every_action(svc, side, won):
     events, draft_id = play(svc, side, 7_100_000_001, won)
     assert draft_id is not None
-    with TestClient(create_app(svc)) as client:
-        (game,) = client.get("/api/history").json()
-    assert game["game_id"] == 7_100_000_001 and game["side"] == side
-    assert game["result"] == ("win" if won else "loss") and game["result_source"] == "lcu"
-    assert game["format"] == "tournament" and 0 < game["pred_win_prob"] < 1
-    actions = game["actions"]
-    assert [a["seq"] for a in actions] == list(range(1, 21))
+    with TestClient(create_app(svc, stats_refresh_s=0)) as client:
+        (row,) = client.get("/api/history").json()["games"]
+        game = client.get(f"/api/history/{row['draft_id']}").json()
+    assert row["game_id"] == 7_100_000_001 and row["side"] == side == game["header"]["side"]
+    assert row["result"] == ("win" if won else "loss") == game["header"]["result"] and row["result_source"] == "lcu"
+    assert game["header"]["format"] == "tournament" and 0 < row["pred_win_prob"] < 1
+    actions = game["table"]
+    assert [a["step"] for a in actions] == list(range(1, 21))
     assert [a["champ"]["id"] if a["champ"] else 0 for a in actions] == final_actions(events)
     assert [(a["side"], a["type"]) for a in actions] == [(s.side, s.kind) for s in TOURNAMENT.steps]
-    # the demo follows our top suggestion, and the enemy picks our most likely prediction
-    assert game["summary"]["our_turns"] == 10 and game["summary"]["followed_top"] == 10
-    assert game["summary"]["enemy_picks_predicted"] == 5 and game["summary"]["enemy_picks_in_our_top3"] == 5
-    ours = [a for a in actions if a["ours"]]
-    assert all(a["shown_kind"] == "suggested" and a["our_rank"] == 1 and a["shown"] for a in ours)
+    # the demo follows our top suggestion on every one of our turns
+    assert row["our_turns"] == 10 and row["followed_top"] == 10
+    assert [f["rank"] for f in game["review"]["followed"]] == ["1"] * 10
+    assert all(0 < a["win_prob"] < 1 for a in actions)  # stored at draft time
 
 
 def test_dodge_is_not_logged(svc, engine):
