@@ -54,6 +54,16 @@ class Slot:
 
 
 @dataclass(frozen=True)
+class AllyBan:
+    """One of our players' ban actions (standard ranked: all five happen at once)."""
+    cell_id: int
+    role: str | None
+    player: str | None  # in-game name, when the client exposes it
+    status: str  # pending | hovering | locked | skipped
+    champ_id: int  # hovered or locked champion, 0 otherwise
+
+
+@dataclass(frozen=True)
 class LiveDraft:
     state: DraftState
     our_slots: tuple[Slot, ...]
@@ -65,6 +75,7 @@ class LiveDraft:
     game_id: int | None
     ally_action: str | None = None  # "ban" | "pick" while one of our actions is in progress
     ally_ban_hovers: frozenset[int] = frozenset()  # champions teammates are about to ban
+    ally_bans: tuple[AllyBan, ...] = ()  # our ban actions in a simultaneous ban phase
 
 
 def detect_format(session: dict) -> DraftFormat:
@@ -105,10 +116,15 @@ def parse_session(session: dict, format_name: str = "auto",
     locked: dict[int, int] = {}  # actor cell -> locked champion (completed pick action)
     ally_cell = enemy_cell = ally_action = None
     ally_ban_hovers: set[int] = set()
+    ally_ban_actions: list[tuple[int, str, int]] = []  # (actor cell, status, champion)
     for a in actions:
         ally = _req(a, "isAllyAction", "actions[]")
         side = our_side if ally else their_side
         champ = _req(a, "championId", "actions[]")
+        if ally and a["type"] == "ban" and fmt.simultaneous_bans:
+            done = _req(a, "completed", "actions[]")
+            status = ("locked" if champ > 0 else "skipped") if done else ("hovering" if champ > 0 else "pending")
+            ally_ban_actions.append((_req(a, "actorCellId", "actions[]"), status, max(champ, 0)))
         if _req(a, "completed", "actions[]"):
             if a["type"] == "ban":
                 completed[(side, "ban")].append(champ if champ > 0 else SKIPPED)  # -1 = skipped
@@ -163,6 +179,11 @@ def parse_session(session: dict, format_name: str = "auto",
     timer = _req(session, "timer", "session")
     left = timer.get("adjustedTimeLeftInPhase")
     actor_role = next((s.role for s in our_slots if s.cell_id == actor_cell), None)
+    by_cell = {s.cell_id: s for s in our_slots}
+    ally_bans = tuple(
+        AllyBan(cell, by_cell[cell].role if cell in by_cell else None,
+                (by_cell[cell].riot_id or "").split("#")[0] or None if cell in by_cell else None, status, champ)
+        for cell, status, champ in ally_ban_actions)
     return LiveDraft(
         state=state,
         our_slots=our_slots,
@@ -174,4 +195,5 @@ def parse_session(session: dict, format_name: str = "auto",
         game_id=session.get("gameId") or None,
         ally_action=ally_action,
         ally_ban_hovers=frozenset(ally_ban_hovers - taken),
+        ally_bans=ally_bans,
     )

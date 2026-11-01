@@ -73,10 +73,42 @@ class LiveHub:
             self._clients.discard(ws)
 
 
-def _ban_card(catalog: ChampionCatalog, s: Suggestion, hovered: set[int]) -> dict:
-    return {"champ": catalog.card(s.champ_id), "reason": s.reason, "value": round(s.value, 4),
+def _ban_card(catalog: ChampionCatalog, s: Suggestion, hovered: set[int], weights=None) -> dict:
+    card = {"champ": catalog.card(s.champ_id), "reason": s.reason, "value": round(s.value, 4),
             "relevance": None if s.relevance is None else round(s.relevance, 3),
+            "discount": None if s.discount is None else round(s.discount, 3),
             "warnings": list(s.warnings), "highlighted": s.champ_id in hovered}
+    if s.threat is not None and weights is not None:
+        # Each component in log-odds, unweighted and as it enters the ban value (weighted).
+        card["components"] = {
+            name: {"raw": round(raw, 5), "weighted": round(weight * raw, 5)}
+            for name, raw, weight in (("threat", s.threat, weights.threat), ("matchup", s.matchup, weights.matchup),
+                                      ("comp", s.comp, weights.comp))}
+    return card
+
+
+NO_USEFUL_BAN = "no useful ban \u2014 free choice"
+
+
+def _ban_group(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDraft, hovered: set[int]) -> dict:
+    """Simultaneous bans: one card per teammate with our coordinated suggestion and their status."""
+    st = live.state
+    open_bans = [b for b in live.ally_bans if b.status in ("pending", "hovering")]
+    teammates_hovering = {b.champ_id for b in open_bans if b.status == "hovering"}
+    chosen = engine.ban_group(st.with_provisional(teammates_hovering), [b.role for b in open_bans])
+    suggestion_for = {id(b): s for b, (_, s) in zip(open_bans, chosen)}
+    order = {r: i for i, r in enumerate(ROLES)}
+    cards = []
+    for b in sorted(live.ally_bans, key=lambda b: (order.get(b.role or "", 9), b.cell_id)):
+        s = suggestion_for.get(id(b))
+        cards.append({
+            "role": b.role, "role_label": ROLE_LABELS.get(b.role or "", "Teammate"), "player": b.player,
+            "status": "suggested" if b.status == "pending" else b.status,
+            "status_champ": catalog.card(b.champ_id) if b.status in ("hovering", "locked") else None,
+            "suggestion": _ban_card(catalog, s, hovered, engine.cfg.ban_weights) if s else None,
+            "note": None if s or b.status in ("locked", "skipped") else NO_USEFUL_BAN,
+        })
+    return {"mode": "our_ban_group", "title": "BANS", "cards": cards}
 
 
 def _pick_card(catalog: ChampionCatalog, s: Suggestion, hovered: set[int]) -> dict:
@@ -113,7 +145,8 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
     hovered = {c for c, _ in st.hovers}
 
     our_slots = []
-    for s in live.our_slots:
+    role_order = {r: i for i, r in enumerate(ROLES)}
+    for s in sorted(live.our_slots, key=lambda s: (role_order.get(s.role or ev.our_roles.get(s.champ_id, ""), 9), s.cell_id)):
         role = s.role or ev.our_roles.get(s.champ_id)
         slot = {"role": role, "role_label": ROLE_LABELS.get(role or "", "?"), "champ": card(s.champ_id),
                 "hover": card(s.hover_id), "is_local": s.is_local, "hover_score": None}
@@ -132,12 +165,15 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
     if finished:
         center = {"mode": "locked", "win_prob": round(ev.win_prob, 4),
                   "threats": [{"champ": card(t.champ_id), "reason": t.reason} for t in engine.threats(st, k=2)]}
+    elif st.format.simultaneous_bans and any(b.status in ("pending", "hovering") for b in live.ally_bans):
+        center = _ban_group(engine, catalog, live, hovered)
     elif live.ally_action == "ban" or (st.is_our_turn and step.kind == "ban"):
         # Ranked bans are simultaneous: show ours while any teammate is still banning, minus the
         # champions teammates are already about to ban.
         about_to_ban = live.ally_ban_hovers
         bans = [s for s in engine.suggest_bans(st, k=3 + len(about_to_ban)) if s.champ_id not in about_to_ban][:3]
-        center = {"mode": "our_ban", "title": "BAN", "cards": [_ban_card(catalog, s, hovered) for s in bans]}
+        center = {"mode": "our_ban", "title": "BAN",
+                  "cards": [_ban_card(catalog, s, hovered, engine.cfg.ban_weights) for s in bans]}
     elif st.is_our_turn:
         role = live.actor_role if live.actor_role in open_roles else None
         picks = engine.suggest_picks(st, k=3, role=role)

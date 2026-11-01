@@ -41,10 +41,15 @@ def test_fuzz_suggestions_respect_rules(chunk):
         lists = [engine.likely_enemy_picks(state)]
         if state.is_our_turn:
             lists.append(engine.suggest(state))
+        if state.format.simultaneous_bans and state.step.kind == "ban":  # Flex group ban turn
+            group = [s for _, s in engine.ban_group(state, list(ROLES)) if s]
+            declared = {c for c, _ in state.hovers}
+            assert not declared & {s.champ_id for s in group}, "banned a teammate's declared pick"
+            lists.append(group)
         for sugs in lists:
             where = f"chunk {chunk} state {i}: {state.format.name} {state.our_side} {state.actions}"
             got = [s.champ_id for s in sugs]
-            assert len(sugs) <= 3, where
+            assert len(sugs) <= 5, where
             assert len(set(got)) == len(got), f"duplicate in {where}"
             assert not unavailable & set(got), f"unavailable suggested in {where}"
             for s in sugs:

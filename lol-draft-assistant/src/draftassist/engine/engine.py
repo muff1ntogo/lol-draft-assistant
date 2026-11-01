@@ -74,6 +74,41 @@ class Suggestion:
     warnings: tuple[str, ...] = ()  # e.g. "\u26a0 hovered by Mid"
     counter_id: int | None = None  # pick: best enemy counter still open
     counter_risk: float = 0.0  # pick: that counter's lane edge in log-odds, scaled by picks left
+    threat: float | None = None  # ban: Threat component (log-odds, unweighted)
+    matchup: float | None = None  # ban: Matchup component
+    comp: float | None = None  # ban: Comp component
+    discount: float | None = None  # ban: 1 - P(enemy team bans it too) in blind bans, else 1
+
+
+@dataclass(frozen=True)
+class BanCandidate:
+    champ_id: int
+    threat: float
+    matchup: float
+    comp: float
+    relevance: float
+    discount: float
+    value: float
+    enemy_prob: float
+    likely_role: str | None
+    lanes: dict[str, float]  # role -> this champion's lane ban score (pp) in our tables
+    comp_target: int | None  # our locked pick it counters most
+    comp_wr: float
+
+
+def enemy_team_ban_prob(ban_rate: float) -> float:
+    """P(one given team bans X) from the per-match ban rate, assuming the two teams ban
+    independently: 1 - ban_rate = (1 - q)^2, so q = 1 - sqrt(1 - ban_rate)."""
+    return 1 - math.sqrt(1 - min(max(ban_rate, 0.0), 0.999999))
+
+
+_ROLE_NOUNS = {"top": "top laner", "jungle": "jungler", "mid": "mid laner", "adc": "ADC", "support": "support"}
+
+
+def _role_noun(role: str, possessive: bool = False) -> str:
+    if possessive:
+        return {"adc": "ADC's"}.get(role, f"{role}'s")
+    return _ROLE_NOUNS.get(role, role)
 
 
 def _with_known_brackets(team: OurTeam, data: EngineData, fallback: str) -> OurTeam:
@@ -104,6 +139,7 @@ class DraftEngine:
         self._lane_data = BracketLaneData(data, self.team, self.cfg.enemy_bracket)
         self._role_shares = self._enemy_role_shares()
         self._assign_cache: dict[tuple, tuple[float, dict[int, str]]] = {}
+        self._last_tables: dict[str, RoleBanTable] = {}
 
     # ---------- lookups ----------
     def _bracket(self, name: str) -> BracketStats:
@@ -285,59 +321,149 @@ class DraftEngine:
         self._assign_cache.clear()
         return self._lane_ban_tables(state, self._evaluate(state))
 
-    def suggest_bans(self, state: DraftState, k: int = 3) -> list[Suggestion]:
-        """Ban value = relevance(c) * [P(enemy picks c) * harm(c) + gamma * 0.04 * TeamLaneBan(c)].
-        Champions with relevance < min_ban_relevance (roles the enemy already filled) and bans with
-        value <= 0 are never suggested."""
+    # ---------- bans ----------
+    def _ban_candidates(self, state: DraftState) -> list[BanCandidate]:
+        """Every ban candidate with its three components (docs/ban-value-matchups.md), unfiltered:
+
+            ban value = relevance * discount * (a * Threat + b * Matchup + c * Comp)
+
+        Threat  = P(enemy picks X next) * logit of X's enemy-bracket win rate in their open roles.
+        Matchup = 0.04 * TeamLaneBan(X): our players' expected lane matchup gain, from their own
+                  eligible pools, if X is gone. Signed: negative when our pools counter X.
+        Comp    = sum over our locked picks of X's lane edge (logit) against them, weighted by the
+                  chance the enemy still has that lane open. 0 before our first pick.
+        relevance (ban-guardrails.md) drops bans on roles the enemy already filled; discount (Flex,
+        blind simultaneous bans) is 1 - P(the enemy team bans X too)."""
         self._assign_cache.clear()
-        lane_cfg = self.cfg.lane_ban
-        ours, theirs = state.our_picks, state.their_picks
+        cfg, w = self.cfg, self.cfg.ban_weights
         ev = self._evaluate(state)
-        base = ev.terms.total
         role_probs = self._enemy_role_probs(state, ev.their_roles)
         unavailable = state.unavailable()
         relevance = self.ban_relevance(state)
+        filled = self.role_filled_probs(state)
         tables = self._lane_ban_tables(state, ev)
         team_lane = team_lane_ban(tables.values())
+        enemy = self._enemy()
+        blind = state.format.simultaneous_bans and state.step is not None and state.step.kind == "ban"
+        locked = [(o, r) for o, r in ev.our_roles.items()]
 
         out = []
         for c in self._champs:
             if c in unavailable:
                 continue
             rel = relevance.get(c, 0.0)
-            if rel < self.cfg.min_ban_relevance:
+            if rel < cfg.min_ban_relevance:
                 continue
             rp = role_probs.get(c, {})
             p = sum(rp.values())
-            their_roles = self._assign_plus(THEM, tuple(theirs), c, list(ROLES))
-            harm = base - self._terms(ours, ev.our_roles, theirs + [c], their_roles).total
-            lift = lane_cfg.gamma * lane_cfg.pp_to_logodds * team_lane.get(c, 0.0)
-            value = rel * (p * harm + lift)
-            if value <= 0:
-                continue
-            shares = self._role_shares[c]
-            likely_role = max(rp, key=rp.get) if rp else max(shares, key=shares.get)
-            reason = self._ban_reason(c, p, likely_role, p * harm, lift, tables)
-            hover = state.hovered_by(c)
-            warnings = (f"\u26a0 hovered by {ROLE_LABELS.get(hover, 'a teammate')}",) if hover is not None else ()
-            out.append(Suggestion(c, self.data.name(c), "ban", value, reason, role=likely_role, enemy_prob=p,
-                                  relevance=rel, warnings=warnings))
-        out.sort(key=lambda s: (-s.value, s.champ_id))
-        return validate_suggestions(state, "ban", out[:k], self.cfg.min_ban_relevance)
+            threat = sum(prob * logit(stat.win_rate) for r, prob in rp.items()
+                         if (stat := enemy.role_stat(c, r)) is not None)
+            matchup = cfg.lane_ban.pp_to_logodds * team_lane.get(c, 0.0)
+            comp, comp_target, comp_wr = 0.0, None, 0.5
+            for o, r in locked:
+                wr = self._our_bracket(r).matchup_wr_or_none(r, c, o)
+                if wr is None:
+                    continue
+                edge = (1 - filled[r]) * logit(wr)
+                comp += edge
+                if comp_target is None or edge > (1 - filled[r]) * logit(comp_wr):
+                    comp_target, comp_wr = o, wr
+            discount = 1 - enemy_team_ban_prob(enemy.ban_rates.get(c, 0.0)) if blind else 1.0
+            weighted = w.threat * threat + w.matchup * matchup + w.comp * comp
+            shares = self._role_shares.get(c, {})
+            likely_role = max(rp, key=rp.get) if rp else (max(shares, key=shares.get) if shares else None)
+            lanes = {t.role: row.ban for t in tables.values() if (row := t.row(c)) is not None}
+            out.append(BanCandidate(c, threat, matchup, comp, rel, discount, rel * discount * weighted, p,
+                                    likely_role, lanes, comp_target, comp_wr))
+        out.sort(key=lambda b: (-b.value, b.champ_id))
+        self._last_tables = tables
+        return out
 
-    def _ban_reason(self, c: int, p: float, role: str, threat: float, lift: float,
-                    tables: dict[str, RoleBanTable]) -> str:
-        rows = [(t.role, row) for t in tables.values() if (row := t.row(c)) is not None and row.ban > 0]
-        if rows and lift > max(threat, 0):
-            lane_role, row = max(rows, key=lambda t: t[1].ban)
-            label = ROLE_LABELS[lane_role]
-            head = f"Common vs our {label if label.isupper() else label.lower()} (PR {row.pick_rate:.0%})"
-            if row.via is None:
-                return f"{head}; {row.via_note.strip('()')}"
-            return f"{head}; our best answer {self.data.name(row.via)} only {_pp(row.resp)}"
-        head = f"Their {self.data.name(c)}: {_pct(p)} likely"
-        stat = self._enemy().role_stat(c, role)
-        return f"{head}, {stat.win_rate:.0%} WR {ROLE_LABELS[role]}" if stat else head
+    def ban_breakdown(self, state: DraftState) -> list[dict]:
+        """All candidates with their components, weighted terms and multipliers (audit, API)."""
+        w = self.cfg.ban_weights
+        return [{"champ": self.data.name(b.champ_id), "champ_id": b.champ_id, "Threat": b.threat,
+                 "Matchup": b.matchup, "Comp": b.comp, "a*Threat": w.threat * b.threat,
+                 "b*Matchup": w.matchup * b.matchup, "c*Comp": w.comp * b.comp, "rel": b.relevance,
+                 "discount": b.discount, "value": b.value} for b in self._ban_candidates(state)]
+
+    def _declared_intents(self, state: DraftState) -> frozenset[int]:
+        """Standard draft: teammates' declared picks are a plan, not a passing hover: never ban them
+        unless configured otherwise."""
+        if state.format.simultaneous_bans and not self.cfg.ban_declared_intents:
+            return frozenset(c for c, _ in state.hovers)
+        return frozenset()
+
+    def suggest_bans(self, state: DraftState, k: int = 3) -> list[Suggestion]:
+        """Top-k bans with value > 0 (ban-guardrails.md Rule 3)."""
+        declared = self._declared_intents(state)
+        cands = [b for b in self._ban_candidates(state) if b.value > 0 and b.champ_id not in declared]
+        out = [self._ban_suggestion(state, b, self._last_tables) for b in cands[:k]]
+        return validate_suggestions(state, "ban", out, self.cfg.min_ban_relevance,
+                                    forbidden=declared)
+
+    def ban_group(self, state: DraftState, owners: list[str | None]) -> list[tuple[str | None, Suggestion | None]]:
+        """Simultaneous bans (Flex): one coordinated ban per owner (docs/flex-simultaneous-bans.md).
+
+        Chosen greedily with recomputation: take the best, treat it as banned, re-score (the enemy
+        pick distribution and lane ban scores shift), take the next. Then each ban goes to the role
+        whose lane ban score it helps most, by a one-to-one assignment maximising the total (bans
+        with no lane owner fill whoever is left). Owners without a useful ban get None."""
+        declared = self._declared_intents(state)
+        chosen: list[tuple[Suggestion, dict[str, float]]] = []
+        current = state
+        for _ in range(len(owners)):
+            best = next((b for b in self._ban_candidates(current) if b.value > 0 and b.champ_id not in declared), None)
+            if best is None:
+                break
+            chosen.append((self._ban_suggestion(current, best, self._last_tables), best.lanes))
+            current = current.with_provisional([best.champ_id])
+        suggestions = validate_suggestions(state, "ban", [s for s, _ in chosen], self.cfg.min_ban_relevance,
+                                           forbidden=declared)
+        kept = [(s, lanes) for s, lanes in chosen if s in suggestions]
+
+        best_total, best_perm = -math.inf, None
+        slots = list(range(len(owners)))
+        for perm in permutations(slots, len(kept)):
+            total = sum(max(lanes.get(owners[slot] or "", 0.0), 0.0) for (_, lanes), slot in zip(kept, perm))
+            if total > best_total + 1e-12:
+                best_total, best_perm = total, perm
+        assigned: dict[int, Suggestion] = {slot: s for (s, _), slot in zip(kept, best_perm or ())}
+        return [(owners[i], assigned.get(i)) for i in slots]
+
+    def _ban_suggestion(self, state: DraftState, b: BanCandidate, tables: dict[str, RoleBanTable]) -> Suggestion:
+        hover = state.hovered_by(b.champ_id)
+        warnings = (f"⚠ hovered by {ROLE_LABELS.get(hover, 'a teammate')}",) if hover is not None else ()
+        return Suggestion(b.champ_id, self.data.name(b.champ_id), "ban", b.value, self._ban_reason(b, tables),
+                          role=b.likely_role, enemy_prob=b.enemy_prob, relevance=b.relevance, warnings=warnings,
+                          threat=b.threat, matchup=b.matchup, comp=b.comp, discount=b.discount)
+
+    def _ban_reason(self, b: BanCandidate, tables: dict[str, RoleBanTable]) -> str:
+        """One line from the largest positive weighted component."""
+        w = self.cfg.ban_weights
+        parts = {"matchup": w.matchup * b.matchup, "threat": w.threat * b.threat, "comp": w.comp * b.comp}
+        top = max(parts, key=parts.get)
+        if top == "matchup" and parts["matchup"] > 0 and b.lanes:
+            role = max(b.lanes, key=b.lanes.get)
+            row = tables[role].row(b.champ_id)
+            who = f"Our {_role_noun(role, possessive=True)}"
+            if row is not None and row.via is not None:
+                return f"{who} best answer is {_pp(row.resp)} ({self.data.name(row.via)})"
+            return f"{who} pool has no answer to it"
+        if top == "comp" and parts["comp"] > 0 and b.comp_target is not None:
+            verb = "Hard counters" if b.comp_wr >= 0.54 else "Counters"
+            return f"{verb} our locked {self.data.name(b.comp_target)}"
+        role = b.likely_role
+        if role is None:
+            return f"{_pct(b.enemy_prob)} likely"
+        rank = self._meta_rank(b.champ_id, role)
+        tier = next((f"Top-{n} meta" for n in (3, 5, 10) if rank <= n), "Meta")
+        return f"{tier} {_role_noun(role)}, {_pct(b.enemy_prob)} likely"
+
+    def _meta_rank(self, champ: int, role: str) -> int:
+        enemy = self._enemy()
+        rates = sorted(((s.pick_rate, c) for c in self._champs if (s := enemy.role_stat(c, role))), reverse=True)
+        return next((i + 1 for i, (_, c) in enumerate(rates) if c == champ), len(rates) + 1)
 
     def suggest_picks(self, state: DraftState, k: int = 3, role: str | None = None) -> list[Suggestion]:
         """Pick value = P(win) after the pick - risk_weight * counter risk + flex bonus."""

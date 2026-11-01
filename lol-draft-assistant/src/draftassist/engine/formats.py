@@ -23,17 +23,18 @@ class Step:
 class DraftFormat:
     name: str
     steps: tuple[Step, ...]
+    simultaneous_bans: bool = False  # all ten ban at once, blind (standard ranked: Solo/Duo, Flex)
 
     def __len__(self) -> int:
         return len(self.steps)
 
 
-def _build(name: str, rounds: list[tuple[str, ActionKind, int, str]]) -> DraftFormat:
+def _build(name: str, rounds: list[tuple[str, ActionKind, int, str]], simultaneous_bans: bool = False) -> DraftFormat:
     steps: list[Step] = []
     for order, kind, phase, label in rounds:
         for s in order.split():
             steps.append(Step(len(steps), _SIDE[s], kind, phase, label))
-    return DraftFormat(name, tuple(steps))
+    return DraftFormat(name, tuple(steps), simultaneous_bans)
 
 
 # Ranked 5s and Clash. Order from the spec appendix.
@@ -49,7 +50,7 @@ TOURNAMENT = _build("tournament", [
 STANDARD_RANKED = _build("ranked", [
     ("B R B R B R B R B R", "ban", 1, "Ban"),
     ("B R R B B R R B B R", "pick", 1, "Pick"),
-])
+], simultaneous_bans=True)
 
 FORMATS: dict[str, DraftFormat] = {f.name: f for f in (TOURNAMENT, STANDARD_RANKED)}
 

@@ -35,11 +35,12 @@ from draftassist.data.pools import (
     set_players,
 )
 from draftassist.data.provider import ChampionCatalog, load_catalog, load_engine_inputs, stats_version
+from draftassist.data.settings_store import engine_config, save_ban_settings, settings_payload
 from draftassist.db.session import init_db
 from draftassist.engine.engine import DraftEngine
 from draftassist.engine.formats import TOURNAMENT, get_format
 from draftassist.engine.lane_ban import RoleBanTable
-from draftassist.engine.model import ROLE_LABELS, ROLES
+from draftassist.engine.model import ROLE_LABELS, ROLES, BanWeights
 from draftassist.engine.state import DraftState
 from draftassist.lcu.demo import demo_sessions
 from draftassist.lcu.recorder import SessionRecorder
@@ -83,7 +84,7 @@ class Services:
         version = stats_version(self.db)
         inputs = load_engine_inputs(self.db)
         live = self.live
-        live.engine, live.catalog = DraftEngine(inputs.data, inputs.team), inputs.catalog
+        live.engine, live.catalog = DraftEngine(inputs.data, inputs.team, engine_config(self.db)), inputs.catalog
         live.data_source, live.note = inputs.data_source, inputs.note
         if self.players is not None:
             self.players.invalidate()
@@ -118,7 +119,7 @@ def build_services(settings: Settings) -> Services:
         except httpx.HTTPError:
             log.warning("could not load Data Dragon; champion names will be ids")
     inputs = load_engine_inputs(db)
-    engine = DraftEngine(inputs.data, inputs.team)
+    engine = DraftEngine(inputs.data, inputs.team, engine_config(db))
     hub = LiveHub()
     players = PlayerDirectoryDb(db)
     client = settings.lcu_mode == "client"
@@ -173,6 +174,25 @@ async def refresh_stats_forever(svc: Services, every_s: float) -> None:
             log.exception("stats refresh failed; keeping the current stats")
 
 
+async def run_replay(live: LiveService, folder: Path, interval: float = 1.5) -> None:
+    """Replay a recorded champ select (fixtures/lcu/...) through the live pipeline, on a loop."""
+    import json
+
+    events = sorted(folder.glob("*-session.json"))
+    if not events:
+        live.handle_status(f"replay: no recorded sessions in {folder}")
+        return
+    while True:
+        live.handle_status(f"replay: {folder.name}")
+        live.handle_phase("ChampSelect", None)
+        for path in events:
+            await asyncio.to_thread(live.handle_session, json.loads(path.read_text(encoding="utf-8")))
+            await asyncio.sleep(interval)
+        await asyncio.sleep(interval * 3)
+        live.handle_phase("Lobby", None)
+        await asyncio.sleep(interval * 2)
+
+
 def _band(ban: float, neutral: float) -> str:
     if ban > neutral:
         return "positive"
@@ -182,8 +202,11 @@ def _band(ban: float, neutral: float) -> str:
 
 
 def lane_ban_report(engine: DraftEngine) -> list[dict]:
-    """The Prep page's per-role tables: mu, then Opp / PR / Resp / via / Ban sorted by Ban."""
-    tables: dict[str, RoleBanTable] = engine.lane_ban_tables(DraftState(TOURNAMENT, "blue"))
+    """The Prep page's per-role tables: mu, then Opp / PR / Resp / via / Ban sorted by Ban, plus each
+    opponent's final team ban value (all components), to compare the lane view with the ranking."""
+    empty = DraftState(TOURNAMENT, "blue")
+    tables: dict[str, RoleBanTable] = engine.lane_ban_tables(empty)
+    team_value = {r["champ_id"]: r["value"] for r in engine.ban_breakdown(empty)}
     neutral = engine.cfg.lane_ban.neutral_band
     name = engine.data.name
     return [
@@ -203,6 +226,7 @@ def lane_ban_report(engine: DraftEngine) -> list[dict]:
                     "ban": round(row.ban, 2),
                     "band": _band(round(row.ban, 2), neutral),  # matches the displayed value
                     "degenerate": row.degenerate,
+                    "team_ban_value": round(team_value[row.opp], 4) if row.opp in team_value else None,
                 }
                 for row in tables[r].rows
             ],
@@ -237,6 +261,9 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
             LcuConnector(live.handle_session, live.handle_phase, live.handle_status, live.handle_end_of_game).start()
         elif svc.lcu_mode == "demo":
             demo_task = asyncio.create_task(run_demo(svc.live))
+        elif svc.lcu_mode == "replay" and svc.settings is not None:
+            folder = Path(svc.settings.replay_dir or PROJECT_ROOT / "fixtures" / "lcu" / "flex-ranked-sample")
+            demo_task = asyncio.create_task(run_replay(svc.live, folder))
         yield
         for task in (demo_task, refresh_task):
             if task:
@@ -310,6 +337,23 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         counts = import_pools(db, parsed)
         svc.reload()
         return {"imported": counts}
+
+    # ---------- settings ----------
+    @app.get("/api/settings")
+    def get_settings(request: Request) -> dict:
+        return settings_payload(_db(request.app.state.services))
+
+    @app.put("/api/settings")
+    def put_settings(request: Request, ban_weights: dict = Body(...), ban_declared_intents: bool = Body(False)) -> dict:
+        svc: Services = request.app.state.services
+        db = _db(svc)
+        try:
+            weights = BanWeights(float(ban_weights["threat"]), float(ban_weights["matchup"]), float(ban_weights["comp"]))
+            save_ban_settings(db, weights, ban_declared_intents)
+        except (KeyError, TypeError, ValueError) as e:
+            raise HTTPException(422, f"invalid settings: {e}") from None
+        svc.reload()
+        return settings_payload(db)
 
     # ---------- history ----------
     @app.get("/api/history")

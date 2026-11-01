@@ -6,6 +6,7 @@ If the app is already running, it just opens the browser.
     draftassist                # start + open browser
     draftassist --demo         # simulated drafts, no League client needed
     draftassist --no-browser   # start only
+    draftassist --replay fixtures/lcu/flex-ranked-sample   # replay a recorded champ select
 """
 from __future__ import annotations
 
@@ -51,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--demo", action="store_true", help="simulated drafts instead of the League client")
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--replay", metavar="FOLDER", help="replay a recorded champ select instead of the client")
     args = parser.parse_args(argv)
     url = app_url(args.port)
 
@@ -64,6 +66,9 @@ def main(argv: list[str] | None = None) -> int:
         print("Note: the web UI isn't built yet. In the web folder run: npm install && npm run build")
     if args.demo:
         os.environ["DRAFTASSIST_LCU"] = "demo"
+    if args.replay:
+        os.environ["DRAFTASSIST_LCU"] = "replay"
+        os.environ["DRAFTASSIST_REPLAY"] = os.path.abspath(args.replay)
 
     import uvicorn  # after the env var, so the app reads demo mode at startup
 

@@ -107,9 +107,23 @@ class LaneBanConfig:
     delta_baseline: Literal["fifty", "champion_avg"] = "fifty"
     tier_adj: Mapping[str, float] = field(
         default_factory=lambda: {"main": 0.0, "comfortable": 0.0, "learning": -2.0})
-    gamma: float = 1.0  # weight of the lane term in ban value
     pp_to_logodds: float = 0.04  # slope of logit at 50% is 4 per unit probability
     neutral_band: float = 0.05  # |Ban| below this is shown as neutral
+
+
+@dataclass(frozen=True)
+class BanWeights:
+    """ban value = relevance * discount * (threat * Threat + matchup * Matchup + comp * Comp).
+    The settings slider "Meta threat <-> Our matchups" keeps threat + matchup = 2.5."""
+    threat: float = 1.0
+    matchup: float = 1.5
+    comp: float = 1.0
+
+    @classmethod
+    def from_slider(cls, towards_matchups: float, comp: float = 1.0) -> BanWeights:
+        """towards_matchups in [0, 1]: 0 = all meta threat, 1 = all our matchups."""
+        t = min(max(towards_matchups, 0.0), 1.0)
+        return cls(threat=2.5 * (1 - t), matchup=2.5 * t, comp=comp)
 
 
 @dataclass(frozen=True)
@@ -125,5 +139,7 @@ class EngineConfig:
     risk_horizon: int = 3  # counter risk is full once the enemy has this many picks left
     flex_bonus: float = 0.02
     lane_ban: LaneBanConfig = field(default_factory=LaneBanConfig)
+    ban_weights: BanWeights = field(default_factory=BanWeights)
+    ban_declared_intents: bool = False  # standard draft: may we suggest banning a teammate's declared pick?
     min_ban_relevance: float = 0.10  # bans below this share of still-open roles are wasted
     role_share_floor: float = 0.001  # P(champ in role) for roles with no data, when inferring filled roles

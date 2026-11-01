@@ -8,7 +8,7 @@ from draftassist.engine.model import (
     BracketStats,
     EngineConfig,
     EngineData,
-    LaneBanConfig,
+    BanWeights,
     OurTeam,
     RoleStat,
     logit,
@@ -176,16 +176,18 @@ def test_ban_reason_uses_lane_ban_score(engine):
     # Gnar is common in top and our best answer (K'Sante) loses the lane 44-56.
     sugs = engine.suggest_bans(state(), k=50)
     gnar = next(x for x in sugs if x.champ_id == GNAR)
-    assert gnar.reason == "Common vs our top (PR 8%); our best answer K'Sante only −6.0pp"
-    assert gnar.enemy_prob > 0
+    assert gnar.reason == "Our top's best answer is \u22126.0pp (K'Sante)"
+    assert gnar.enemy_prob > 0 and gnar.matchup > 0
 
 
-def test_lane_term_weight_gamma():
+def test_matchup_weight_moves_ban_value():
     s = state()
     on = {x.champ_id: x for x in DraftEngine(DATA, TEAM).suggest_bans(s, k=50)}
-    off = {x.champ_id: x for x in DraftEngine(DATA, TEAM, EngineConfig(lane_ban=LaneBanConfig(gamma=0.0))).suggest_bans(s, k=50)}
-    assert on[GNAR].value > off[GNAR].value
-    assert off[GNAR].reason.startswith("Their Gnar: ")
+    off_cfg = EngineConfig(ban_weights=BanWeights(threat=1.0, matchup=0.0, comp=1.0))
+    off = {x.champ_id: x for x in DraftEngine(DATA, TEAM, off_cfg).suggest_bans(s, k=50)}
+    assert on[GNAR].value > off.get(GNAR, on[GNAR]).value or GNAR not in off
+    if GNAR in off:
+        assert "meta" in off[GNAR].reason
 
 
 def test_lane_ban_tables_cover_all_roles(engine):

@@ -15,6 +15,8 @@ class DraftState:
     actions: tuple[int, ...] = ()
     # Teammate pick intents: (champion, role). Provisional; never counted as picks.
     hovers: tuple[tuple[int, str], ...] = ()
+    # Bans assumed for scoring only: a group ban set being chosen greedily, or teammates' ban hovers.
+    provisional: frozenset[int] = frozenset()
 
     def __post_init__(self) -> None:
         if len(self.actions) > len(self.format):
@@ -56,8 +58,12 @@ class DraftState:
 
     def unavailable(self) -> frozenset[int]:
         """The single source of truth for availability: every completed ban or pick by either
-        team. Skipped bans (0) and hovers don't count."""
-        return frozenset(c for c in self.actions if c != SKIPPED)
+        team, plus provisional bans while a ban set is being chosen. Skipped bans (0) and pick
+        hovers don't count."""
+        return frozenset(c for c in self.actions if c != SKIPPED) | self.provisional
+
+    def with_provisional(self, champs) -> DraftState:
+        return DraftState(self.format, self.our_side, self.actions, self.hovers, self.provisional | frozenset(champs))
 
     def hovered_by(self, champ: int) -> str | None:
         return next((role for c, role in self.hovers if c == champ), None)

@@ -45,6 +45,10 @@ def _snapshot(center: dict) -> dict | None:
     if mode in ("our_ban", "our_pick"):
         return {"kind": "suggested", "items": [
             {"champ_id": c["champ"]["id"], "name": c["champ"]["name"], "reason": c["reason"]} for c in center["cards"]]}
+    if mode == "our_ban_group":
+        return {"kind": "suggested", "items": [
+            {"champ_id": c["suggestion"]["champ"]["id"], "name": c["suggestion"]["champ"]["name"],
+             "reason": c["suggestion"]["reason"], "owner": c["role"]} for c in center["cards"] if c["suggestion"]]}
     if mode == "enemy_turn":
         return {"kind": "predicted", "items": [
             {"champ_id": c["champ"]["id"], "name": c["champ"]["name"], "prob": c["prob"]} for c in center["cards"]]}
@@ -55,7 +59,7 @@ def _open_steps(st: DraftState, mode: str | None) -> list[int]:
     """Steps the current screen is about: every step of the current turn that isn't locked yet.
     Our bans in ranked are simultaneous, so that's all of our remaining bans in this phase."""
     steps, n = st.format.steps, len(st.actions)
-    if mode == "our_ban":
+    if mode in ("our_ban", "our_ban_group"):
         phase = st.step.phase
         return [s.index for s in steps if s.side == st.our_side and s.kind == "ban" and s.phase == phase
                 and s.index >= n]

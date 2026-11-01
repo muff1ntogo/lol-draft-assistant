@@ -2,8 +2,10 @@
   import Live from './Live.svelte';
   import Pools from './Pools.svelte';
   import History from './History.svelte';
+  import Prep from './Prep.svelte';
+  import Settings from './Settings.svelte';
 
-  const PAGES = { live: 'Live', pools: 'Pools', history: 'History' };
+  const PAGES = { live: 'Live', prep: 'Prep', pools: 'Pools', history: 'History', settings: 'Settings' };
   const pageFromHash = () => (location.hash.slice(2) in PAGES ? location.hash.slice(2) : 'live');
   let page = $state(pageFromHash());
   window.addEventListener('hashchange', () => (page = pageFromHash()));
@@ -53,6 +55,10 @@
 
 {#if page === 'pools'}
   <Pools />
+{:else if page === 'prep'}
+  <Prep />
+{:else if page === 'settings'}
+  <Settings />
 {:else if page === 'history'}
   <History />
 {:else if view.status === 'champ_select'}

@@ -1,5 +1,7 @@
 <script>
   import Champ from './Champ.svelte';
+  import ComponentBar from './ComponentBar.svelte';
+  import ComponentLegend from './ComponentLegend.svelte';
 
   let { view, secondsLeft } = $props();
   const center = $derived(view.center);
@@ -41,8 +43,35 @@
   </section>
 
   <section class="center">
-    {#if center.mode === 'our_ban' || center.mode === 'our_pick'}
-      <h2>{center.title}</h2>
+    {#if center.mode === 'our_ban_group'}
+      <div class="grouphead"><h2>{center.title}</h2><ComponentLegend /></div>
+      <div class="group">
+        {#each center.cards as card}
+          <article class="gcard {card.status}">
+            <div class="owner">{card.role_label}{#if card.player} <span>{card.player}</span>{/if}</div>
+            {#if card.status === 'locked'}
+              <div class="status">locked</div>
+              <Champ champ={card.status_champ} size={72} banned />
+              <div class="gname">{card.status_champ.name}</div>
+            {:else if card.suggestion}
+              <Champ champ={card.suggestion.champ} size={72} />
+              <div class="gname">{card.suggestion.champ.name}</div>
+              <div class="greason">{card.suggestion.reason}</div>
+              <ComponentBar components={card.suggestion.components} />
+              {#if card.status === 'hovering'}
+                <div class="hovering">hovering {card.status_champ.name}</div>
+              {/if}
+            {:else if card.status === 'skipped'}
+              <div class="status">skipped</div>
+            {:else}
+              <div class="free">{card.note}</div>
+              {#if card.status === 'hovering'}<div class="hovering">hovering {card.status_champ.name}</div>{/if}
+            {/if}
+          </article>
+        {/each}
+      </div>
+    {:else if center.mode === 'our_ban' || center.mode === 'our_pick'}
+      <div class="grouphead"><h2>{center.title}</h2>{#if center.mode === 'our_ban'}<ComponentLegend />{/if}</div>
       {#each center.cards as card, i}
         <article class="card" class:highlighted={card.highlighted}>
           <span class="rank">{i + 1}</span>
@@ -50,6 +79,7 @@
           <div>
             <div class="title">{card.champ.name}{#if card.role_label} <small>{card.role_label}</small>{/if}</div>
             <div class="reason">{card.reason}</div>
+            {#if card.components}<ComponentBar components={card.components} />{/if}
             {#each card.warnings as w}<div class="warn">{w}</div>{/each}
           </div>
         </article>
@@ -161,4 +191,17 @@
   .warn { color: var(--warn); font-size: 18px; font-style: normal; margin-top: 4px; }
   .muted { color: var(--muted); font-size: 18px; margin: 0; }
   .winprob { font-size: 96px; font-weight: 800; line-height: 1; }
+  .grouphead { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+  .group { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+  .gcard { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px;
+           background: var(--panel); border: 2px solid var(--line); border-radius: 10px; padding: 12px 10px; }
+  .gcard.locked { opacity: 0.75; }
+  .owner { font-size: 15px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .owner span { text-transform: none; color: var(--text); margin-left: 6px; }
+  .gname { font-size: 22px; font-weight: 700; }
+  .gcard :global(.bar) { max-width: 180px; }
+  .greason { font-size: 16px; color: #c9d1d9; line-height: 1.3; }
+  .status { font-size: 13px; color: var(--muted); text-transform: uppercase; }
+  .hovering { font-size: 14px; color: var(--gold); }
+  .free { font-size: 16px; color: var(--muted); margin-top: 24px; }
 </style>

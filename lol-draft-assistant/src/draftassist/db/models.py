@@ -177,3 +177,11 @@ class BootstrapRoleStats(SQLModel, table=True):
     role_rate: float  # share of the champion's games played in this role
     source: str = "opgg"
     fetched_at: datetime  # timezone-aware (UTC)
+
+
+class AppSetting(SQLModel, table=True):
+    """Small JSON settings edited on the Settings page (e.g. ban value weights)."""
+    __tablename__ = "app_settings"
+
+    key: str = Field(primary_key=True)
+    value: str  # JSON

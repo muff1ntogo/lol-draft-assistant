@@ -33,9 +33,11 @@ def strict_mode() -> bool:
 
 
 def _violation(state: DraftState, kind: str, s: Suggestion, seen: set[int], unavailable: frozenset[int],
-               min_ban_relevance: float) -> str | None:
+               min_ban_relevance: float, forbidden: frozenset[int] = frozenset()) -> str | None:
     if s.champ_id in unavailable:
         return "unavailable champion (already banned or picked)"
+    if kind == "ban" and s.champ_id in forbidden:
+        return "a teammate's declared pick"
     if s.champ_id in seen:
         return "duplicate champion"
     if kind == "ban":
@@ -47,13 +49,14 @@ def _violation(state: DraftState, kind: str, s: Suggestion, seen: set[int], unav
 
 
 def validate_suggestions(state: DraftState, kind: str, suggestions: Sequence[Suggestion],
-                         min_ban_relevance: float = DEFAULT_MIN_BAN_RELEVANCE) -> list[Suggestion]:
+                         min_ban_relevance: float = DEFAULT_MIN_BAN_RELEVANCE,
+                         forbidden: frozenset[int] = frozenset()) -> list[Suggestion]:
     unavailable = state.unavailable()
     strict = strict_mode()
     kept: list[Suggestion] = []
     seen: set[int] = set()
     for s in suggestions:
-        problem = _violation(state, kind, s, seen, unavailable, min_ban_relevance)
+        problem = _violation(state, kind, s, seen, unavailable, min_ban_relevance, forbidden)
         if problem is None:
             kept.append(s)
             seen.add(s.champ_id)
