@@ -114,6 +114,19 @@ def placeholder_team(data: EngineData, brackets: Mapping[str, str] = TEAM_BRACKE
     return OurTeam.from_tiers(tiers, brackets)
 
 
+def stats_version(db: Engine) -> tuple:
+    """Changes whenever aggregation, the OP.GG bootstrap, pools or players change. Cheap to compute."""
+    from sqlalchemy import text
+
+    with db.connect() as conn:
+        totals = tuple(conn.execute(text("SELECT patch, bracket, matches FROM bracket_totals ORDER BY patch, bracket")))
+        boot = conn.execute(text("SELECT MAX(fetched_at), COUNT(*) FROM bootstrap_role_stats")).one()
+        pools = conn.execute(text("SELECT COUNT(*), COALESCE(SUM(champ_id), 0), "
+                                  "COALESCE(SUM(LENGTH(manual_tier)), 0) FROM pool_entries")).one()
+        players = tuple(conn.execute(text("SELECT puuid, role, bracket FROM players ORDER BY role")))
+    return totals, tuple(boot), tuple(pools), players
+
+
 def load_engine_inputs(db: Engine) -> EngineInputs:
     catalog = load_catalog(db)
     names = {c: name for c, (_, name) in catalog.champs.items()}
@@ -127,6 +140,7 @@ def load_engine_inputs(db: Engine) -> EngineInputs:
             sources: dict[str, str] = {}
             boot = bootstrap_stats(s, patch)
             needed = brackets_in_use(db)
+            crawled = {b: (t.matches if (t := s.get(BracketTotal, (patch, b))) else 0) for b in needed}
             for b in needed:
                 crawl = crawl_bracket_stats(s, patch, b)
                 if crawl is not None:
@@ -137,13 +151,16 @@ def load_engine_inputs(db: Engine) -> EngineInputs:
             data = EngineData(brackets, names)
             kinds = set(sources.values())
             source = kinds.pop() if len(kinds) == 1 else "mixed"
-            per_bracket = ", ".join(f"{b} {sources[b]}" for b in needed)
+            per_bracket = ", ".join(
+                f"{b} crawl ({crawled[b]:,} games)" if sources[b] == "crawl"
+                else f"{b} opgg" + (f" (crawl {crawled[b]:,}/{MIN_CRAWL_MATCHES:,})" if crawled[b] else "")
+                for b in needed)
             boot_note = f" (OP.GG all-tier, patch {boot[1]})" if "opgg" in sources.values() else ""
             team = load_team(db)
             note = f"Stats: {per_bracket}{boot_note}"
             if team is None:
                 team, note = placeholder_team(data), f"{note}; {PLACEHOLDER_POOL_NOTE}"
-            elif source == "crawl":
+            elif source == "crawl" and all(crawled[b] >= MIN_CRAWL_MATCHES for b in needed):
                 note = None  # real stats and real pools: nothing to warn about
             return EngineInputs(data, team, catalog, source, note, sources)
 

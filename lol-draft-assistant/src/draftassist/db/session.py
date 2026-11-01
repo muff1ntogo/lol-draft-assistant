@@ -12,11 +12,14 @@ from draftassist.db import models  # noqa: F401  (registers tables on SQLModel.m
 
 def get_engine(db_path: Path) -> Engine:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    engine = create_engine(f"sqlite:///{db_path}")
+    engine = create_engine(f"sqlite:///{db_path}", connect_args={"timeout": 30})
 
     @event.listens_for(engine, "connect")
-    def _enable_foreign_keys(dbapi_conn, _record):
+    def _configure(dbapi_conn, _record):
         dbapi_conn.execute("PRAGMA foreign_keys=ON")
+        # WAL: the app keeps reading while the crawler writes and aggregates.
+        dbapi_conn.execute("PRAGMA journal_mode=WAL")
+        dbapi_conn.execute("PRAGMA busy_timeout=30000")
 
     return engine
 

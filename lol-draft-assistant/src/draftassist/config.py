@@ -41,6 +41,7 @@ class Settings:
     draft_format: str = "auto"  # auto | tournament | ranked
     lcu_mode: str = "client"  # client (real League client) | demo (simulated draft) | off
     record_sessions: bool = True  # dump every champ select event to fixtures/lcu/recorded/
+    stats_refresh_s: float = 120.0  # how often the app checks for fresh crawl stats (0 = never)
     demo_log: bool = False  # demo mode writes its simulated games to History (use a scratch DRAFTASSIST_DB)
 
     @property
@@ -65,4 +66,5 @@ def load_settings(env_file: Path | None = None) -> Settings:
         lcu_mode=get("DRAFTASSIST_LCU") or defaults.lcu_mode,
         record_sessions=(get("DRAFTASSIST_RECORD") or "1") == "1",
         demo_log=get("DRAFTASSIST_DEMO_LOG") == "1",
+        stats_refresh_s=float(get("DRAFTASSIST_STATS_REFRESH_S") or defaults.stats_refresh_s),
     )

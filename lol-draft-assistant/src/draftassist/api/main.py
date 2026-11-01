@@ -34,7 +34,7 @@ from draftassist.data.pools import (
     parse_pool_text,
     set_players,
 )
-from draftassist.data.provider import ChampionCatalog, load_catalog, load_engine_inputs
+from draftassist.data.provider import ChampionCatalog, load_catalog, load_engine_inputs, stats_version
 from draftassist.db.session import init_db
 from draftassist.engine.engine import DraftEngine
 from draftassist.engine.formats import TOURNAMENT, get_format
@@ -58,6 +58,7 @@ class Services:
     players: PlayerDirectoryDb | None = None
     lcu_mode: str = "off"
     settings: Settings | None = None
+    loaded_version: tuple | None = None  # stats_version() the engine was built from
 
     @property
     def engine(self) -> DraftEngine:
@@ -79,12 +80,33 @@ class Services:
         """Rebuild the engine after pools or players change (e.g. a pool import)."""
         if self.db is None:
             return
+        version = stats_version(self.db)
         inputs = load_engine_inputs(self.db)
         live = self.live
         live.engine, live.catalog = DraftEngine(inputs.data, inputs.team), inputs.catalog
         live.data_source, live.note = inputs.data_source, inputs.note
         if self.players is not None:
             self.players.invalidate()
+        self.loaded_version = version
+
+    def in_draft(self) -> bool:
+        """True while a champ select is running (suggestions must not change under the shot-caller)."""
+        latest = self.hub.latest
+        return self.live.gameflow_phase == "ChampSelect" or (
+            latest.get("status") == "champ_select" and latest.get("phase") != "Locked in")
+
+    def refresh_stats(self) -> str:
+        """Reload stats if the crawl (or anything else) changed them, but only between drafts.
+        Returns 'unchanged', 'deferred' (in a draft; retried next time) or 'reloaded'."""
+        if self.db is None or stats_version(self.db) == self.loaded_version:
+            return "unchanged"
+        if self.in_draft():
+            return "deferred"
+        self.reload()
+        log.info("stats reloaded: %s", self.live.note or "real stats and pools")
+        if self.hub.latest.get("status") != "champ_select":
+            self.hub.publish_threadsafe(self.live._waiting())  # banner shows the new sources
+        return "reloaded"
 
 
 def build_services(settings: Settings) -> Services:
@@ -112,7 +134,7 @@ def build_services(settings: Settings) -> Services:
 
     live = LiveService(engine, inputs.catalog, hub, inputs.data_source, inputs.note, settings.draft_format,
                        recorder, logger, players, verify_later)
-    return Services(hub, live, db, players, settings.lcu_mode, settings)
+    return Services(hub, live, db, players, settings.lcu_mode, settings, stats_version(db))
 
 
 async def run_demo(live: LiveService, interval: float = 1.5, seed: int = 0) -> None:
@@ -140,6 +162,15 @@ async def run_demo(live: LiveService, interval: float = 1.5, seed: int = 0) -> N
         await asyncio.sleep(interval)
         live.handle_phase("Lobby", None)  # back in the lobby: screen clears
         await asyncio.sleep(interval * 2)
+
+
+async def refresh_stats_forever(svc: Services, every_s: float) -> None:
+    while True:
+        await asyncio.sleep(every_s)
+        try:
+            await asyncio.to_thread(svc.refresh_stats)
+        except Exception:
+            log.exception("stats refresh failed; keeping the current stats")
 
 
 def _band(ban: float, neutral: float) -> str:
@@ -186,8 +217,10 @@ def _db(svc: Services) -> Engine:
     return svc.db
 
 
-def create_app(services: Services | None = None, web_dist: Path = WEB_DIST) -> FastAPI:
-    """`services` is injected by tests; otherwise it is built from settings at startup."""
+def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
+               stats_refresh_s: float | None = None) -> FastAPI:
+    """`services` is injected by tests; otherwise it is built from settings at startup.
+    Stats are re-checked every `stats_refresh_s` seconds (default: settings; 0 = never)."""
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -195,6 +228,8 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST) -> F
         app.state.services = svc
         svc.hub.bind(asyncio.get_running_loop())
         demo_task = None
+        every = stats_refresh_s if stats_refresh_s is not None else (svc.settings.stats_refresh_s if svc.settings else 0)
+        refresh_task = asyncio.create_task(refresh_stats_forever(svc, every)) if every > 0 else None
         if svc.lcu_mode == "client":
             from draftassist.lcu.connector import LcuConnector
 
@@ -203,10 +238,11 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST) -> F
         elif svc.lcu_mode == "demo":
             demo_task = asyncio.create_task(run_demo(svc.live))
         yield
-        if demo_task:
-            demo_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await demo_task
+        for task in (demo_task, refresh_task):
+            if task:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
     app = FastAPI(title="Draft Assistant", lifespan=lifespan)
 

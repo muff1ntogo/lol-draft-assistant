@@ -3,6 +3,9 @@
     uv run python -m draftassist.data.crawl --hours 8            # overnight
     uv run python -m draftassist.data.crawl --max-matches 50     # smoke test
 
+Stats are re-aggregated every 15 minutes while it runs (--aggregate-every), so a running app picks
+them up between drafts.
+
 At development-key rates (100 requests / 2 min) expect about 3,000 matches an hour, less while
 seeding and listing match ids. Ctrl+C stops cleanly: whatever was stored is aggregated.
 """
@@ -31,9 +34,11 @@ def main(argv: list[str] | None = None) -> int:
     limit.add_argument("--minutes", type=float)
     parser.add_argument("--max-matches", type=int)
     parser.add_argument("--brackets", nargs="+", choices=LEAGUE_TIERS,
-                        help="default: Iron, Gold, Emerald plus any bracket a player is set to")
+                        help="default: every tier up to Emerald, plus any bracket a player is set to")
     parser.add_argument("--seed-pages", type=int, default=1, help="league-v4 pages per division when seeding")
     parser.add_argument("--reseed", action="store_true", help="fetch ladder seeds even if some exist")
+    parser.add_argument("--aggregate-every", type=float, default=15, metavar="MINUTES",
+                        help="rebuild the stats tables this often while crawling (default 15)")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -55,8 +60,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.reseed or seeds == 0:
             print(f"Seeding {', '.join(brackets)} from league-v4...")
             print(f"  {crawler.seed(args.seed_pages)} new seed players")
-        print(f"Crawling patch {patch}...")
-        stats = crawler.run(max_matches=args.max_matches, deadline=deadline)
+        print(f"Crawling patch {patch}... (stats refresh every {args.aggregate_every:g} min)")
+
+        def checkpoint(progress: CrawlStats) -> None:
+            totals = aggregate(db, patch)
+            print(f"{time.strftime('%H:%M')} stats refreshed: {sum(totals.values())} matches "
+                  f"({', '.join(f'{b} {n}' for b, n in totals.items())}); this run +{progress.total_stored}",
+                  flush=True)
+
+        stats = crawler.run(max_matches=args.max_matches, deadline=deadline, checkpoint=checkpoint,
+                            checkpoint_every_s=args.aggregate_every * 60)
     except RiotAuthError as e:
         print(f"\n{e}", file=sys.stderr)
         return 2
