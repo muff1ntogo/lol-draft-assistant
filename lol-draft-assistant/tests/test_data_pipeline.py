@@ -7,7 +7,6 @@ import httpx
 import pytest
 from sqlmodel import Session, select
 
-from draftassist.data import provider as provider_mod
 from draftassist.data.aggregate import aggregate, shrink
 from draftassist.data.coverage import coverage
 from draftassist.data.crawler import Crawler, parse_match, patch_of
@@ -295,7 +294,7 @@ def test_mcp_client_handles_sse_and_session(tmp_path):
 
 
 # ---------- provider ----------
-def test_provider_uses_bootstrap_then_crawl(engine, session, tmp_path, monkeypatch):
+def test_provider_blends_opgg_with_crawl(engine, session, tmp_path):
     ids = BLUE + RED
     add_champions(session, ids)
     rows = []
@@ -305,27 +304,38 @@ def test_provider_uses_bootstrap_then_crawl(engine, session, tmp_path, monkeypat
                      "ban_rate": 0.05, "role_rate": 0.9})
     import_bootstrap(engine, "16.21", rows)
 
+    # no crawl yet: OP.GG as is
     inp = load_engine_inputs(engine)
     assert inp.data_source == "opgg" and set(inp.sources.values()) == {"opgg"}
     stat = inp.data.brackets["gold"].role_stat(1, "top")
-    assert stat.win_rate == pytest.approx(shrink(520, 1000, 50)) and stat.pick_rate == 0.1
+    assert stat.win_rate == pytest.approx(0.52) and stat.pick_rate == pytest.approx(0.1)
     assert inp.team.entry(1, "top") is not None  # placeholder pool from the most-picked
-    assert "placeholder pools" in inp.note
+    assert "crawl not started" in inp.note and "placeholder pools" in inp.note
 
-    # a crawled bracket replaces the bootstrap once it has enough matches
-    monkeypatch.setattr(provider_mod, "MIN_CRAWL_MATCHES", 2)
+    # two crawled Gold games (one win for Champ1 top): blended into Gold only, from the first game
     fake = FakeRiot({"p1": [make_match("EUW1_30", BLUE, RED), make_match("EUW1_31", BLUE, RED, blue_win=False)]})
     crawler = Crawler(riot_client(tmp_path, fake), engine, "16.21", brackets=("gold",), clock=lambda: 1_793_000_000)
     crawler.seed()
     crawler.run(max_matches=10)
     aggregate(engine, "16.21")
     inp = load_engine_inputs(engine)
-    assert inp.sources["gold"] == "crawl" and set(inp.sources.values()) == {"opgg", "crawl"}
-    assert inp.data_source == "mixed"
+    assert inp.sources["gold"] == "blend" and inp.sources["iron"] == "opgg" and inp.data_source == "blend"
     gold = inp.data.brackets["gold"]
-    assert gold.role_stat(1, "top").win_rate == pytest.approx(shrink(1, 2, 50))
-    assert gold.role_stat(1, "top").pick_rate == pytest.approx(2 / 2)  # picks / matches
-    assert gold.matchup_wr("top", 1, 11) == pytest.approx(shrink(1, 2, 200))
+    assert gold.role_stat(1, "top").win_rate == pytest.approx((1 + 50 * 0.52) / (2 + 50))
+    assert gold.role_stat(1, "top").pick_rate == pytest.approx((2 + 1000 * 0.1) / (2 + 1000))
+    assert gold.ban_rates[1] == pytest.approx((0 + 1000 * 0.05) / (2 + 1000))
+    assert gold.matchup_wr("top", 1, 11) == pytest.approx(shrink(1, 2, 200))  # crawl matchups used at once
+    assert inp.data.brackets["iron"].role_stat(1, "top").win_rate == pytest.approx(0.52)  # untouched
+    assert "blended with our crawl" in inp.note and "gold 2" in inp.note
+
+
+def test_blend_converges_to_the_bracket_with_many_games():
+    from draftassist.data.provider import RATE_PRIOR_MATCHES, ROLE_PRIOR_GAMES
+
+    prior, games = 0.52, 20_000
+    blended = (0.47 * games + ROLE_PRIOR_GAMES * prior) / (games + ROLE_PRIOR_GAMES)
+    assert blended == pytest.approx(0.47, abs=0.0002)  # the tier's own 47% wins out
+    assert (0 + RATE_PRIOR_MATCHES * 0.1) / (20_000 + RATE_PRIOR_MATCHES) < 0.005  # unplayed in tier fades
 
 
 def test_provider_falls_back_to_fixture_without_stats(engine, session):

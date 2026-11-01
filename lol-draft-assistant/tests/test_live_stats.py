@@ -65,7 +65,7 @@ def test_app_reloads_stats_between_drafts_only(make_services, engine, session):
     svc.live.handle_phase("InProgress", None)
     assert svc.refresh_stats() == "reloaded"
     assert svc.data_source == "opgg"
-    assert svc.hub.latest["status"] == "waiting" and "opgg" in svc.hub.latest["note"]
+    assert svc.hub.latest["status"] == "waiting" and "OP.GG" in svc.hub.latest["note"]
 
     with Session(engine) as s:  # an aggregation run changes the version again
         s.add(BracketTotal(patch="16.21", bracket="gold", matches=450))
@@ -94,4 +94,4 @@ def test_banner_shows_crawl_progress(engine, session):
         s.add(BracketTotal(patch="16.21", bracket="gold", matches=450))
         s.commit()
     note = load_engine_inputs(engine).note
-    assert "gold opgg (crawl 450/1,000)" in note and "iron opgg," in note
+    assert "blended with our crawl" in note and "gold 450" in note and "iron 0" in note

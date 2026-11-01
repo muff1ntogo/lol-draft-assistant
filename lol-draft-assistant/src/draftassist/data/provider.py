@@ -1,9 +1,9 @@
 """Builds the engine's inputs from the database: champion catalog (names, icons), stats, our team.
 
-Stats per bracket come from our crawl once it covers the bracket (MIN_CRAWL_MATCHES), otherwise
-from the OP.GG bootstrap (all-tier). Sources are never mixed inside a bracket. Win rates are shrunk
-towards 50% here (k = 50 role, 200 matchup/synergy). If neither source exists, everything falls
-back to synthetic data over the real champion ids.
+Stats per bracket blend our crawl with the OP.GG bootstrap (all-tier): OP.GG is the prior each
+champion starts from, and the bracket's own games take over as they accumulate (bracket_stats).
+Matchups and synergy come from the crawl only. If neither source exists, everything falls back to
+synthetic data over the real champion ids.
 
 Our team comes from imported pools (data/pools.py); before any import, each role gets placeholder
 pools (its most-picked champions).
@@ -34,7 +34,9 @@ from draftassist.engine.simulate import TEAM_BRACKETS, synthetic_data
 
 log = logging.getLogger(__name__)
 
-MIN_CRAWL_MATCHES = 1000  # below this a bracket's crawl is too thin to replace the bootstrap
+ROLE_PRIOR_GAMES = ROLE_K  # OP.GG's win rate weighs as much as this many of the bracket's own games
+RATE_PRIOR_MATCHES = 1000  # OP.GG's pick/ban rates weigh as much as this many crawled matches
+FULL_CRAWL_MATCHES = 20_000  # per bracket: enough for every real lane (coverage target)
 FIXTURE_NOTE = "Synthetic stats and pools (real stats arrive with the Phase 3 crawl, pools with Phase 4)"
 PLACEHOLDER_POOL_NOTE = "placeholder pools (each role's most-picked champions) until pools are imported"
 
@@ -57,9 +59,9 @@ class EngineInputs:
     data: EngineData
     team: OurTeam
     catalog: ChampionCatalog
-    data_source: str  # "crawl" | "opgg" | "mixed" | "fixture"
+    data_source: str  # "blend" | "opgg" (no crawl yet) | "crawl" (no OP.GG) | "fixture"
     note: str | None
-    sources: Mapping[str, str] | None = None  # bracket -> "crawl" | "opgg"
+    sources: Mapping[str, str] | None = None  # bracket -> "blend" | "opgg" | "crawl"
 
 
 def _version_key(v: str) -> tuple[int, ...]:
@@ -73,35 +75,67 @@ def load_catalog(db: Engine) -> ChampionCatalog:
     return ChampionCatalog(patch, {r.champ_id: (r.key, r.name) for r in rows})
 
 
-def crawl_bracket_stats(s: Session, patch: str, bracket: str) -> BracketStats | None:
-    total = s.get(BracketTotal, (patch, bracket))
-    if total is None or total.matches < MIN_CRAWL_MATCHES:
-        return None
-    n = total.matches
-    meta: dict[int, dict[str, RoleStat]] = {}
-    bans: dict[int, float] = {}
-    for r in s.exec(select(ChampRoleStats).where(ChampRoleStats.patch == patch, ChampRoleStats.bracket == bracket)):
-        meta.setdefault(r.champ_id, {})[r.role] = RoleStat(shrink(r.wins, r.games, ROLE_K), r.picks / n)
-        bans[r.champ_id] = r.bans / n
-    matchups = {(m.role, m.champ_a, m.champ_b): shrink(m.wins_a, m.games, PAIR_K)
-                for m in s.exec(select(Matchup).where(Matchup.patch == patch, Matchup.bracket == bracket))}
-    synergy = {frozenset((y.champ_a, y.champ_b)): shrink(y.wins, y.games, PAIR_K)
-               for y in s.exec(select(Synergy).where(Synergy.patch == patch, Synergy.bracket == bracket))}
-    return BracketStats(meta, matchups, synergy, bans)
+@dataclass(frozen=True)
+class Bootstrap:
+    """OP.GG lane meta (all-tier) as priors."""
+    patch: str
+    win_rate: Mapping[tuple[int, str], float]  # (champ, role) -> raw win rate
+    pick_rate: Mapping[tuple[int, str], float]  # (champ, role) -> picks per match
+    ban_rate: Mapping[int, float]  # champ -> bans per match
 
 
-def bootstrap_stats(s: Session, patch: str) -> tuple[BracketStats, str] | None:
+def load_bootstrap(s: Session, patch: str) -> Bootstrap | None:
     """OP.GG rows for `patch`, or the latest patch that has them."""
     patches = s.exec(select(BootstrapRoleStats.patch).distinct()).all()
     if not patches:
         return None
     use = patch if patch in patches else max(patches, key=_version_key)
+    rows = s.exec(select(BootstrapRoleStats).where(BootstrapRoleStats.patch == use)).all()
+    return Bootstrap(use, {(r.champ_id, r.role): r.wins / r.games for r in rows if r.games},
+                     {(r.champ_id, r.role): r.pick_rate for r in rows}, {r.champ_id: r.ban_rate for r in rows})
+
+
+def bracket_stats(s: Session, patch: str, bracket: str, boot: Bootstrap | None) -> tuple[BracketStats | None, int]:
+    """One bracket's stats: our crawled games blended with the OP.GG prior. Returns (stats, crawled
+    matches); stats is None when there is neither crawl data nor a bootstrap.
+
+    win rate  = (wins + k * prior) / (games + k),   k = 50, prior = OP.GG win rate (else 50%)
+    pick/ban  = (count + M * prior) / (matches + M), M = 1,000 matches
+    matchups and synergy come from the crawl only, shrunk towards 50% (k = 200)."""
+    total = s.get(BracketTotal, (patch, bracket))
+    n = total.matches if total else 0
+    if n == 0 and boot is None:
+        return None, 0
+    crawl = {(r.champ_id, r.role): r for r in s.exec(
+        select(ChampRoleStats).where(ChampRoleStats.patch == patch, ChampRoleStats.bracket == bracket))}
+    keys = set(crawl) | (set(boot.win_rate) | set(boot.pick_rate) if boot else set())
+
     meta: dict[int, dict[str, RoleStat]] = {}
-    bans: dict[int, float] = {}
-    for r in s.exec(select(BootstrapRoleStats).where(BootstrapRoleStats.patch == use)):
-        meta.setdefault(r.champ_id, {})[r.role] = RoleStat(shrink(r.wins, r.games, ROLE_K), r.pick_rate)
-        bans[r.champ_id] = r.ban_rate
-    return BracketStats(meta, {}, {}, bans), use
+    crawled_bans: dict[int, int] = {}
+    for c, r in keys:
+        row = crawl.get((c, r))
+        games, wins, picks = (row.games, row.wins, row.picks) if row else (0, 0, 0)
+        if row:
+            crawled_bans[c] = row.bans
+        prior_wr = boot.win_rate.get((c, r), 0.5) if boot else 0.5
+        win_rate = (wins + ROLE_PRIOR_GAMES * prior_wr) / (games + ROLE_PRIOR_GAMES)
+        if boot:
+            pick_rate = (picks + RATE_PRIOR_MATCHES * boot.pick_rate.get((c, r), 0.0)) / (n + RATE_PRIOR_MATCHES)
+        else:
+            pick_rate = picks / n
+        meta.setdefault(c, {})[r] = RoleStat(win_rate, pick_rate)
+
+    bans = {}
+    for c in meta:
+        if boot:
+            bans[c] = (crawled_bans.get(c, 0) + RATE_PRIOR_MATCHES * boot.ban_rate.get(c, 0.0)) / (n + RATE_PRIOR_MATCHES)
+        else:
+            bans[c] = crawled_bans.get(c, 0) / n
+    matchups = {(m.role, m.champ_a, m.champ_b): shrink(m.wins_a, m.games, PAIR_K)
+                for m in s.exec(select(Matchup).where(Matchup.patch == patch, Matchup.bracket == bracket))}
+    synergy = {frozenset((y.champ_a, y.champ_b)): shrink(y.wins, y.games, PAIR_K)
+               for y in s.exec(select(Synergy).where(Synergy.patch == patch, Synergy.bracket == bracket))}
+    return BracketStats(meta, matchups, synergy, bans), n
 
 
 def placeholder_team(data: EngineData, brackets: Mapping[str, str] = TEAM_BRACKETS) -> OurTeam:
@@ -136,32 +170,31 @@ def load_engine_inputs(db: Engine) -> EngineInputs:
 
     if patch:
         with Session(db) as s:
-            brackets: dict[str, BracketStats] = {}
-            sources: dict[str, str] = {}
-            boot = bootstrap_stats(s, patch)
+            boot = load_bootstrap(s, patch)
             needed = brackets_in_use(db)
-            crawled = {b: (t.matches if (t := s.get(BracketTotal, (patch, b))) else 0) for b in needed}
+            brackets: dict[str, BracketStats] = {}
+            crawled: dict[str, int] = {}
             for b in needed:
-                crawl = crawl_bracket_stats(s, patch, b)
-                if crawl is not None:
-                    brackets[b], sources[b] = crawl, "crawl"
-                elif boot is not None:
-                    brackets[b], sources[b] = boot[0], "opgg"
+                stats, crawled[b] = bracket_stats(s, patch, b, boot)
+                if stats is not None:
+                    brackets[b] = stats
         if len(brackets) == len(needed):
             data = EngineData(brackets, names)
+            sources = {b: ("crawl" if boot is None else "opgg" if crawled[b] == 0 else "blend") for b in needed}
             kinds = set(sources.values())
-            source = kinds.pop() if len(kinds) == 1 else "mixed"
-            per_bracket = ", ".join(
-                f"{b} crawl ({crawled[b]:,} games)" if sources[b] == "crawl"
-                else f"{b} opgg" + (f" (crawl {crawled[b]:,}/{MIN_CRAWL_MATCHES:,})" if crawled[b] else "")
-                for b in needed)
-            boot_note = f" (OP.GG all-tier, patch {boot[1]})" if "opgg" in sources.values() else ""
+            source = kinds.pop() if len(kinds) == 1 else "blend"
+            games = ", ".join(f"{b} {crawled[b]:,}" for b in needed)
+            if boot is None:
+                note = f"Stats: our crawl only ({games} games)"
+            elif not any(crawled.values()):
+                note = f"Stats: OP.GG all-tier (patch {boot.patch}); crawl not started"
+            else:
+                note = f"Stats: OP.GG all-tier (patch {boot.patch}) blended with our crawl: {games} games"
             team = load_team(db)
-            note = f"Stats: {per_bracket}{boot_note}"
             if team is None:
                 team, note = placeholder_team(data), f"{note}; {PLACEHOLDER_POOL_NOTE}"
-            elif source == "crawl" and all(crawled[b] >= MIN_CRAWL_MATCHES for b in needed):
-                note = None  # real stats and real pools: nothing to warn about
+            elif all(n >= FULL_CRAWL_MATCHES for n in crawled.values()):
+                note = None  # crawl dominates everywhere and pools are real: nothing to flag
             return EngineInputs(data, team, catalog, source, note, sources)
 
     data, team = synthetic_data(names=names or None)
