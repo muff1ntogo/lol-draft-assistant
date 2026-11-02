@@ -334,11 +334,11 @@ This is a private, read-only advisory tool. Keeping it that way is the main comp
 
 **Open questions**
 
-- [ ] Riot IDs for all five players
-- [ ] Champion pools as text, exported from Machine Loling in the import format
-- [ ] Ranked 5s queue ID (read from `/lol-gameflow/v1/session` in the first game)
-- [ ] What the scouting tooltip and `theirTeam` expose (day-one fixture dump)
-- [ ] Whether Iron-bracket stats are too noisy for the support role, or a Silver floor works better
+- [x] Riot IDs for all five players (entered on the Pools page; all five linked, 2 Nov 2026)
+- [x] Champion pools as text, exported from Machine Loling in the import format (imported, 34 champions)
+- [ ] Ranked 5s queue ID (read from `/lol-gameflow/v1/session` in the first game). Flex is 440; no Ranked 5s game recorded yet.
+- [ ] What the scouting tooltip and `theirTeam` expose (day-one fixture dump). Partly answered: in Ranked Flex, `theirTeam` has only cell ids (no names, PUUIDs or positions), so no scouting there. Ranked 5s still to check.
+- [ ] Whether Iron-bracket stats are too noisy for the support role, or a Silver floor works better. Revisit once the crawl reaches coverage; the crawl now covers every tier Iron–Emerald, so a Silver floor is a settings change.
 
 ## Appendix
 
