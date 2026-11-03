@@ -16,6 +16,7 @@ from draftassist.engine.model import (
     tier_comfort,
 )
 from draftassist.engine.state import SKIPPED, DraftState
+from draftassist.engine.synergy import PairScore, SynergyTable
 
 KSANTE, GNAR, RUMBLE, SEJUANI, VI, AZIR, ORIANNA, KAISA, VARUS, NAUTILUS, RAKAN, RELL = range(1, 13)
 NAMES = {KSANTE: "K'Sante", GNAR: "Gnar", RUMBLE: "Rumble", SEJUANI: "Sejuani", VI: "Vi", AZIR: "Azir",
@@ -42,11 +43,11 @@ def bracket(support_wr=0.51):
         RELL: {"support": rs(0.51, 0.04)},
     }
     matchups = {("top", GNAR, KSANTE): 0.56, ("mid", AZIR, ORIANNA): 0.55}
-    synergy = {frozenset((KAISA, NAUTILUS)): 0.55}
-    return BracketStats(meta, matchups, synergy)
+    return BracketStats(meta, matchups)
 
 
-DATA = EngineData({"gold": bracket(), "iron": bracket(support_wr=0.54)}, NAMES)
+SYNERGY = SynergyTable("test", "all", {(("adc", KAISA), ("support", NAUTILUS)): PairScore(logit(0.55), logit(0.55), 500, False)}, {})
+DATA = EngineData({"gold": bracket(), "iron": bracket(support_wr=0.54)}, NAMES, synergy=SYNERGY)
 BRACKETS = {"top": "gold", "jungle": "gold", "mid": "gold", "adc": "gold", "support": "iron"}
 TEAM = OurTeam.from_tiers(
     {

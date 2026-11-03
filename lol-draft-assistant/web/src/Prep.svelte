@@ -13,7 +13,7 @@
 </script>
 
 <main class="page">
-  <h1>Prep</h1>
+  <h1>Prep <a class="synlink" href="#/synergy">Synergy visualiser →</a></h1>
   {#if sheet}
     <div class="sheet">
       {#each ['blue', 'red'] as side}
@@ -105,6 +105,7 @@
 <style>
   .page { max-width: 1500px; margin: 0 auto; padding: 20px 28px 60px; }
   h1 { font-size: 32px; margin: 8px 0 8px; }
+  .synlink { font-size: 15px; font-weight: 400; color: var(--gold); margin-left: 16px; text-decoration: none; }
   h2 { font-size: 18px; margin: 0 0 8px; }
   h2 small { color: var(--muted); font-weight: 400; font-size: 14px; }
   .roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); gap: 16px; }

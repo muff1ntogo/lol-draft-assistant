@@ -9,6 +9,29 @@
   let text = $state('');
   let importErrors = $state([]);
   let message = $state('');
+  const TIERS = ['main', 'comfortable', 'learning'];
+  let adding = $state(Object.fromEntries(Object.keys(LABELS).map((r) => [r, { name: '', tier: 'learning' }])));
+
+  async function editPool(method, role, champId, body) {
+    const res = await fetch(`/api/pools/${role}/${champId}`, {
+      method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
+    });
+    const r = await res.json();
+    if (!res.ok) { message = `Not saved: ${r.detail}`; return false; }
+    data = { ...data, pools: r.pools };
+    message = r.applied ? 'Pool saved.' : 'Pool saved: suggestions use it after this draft.';
+    return true;
+  }
+
+  async function addChamp(role) {
+    const name = adding[role].name.trim().toLowerCase();
+    const champ = data.champions.find((c) => c.name.toLowerCase() === name);
+    if (!champ) { message = `No champion called "${adding[role].name}".`; return; }
+    if (await editPool('PUT', role, champ.id, { tier: adding[role].tier })) adding[role].name = '';
+  }
+
+  const setTier = (role, champId, tier) => editPool('PUT', role, champId, { tier });
+  const removeChamp = (role, e) => editPool('DELETE', role, e.champ.id);
 
   async function load() {
     data = await (await fetch('/api/pools')).json();
@@ -124,6 +147,7 @@
     {#if data?.using_placeholder_pools}
       <p class="warn">No pools imported yet: suggestions use each role's most-picked champions.</p>
     {/if}
+    <datalist id="champ-names">{#each data?.champions ?? [] as c}<option value={c.name}></option>{/each}</datalist>
     <div class="roles">
       {#each Object.entries(data?.pools ?? {}) as [role, entries]}
         <div class="role">
@@ -133,13 +157,17 @@
           {#each entries as e}
             <div class="entry">
               <Champ champ={e.champ} size={32} />
-              <div class="who">
-                <span class="name">{e.champ.name}</span>
-                <span class="rec" title="Last 60 days in this role · comfort {e.comfort}">{record(e)} · comfort {e.comfort}</span>
-              </div>
-              <span class="tier {e.manual_tier}">{e.manual_tier}</span>
+              <span class="name" title={e.champ.name}>{e.champ.name}</span>
+              <select class="tier {e.manual_tier}" value={e.manual_tier} title="Tier (set by hand)"
+                      onchange={(ev) => setTier(role, e.champ.id, ev.currentTarget.value)}>
+                {#each TIERS as t}<option value={t}>{t}</option>{/each}
+              </select>
               <button class="lock" class:on={e.tier_locked} title={e.tier_locked ? 'Tier locked: click to unlock' : 'Lock this tier'}
                       onclick={() => toggleLock(role, e)}>{e.tier_locked ? '🔒' : '🔓'}</button>
+              <button class="remove" title="Remove {e.champ.name} from the {LABELS[role]} pool"
+                      onclick={() => removeChamp(role, e)}>×</button>
+              <span class="rec" title="Last 60 days in this role · comfort {e.comfort}">{record(e)} · comfort {e.comfort}</span>
+              {#if e.badge?.text}<span class="badge" title="Comp type and fight style (Champions page)">{e.badge.text}</span>{/if}
               {#if e.proposal}
                 <button class="proposal" title="Scored from recent games: click to accept" onclick={() => acceptTier(role, e.champ.id)}>
                   → {e.proposal}
@@ -149,6 +177,11 @@
           {:else}
             <p class="muted">empty</p>
           {/each}
+          <form class="add" onsubmit={(ev) => { ev.preventDefault(); addChamp(role); }}>
+            <input list="champ-names" placeholder="Add champion" bind:value={adding[role].name} />
+            <select bind:value={adding[role].tier}>{#each TIERS as t}<option value={t}>{t}</option>{/each}</select>
+            <button type="submit" disabled={!adding[role].name.trim()}>Add</button>
+          </form>
         </div>
       {/each}
     </div>
@@ -182,10 +215,11 @@
   button:disabled { opacity: 0.5; cursor: default; }
   .roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
   .role { background: var(--panel); border-radius: 8px; padding: 12px; }
-  .entry { display: grid; grid-template-columns: 32px 1fr auto auto; grid-auto-rows: auto; align-items: center; gap: 4px 8px;
+  .entry { display: grid; grid-template-columns: 32px 1fr auto auto auto; grid-auto-rows: auto; align-items: center; gap: 4px 8px;
            margin: 8px 0; }
-  .who { display: flex; flex-direction: column; min-width: 0; }
-  .rec { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rec { grid-column: 2 / -1; margin-top: -4px; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge { grid-column: 2 / -1; justify-self: start; margin-top: -2px; padding: 0 5px; font-size: 11px; color: #c9d1d9;
+           background: #2d3540; border-radius: 4px; }
   .lock { background: none; border: 0; padding: 0; margin: 0; cursor: pointer; font-size: 14px; opacity: 0.45; }
   .lock.on { opacity: 1; }
   .proposal { grid-column: 2 / -1; justify-self: start; margin: 0; padding: 2px 8px; font-size: 12px; background: #3d3214;
@@ -193,8 +227,14 @@
   .poolhead { display: flex; align-items: center; justify-content: space-between; }
   .secondary { margin: 0; background: var(--panel-2); border: 1px solid var(--line); }
   .link { margin: 0 0 0 8px; padding: 0; background: none; color: var(--gold); font-size: 12px; text-transform: none; }
-  .name { font-size: 15px; }
-  .tier { font-size: 12px; padding: 2px 6px; border-radius: 4px; background: var(--panel-2); }
+  .name { font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tier { font-size: 12px; padding: 2px 4px; border-radius: 4px; background: var(--panel-2); border: 0; width: auto; }
+  .remove { background: none; border: 0; padding: 0 2px; margin: 0; color: var(--muted); font-size: 16px; cursor: pointer; }
+  .remove:hover { color: var(--red); }
+  .add { display: flex; gap: 6px; margin-top: 10px; }
+  .add input { flex: 1; min-width: 0; padding: 4px 6px; font-size: 13px; }
+  .add select { font-size: 12px; padding: 4px; }
+  .add button { margin: 0; padding: 4px 10px; font-size: 13px; }
   .tier.main { color: var(--good); }
   .tier.comfortable { color: var(--blue); }
   .tier.learning { color: var(--warn); }

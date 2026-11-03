@@ -1,5 +1,6 @@
 """Engine and schema creation. New tables come from create_all; new columns on existing tables
-from add_missing_columns (additive only: columns must be nullable or have a default)."""
+from add_missing_columns (additive only: columns must be nullable or have a default). Derived tables
+a newer version no longer uses are dropped (DROPPED_TABLES)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -44,8 +45,22 @@ def add_missing_columns(engine: Engine) -> list[str]:
     return added
 
 
+# Tables a newer version no longer has. Derived data only (rebuilt by aggregation), so dropping is safe.
+DROPPED_TABLES = ("synergy",)  # role-less duos, replaced by synergy_pairs (docs/synergy-visualizer.md)
+
+
+def drop_obsolete_tables(engine: Engine) -> list[str]:
+    insp = inspect(engine)
+    dropped = [t for t in DROPPED_TABLES if insp.has_table(t)]
+    with engine.begin() as conn:
+        for table in dropped:
+            conn.execute(text(f"DROP TABLE {table}"))
+    return dropped
+
+
 def init_db(db_path: Path) -> Engine:
     engine = get_engine(db_path)
     SQLModel.metadata.create_all(engine)
     add_missing_columns(engine)
+    drop_obsolete_tables(engine)
     return engine

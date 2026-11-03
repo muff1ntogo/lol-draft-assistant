@@ -14,7 +14,8 @@
       body: JSON.stringify({ style: style || null }),
     });
     data = await res.json();
-    message = 'Team style saved.';
+    message = data.applied ? 'Team style saved: suggestions pull towards it from now on.'
+                           : 'Team style saved: it applies after this draft.';
   }
 
   const pct = (x) => `${Math.round(x * 100)}%`;
@@ -65,8 +66,10 @@
       </label>
       {#if message}<p class="ok">{message}</p>{/if}
       <p class="muted small">
-        Each logged draft is classified from our five champions' classes: Tanks (and half the Fighters) mean Engage,
-        Assassins (and half the Fighters) Dive, Mages and extra Marksmen Poke; anything without a clear lean is Balanced.
+        Each logged draft is classified like the Live comp panel, from the champions' fight styles (Champions page):
+        a style needs 45% of the comp and two champions of it (Front to back also a front-liner), else it is Mixed.
+        In a draft, picks are pulled towards the style set here (from our pick 2, full strength at picks 4–5;
+        Settings › Comp style). "Mixed" means no pull; "not set" follows the style our comp is heading for.
       </p>
     </section>
   {:else}

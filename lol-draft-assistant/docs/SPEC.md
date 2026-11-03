@@ -134,7 +134,7 @@ The Riot API is the backbone. OP.GG only bootstraps us until our own crawl cover
 
 **Rate limits.** At development-key rates (100 requests every 2 minutes) the crawl does about 3,000 matches an hour, so run it overnight and cache everything. Check your key's actual limits on the developer portal.
 
-**Small samples.** Shrink every rate towards 50% before use: `wr_adj = (wins + 0.5·k) / (games + k)` with `k = 200` for matchups and synergy, `k = 50` for role win rates.
+**Small samples.** Shrink every rate towards 50% before use: `wr_adj = (wins + 0.5·k) / (games + k)` with `k = 200` for matchups, `k = 50` for role win rates. Synergy shrinks towards the no-interaction expectation instead (`docs/synergy-visualizer.md`).
 
 ## Data model
 
@@ -145,7 +145,8 @@ One SQLite file holds everything. Every stats table is keyed by patch and bracke
 | `champions` | `champ_id`, `key`, `name`, `roles` | Static data from Data Dragon |
 | `champ_role_stats` | `patch`, `bracket`, `champ_id`, `role` → `games`, `wins`, `picks`, `bans` | Meta strength, pick and ban rates |
 | `matchups` | `patch`, `bracket`, `role`, `champ_a`, `champ_b` → `games`, `wins_a` | Lane counters |
-| `synergy` | `patch`, `bracket`, `champ_a`, `champ_b` → `games`, `wins` | Same-team duos |
+| `synergy_pairs` | `window`, `bracket`, `role_a`, `champ_a`, `role_b`, `champ_b` → `games`, `games_w`, `wins_w` | Same-team duos by role, pooled and time-decayed (see `docs/synergy-visualizer.md`) |
+| `synergy_role_stats` | `window`, `bracket`, `champ_id`, `role` → `games`, `games_w`, `wins_w` | Champion strength over the same window, removed from duo scores |
 | `players` | `puuid`, `riot_id`, `role`, `rank`, `bracket` | Our five |
 | `pool_entries` | `puuid`, `champ_id`, `role` → `manual_tier`, `scored_tier`, `tier_locked`, `comfort`, `games`, `wins`, `last_played` | Pools and comfort |
 | `drafts` | `draft_id`, `game_id`, `queue_id`, `side`, `played_at`, `result`, `pred_win_prob`, `style_tag` | One row per game |

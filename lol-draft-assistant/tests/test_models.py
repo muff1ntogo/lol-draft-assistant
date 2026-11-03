@@ -15,7 +15,7 @@ from draftassist.db.models import (
 )
 
 EXPECTED_TABLES = {
-    "champions", "champ_role_stats", "matchups", "synergy",
+    "champions", "champ_role_stats", "matchups", "synergy_pairs", "synergy_role_stats",
     "players", "pool_entries", "drafts", "draft_actions",
 }
 
@@ -29,7 +29,7 @@ def test_all_tables_created(engine):
     [
         ("champ_role_stats", ["patch", "bracket", "champ_id", "role"]),
         ("matchups", ["patch", "bracket", "role", "champ_a", "champ_b"]),
-        ("synergy", ["patch", "bracket", "champ_a", "champ_b"]),
+        ("synergy_pairs", ["window", "bracket", "role_a", "champ_a", "role_b", "champ_b"]),
         ("pool_entries", ["puuid", "champ_id", "role"]),
         ("draft_actions", ["draft_id", "seq"]),
     ],
@@ -72,3 +72,14 @@ def test_pool_entry_requires_known_player(session):
     session.add(PoolEntry(puuid="ghost", champ_id=897, role="top", manual_tier="main"))
     with pytest.raises(IntegrityError):
         session.commit()
+
+
+def test_obsolete_role_less_synergy_table_is_dropped(tmp_path):
+    from sqlalchemy import text
+
+    from draftassist.db.session import get_engine, init_db
+
+    old = get_engine(tmp_path / "old.sqlite")
+    with old.begin() as conn:
+        conn.execute(text("CREATE TABLE synergy (patch TEXT, bracket TEXT, champ_a INT, champ_b INT, games INT, wins INT)"))
+    assert "synergy" not in inspect(init_db(tmp_path / "old.sqlite")).get_table_names()

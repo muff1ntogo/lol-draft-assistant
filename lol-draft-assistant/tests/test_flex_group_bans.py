@@ -125,14 +125,18 @@ def test_declared_pick_intent_is_never_banned():
 
 
 # 6. Tournament draft is unchanged --------------------------------------------------------------
-def test_tournament_single_ban_turn_still_shows_three(make_services):
+def test_tournament_single_ban_turn_shows_five_then_three(make_services):
     svc = make_services()
+    seen = set()
     for event in demo_sessions(svc.engine, TOURNAMENT, "blue"):
         view = svc.live.view(event)
         mode = view["center"]["mode"]
         assert mode != "our_ban_group"
-        if mode == "our_ban":
-            assert 1 <= len(view["center"]["cards"]) <= 3
+        if mode == "our_ban":  # docs/comp-style.md: 5 cards in ban phase 1, 3 in ban phase 2
+            n = len(view["center"]["cards"])
+            assert 1 <= n <= (5 if view["phase"] == "Ban 1" else 3)
+            seen.add((view["phase"], n))
+    assert ("Ban 1", 5) in seen
 
 
 def test_group_speed():

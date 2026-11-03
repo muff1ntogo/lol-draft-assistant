@@ -13,7 +13,7 @@ import threading
 from sqlalchemy import Engine
 from sqlmodel import Session, select
 
-from draftassist.data.riot import PLATFORM, RiotAuthError, RiotClient
+from draftassist.data.riot import PLATFORM, RiotAuthError, RiotClient, sync_api_key
 from draftassist.db.models import Draft, DraftAction, Player
 
 log = logging.getLogger(__name__)
@@ -92,6 +92,8 @@ def main() -> int:
     settings = load_settings()
     db = init_db(settings.db_path)
     try:
+        if settings.has_riot_api_key:
+            sync_api_key(db, settings.riot_api_key)
         results = verify_unverified(db, RiotClient(settings.riot_api_key, settings.cache_dir))
     except RiotAuthError as e:
         print(e, file=sys.stderr)

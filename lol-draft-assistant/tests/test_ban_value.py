@@ -148,7 +148,9 @@ def test_settings_api_changes_ban_weights(make_services, engine, session):
     with TestClient(create_app(svc, stats_refresh_s=0)) as client:
         assert client.get("/api/settings").json() == {
             "ban_weights": {"threat": 1.0, "matchup": 1.5, "comp": 1.0, "own": 1.0}, "slider": 0.6,
-            "ban_declared_intents": False, "alpha": 1.0, "beta": 1.0, "comfort_games_cap": 10}
+            "ban_declared_intents": False, "alpha": 1.0, "beta": 1.0, "comfort_games_cap": 10,
+            "damage_balance": True, "damage_penalty": -0.05, "ban_comp_synergy": False,
+            "comp_coherence": True, "comp_weight": 0.15}
         body = {"ban_weights": {"threat": 2.5, "matchup": 0.0, "comp": 1.0}, "ban_declared_intents": True}
         assert client.put("/api/settings", json=body).json()["slider"] == 0.0
         assert svc.engine.cfg.ban_weights == BanWeights(2.5, 0.0, 1.0) and svc.engine.cfg.ban_declared_intents

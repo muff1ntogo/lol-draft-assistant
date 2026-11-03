@@ -2,10 +2,13 @@
 
 Score of a (partial) draft, as log-odds that we win (spec, Draft engine):
 
-    L = sum_A (alpha*m + beta*c) - sum_B m + sum_A pairs s - sum_B pairs s + sum_roles x
+    L = sum_A (alpha*m + beta*c) - sum_B m + sum_A pairs s - sum_B pairs s + sum_roles x + d
 
-Roles are assigned per side by brute force over at most 5! permutations, maximising the
-side's own meta (+ comfort for us). Pure functions over immutable inputs; no I/O.
+s is the role-aware synergy score (engine/synergy.py) of each pair in its assigned roles; d is the
+damage balance penalty when our comp is almost all one damage type.
+
+Roles are assigned per side by brute force over at most 5! permutations: ours maximise meta + comfort,
+theirs are the most likely assignment from how often each champion is played in each role. Pure functions over immutable inputs; no I/O.
 """
 from __future__ import annotations
 
@@ -14,6 +17,7 @@ import math
 from dataclasses import dataclass
 from itertools import combinations, permutations
 
+from draftassist.engine.comp import STYLE_LABELS, STYLE_SHARE, STYLES, team_comp
 from draftassist.engine.guards import validate_suggestions
 from draftassist.engine.lane_ban import BracketLaneData, RoleBanTable, role_ban_table, team_lane_ban
 from draftassist.engine.model import (
@@ -27,6 +31,7 @@ from draftassist.engine.model import (
     sigmoid,
 )
 from draftassist.engine.state import DraftState
+from draftassist.engine.synergy import to_pp
 
 log = logging.getLogger(__name__)
 
@@ -43,10 +48,11 @@ class Terms:
     syn_us: float = 0.0
     syn_them: float = 0.0  # subtracted
     lane: float = 0.0
+    damage: float = 0.0  # damage balance penalty on our comp (<= 0)
 
     @property
     def total(self) -> float:
-        return self.meta_us + self.comfort - self.meta_them + self.syn_us - self.syn_them + self.lane
+        return self.meta_us + self.comfort - self.meta_them + self.syn_us - self.syn_them + self.lane + self.damage
 
 
 @dataclass(frozen=True)
@@ -79,6 +85,17 @@ class Suggestion:
     comp: float | None = None  # ban: Comp component
     own_loss: float | None = None  # ban: what banning our own pool champion costs us (log-odds)
     discount: float | None = None  # ban: 1 - P(enemy team bans it too) in blind bans, else 1
+    comp_fit: float = 0.0  # pick: comp coherence term (log-odds, damped), included in value but not win_prob
+
+
+@dataclass(frozen=True)
+class PickPair:
+    """Two picks in a row (pick-ahead): both champions, P(win) with both, and their pair synergy."""
+    first: Suggestion
+    second: Suggestion
+    win_prob: float
+    synergy_pp: float
+    low_data: bool
 
 
 @dataclass(frozen=True)
@@ -97,6 +114,8 @@ class BanCandidate:
     comp_wr: float
     own_loss: float = 0.0
     own_role: str | None = None  # the role of ours that would lose it
+    comp_synergy: float = 0.0  # part of comp from synergy with their locked picks (ban_comp_synergy)
+    comp_partner: int | None = None  # their locked pick it pairs with best
 
 
 def enemy_team_ban_prob(ban_rate: float) -> float:
@@ -184,13 +203,21 @@ class DraftEngine:
             return hit
         if len(champs) > len(roles):
             raise ValueError("more champions than roles")
+        fit = self._weight if side == US else self._role_likelihood
         best, best_map = -math.inf, {}
         for perm in permutations(roles, len(champs)):
-            s = sum(self._weight(side, c, r) for c, r in zip(champs, perm))
+            s = sum(fit(side, c, r) for c, r in zip(champs, perm))
             if s > best:
                 best, best_map = s, dict(zip(champs, perm))
         self._assign_cache[key] = (best, best_map)
         return best, best_map
+
+    def _role_likelihood(self, side: str, champ: int, role: str) -> float:
+        """Enemy roles: log P(champion played in role) from pick rates, so the assignment is the most likely
+        one, not the one with their best win rates (a jungler with a high WR in rare top games stays the
+        jungler). Meta strength only breaks ties (e.g. champions with no pick data)."""
+        share = self._role_shares.get(champ, {}).get(role, 0.0)
+        return math.log(max(share, self.cfg.role_share_floor)) + 1e-3 * self._weight(side, champ, role)
 
     def _assign_plus(self, side: str, base: tuple[int, ...], champ: int, champ_roles: list[str]) -> dict[int, str]:
         """Best assignment of base + champ with champ restricted to champ_roles.
@@ -205,18 +232,77 @@ class DraftEngine:
         return best_map
 
     def _terms(self, ours: list[int], our_roles: dict[int, str], theirs: list[int], their_roles: dict[int, str]) -> Terms:
-        cfg, enemy, team_b = self.cfg, self._enemy(), self._bracket(self.cfg.team_bracket)
+        cfg, enemy = self.cfg, self._enemy()
         meta_us = sum(cfg.alpha * self._m(c, our_roles[c], self._our_bracket(our_roles[c])) for c in ours)
         comfort = sum(cfg.beta * self._comfort(c, our_roles[c]) for c in ours)
         meta_them = sum(self._m(c, their_roles[c], enemy) for c in theirs)
-        syn_us = sum(logit(team_b.synergy_wr(a, b)) for a, b in combinations(ours, 2))
-        syn_them = sum(logit(enemy.synergy_wr(a, b)) for a, b in combinations(theirs, 2))
+        syn_us = self._syn(ours, our_roles)
+        syn_them = self._syn(theirs, their_roles)
         their_by_role = {r: c for c, r in their_roles.items()}
         lane = 0.0
         for c, r in our_roles.items():
             if (opp := their_by_role.get(r)) is not None:
                 lane += logit(self._our_bracket(r).matchup_wr(r, c, opp))
-        return Terms(meta_us, comfort, meta_them, syn_us, syn_them, lane)
+        return Terms(meta_us, comfort, meta_them, syn_us, syn_them, lane, self._damage_term(ours, our_roles))
+
+    def _syn(self, champs: list[int], roles: dict[int, str]) -> float:
+        """Sum of role-aware pair synergy over every pair, each champion in its assigned role."""
+        table = self.data.synergy
+        return sum(table.pair(roles[a], a, roles[b], b).s for a, b in combinations(champs, 2))
+
+    def damage_shares(self, champs: list[int], roles: dict[int, str]) -> tuple[tuple[float, float, float], int] | None:
+        """Mean physical / magic / true share over the champions with damage data, and how many had it."""
+        known = [d for c in champs if (d := self.data.damage.get((c, roles[c]))) is not None]
+        if not known:
+            return None
+        return tuple(sum(d[i] for d in known) / len(known) for i in range(3)), len(known)
+
+    def _damage_term(self, ours: list[int], roles: dict[int, str]) -> float:
+        cfg = self.cfg
+        if not cfg.damage_balance or len(ours) < cfg.damage_min_champs:
+            return 0.0
+        shares = self.damage_shares(ours, roles)
+        if shares is None or shares[1] < cfg.damage_min_champs:
+            return 0.0
+        return cfg.damage_penalty if max(shares[0]) > cfg.damage_threshold else 0.0
+
+    # ---------- comp coherence (docs/comp-style.md Stage C) ----------
+    def target_for(self, ours: list[tuple[int, str | None]]) -> tuple[str | None, str | None]:
+        """(style to pull towards, where it comes from: "team" | "comp"). The Team page's style wins;
+        "Mixed" set there means no pull. Otherwise the style our comp is named, or leaning, towards."""
+        cfg = self.cfg
+        if not cfg.comp_coherence:
+            return None, None
+        if cfg.comp_target is not None:
+            return (cfg.comp_target if cfg.comp_target in STYLES else None), "team"
+        if not ours:
+            return None, None
+        tc = team_comp(self.data.profiles, ours)
+        if tc.style != "mixed":
+            return tc.style, "comp"
+        top = max(STYLES, key=lambda k: tc.shares[k])
+        return (top, "comp") if tc.shares[top] >= STYLE_SHARE else (None, None)
+
+    def comp_target(self, state: DraftState) -> tuple[str | None, str | None]:
+        self._assign_cache.clear()
+        ev = self._evaluate(state)
+        return self.target_for([(c, ev.our_roles.get(c)) for c in state.our_picks])
+
+    def coherence(self, ours: list[tuple[int, str | None]], champ: int, role: str | None,
+                  target: str | None) -> float:
+        """weight * damping(our pick number) * (champ's weight in the target style - 1/3), in log-odds.
+        1/3 is an even spread, so a neutral champion scores 0 and an off-style one a little below.
+        Front to back needs a front-liner: the first one counts as a fit of at least weight + 0.5."""
+        cfg = self.cfg
+        damp = cfg.comp_damping[min(len(ours), len(cfg.comp_damping) - 1)]
+        st = self.data.profiles.style(champ)
+        if target is None or damp == 0 or st is None:
+            return 0.0
+        fit = st.weights[STYLES.index(target)]
+        if target == "front_to_back" and st.frontline and not any(
+                (o := self.data.profiles.style(c)) is not None and o.frontline for c, _ in ours):
+            fit = min(1.0, fit + 0.5)
+        return cfg.comp_weight * damp * (fit - 1 / 3)
 
     def _evaluate(self, state: DraftState) -> Evaluation:
         ours, theirs = state.our_picks, state.their_picks
@@ -355,6 +441,7 @@ class DraftEngine:
         blind = state.format.simultaneous_bans and state.step is not None and state.step.kind == "ban"
         locked = [(o, r) for o, r in ev.our_roles.items()]
         own_best = self._own_best_two(state, ev)
+        syn_on = cfg.ban_comp_synergy and state.step is not None and state.step.phase == 2 and bool(ev.their_roles)
 
         out = []
         for c in self._champs:
@@ -377,6 +464,17 @@ class DraftEngine:
                 comp += edge
                 if comp_target is None or edge > (1 - filled[r]) * logit(comp_wr):
                     comp_target, comp_wr = o, wr
+            comp_syn, comp_partner = 0.0, None
+            if syn_on and p > 0:
+                # synergy X would add to their locked picks, in X's likely roles
+                best_pair = 0.0
+                for r, prob in rp.items():
+                    for j, rj in ev.their_roles.items():
+                        part = prob / p * self.data.synergy.pair(r, c, rj, j).s
+                        comp_syn += part
+                        if part > best_pair:
+                            best_pair, comp_partner = part, j
+                comp += comp_syn
             discount = 1 - enemy_team_ban_prob(enemy.ban_rates.get(c, 0.0)) if blind else 1.0
             weighted = w.threat * threat + w.matchup * matchup + w.comp * comp
             own_loss, own_role = 0.0, None
@@ -390,7 +488,8 @@ class DraftEngine:
             lanes = {t.role: row.ban for t in tables.values() if (row := t.row(c)) is not None}
             out.append(BanCandidate(c, threat, matchup, comp, rel, discount,
                                     rel * discount * weighted - w.own * own_loss, p,
-                                    likely_role, lanes, comp_target, comp_wr, own_loss, own_role))
+                                    likely_role, lanes, comp_target, comp_wr, own_loss, own_role,
+                                    comp_syn, comp_partner))
         out.sort(key=lambda b: (-b.value, b.champ_id))
         self._last_tables = tables
         return out
@@ -490,6 +589,9 @@ class DraftEngine:
             if row is not None and row.via is not None:
                 return f"{who} best answer is {_pp(row.resp)} ({self.data.name(row.via)})"
             return f"{who} pool has no answer to it"
+        if (top == "comp" and parts["comp"] > 0 and b.comp_partner is not None
+                and b.comp_synergy > b.comp - b.comp_synergy):
+            return f"Strong synergy with their {self.data.name(b.comp_partner)}"
         if top == "comp" and parts["comp"] > 0 and b.comp_target is not None:
             verb = "Hard counters" if b.comp_wr >= 0.54 else "Counters"
             return f"{verb} our locked {self.data.name(b.comp_target)}"
@@ -523,6 +625,8 @@ class DraftEngine:
         enemy_left = state.picks_left(state.their_side)
         unavailable = state.unavailable()
         enemy_cands = {r: [e for e in self._champs if e not in unavailable and enemy.role_stat(e, r)] for r in ROLES}
+        locked = [(c, ev.our_roles.get(c)) for c in ours]
+        target, _ = self.target_for(locked)
 
         out = []
         for c in self._champs:
@@ -545,12 +649,97 @@ class DraftEngine:
 
             flex_roles = [r for r in open_roles if self.team.entry(c, r)]
             flex = cfg.flex_bonus * max(len(flex_roles) - 1, 0)
-            value = win - cfg.risk_weight * risk + flex
-            reason = self._pick_reason(c, r_c, ours, ev.their_roles, flex_roles, flex, cfg.risk_weight * risk, counter)
+            fit = self.coherence(locked, c, r_c, target)
+            value = win - cfg.risk_weight * risk + flex + _LO_TO_PROB * fit
+            reason = self._pick_reason(c, r_c, our_roles, ev.their_roles, flex_roles, flex, cfg.risk_weight * risk, counter,
+                                       (_LO_TO_PROB * fit, target))
             out.append(Suggestion(c, self.data.name(c), "pick", value, reason, role=r_c, win_prob=win,
-                                  counter_id=counter, counter_risk=risk))
+                                  counter_id=counter, counter_risk=risk, comp_fit=fit))
         out.sort(key=lambda s: (-s.value, s.champ_id))
         return validate_suggestions(state, "pick", out[:k])
+
+    # ---------- pick-ahead ----------
+    @staticmethod
+    def back_to_back(state: DraftState) -> bool:
+        """Our pick now and our pick next (e.g. B2/B3, R1/R2, B4/B5 in tournament draft)."""
+        step = state.step
+        if step is None or step.kind != "pick" or step.side != state.our_side:
+            return False
+        steps = state.format.steps
+        nxt = steps[step.index + 1] if step.index + 1 < len(steps) else None
+        return nxt is not None and nxt.kind == "pick" and nxt.side == state.our_side
+
+    def suggest_pick_pairs(self, state: DraftState, k: int = 3, per_role: int = 6) -> list[PickPair]:
+        """Top-k pairs for two picks in a row, from our open roles' pools, ranked by the engine score
+        with both picks (synergy included) plus comp coherence. Each role contributes its `per_role`
+        best single picks.
+
+        Varied: when choosing the next pair, each time one of its champions was already shown costs it
+        `pair_repeat_margin`, so a champion repeats only when the call for it really is that strong."""
+        if not self.back_to_back(state):
+            return []
+        self._assign_cache.clear()
+        ours, theirs = state.our_picks, state.their_picks
+        ev = self._evaluate(state)
+        open_roles = [r for r in ROLES if r not in ev.our_roles.values()]
+        unavailable = state.unavailable()
+        cands = {}
+        for r in open_roles:
+            pool = [c for c in self.team.pools.get(r, {}) if c not in unavailable]
+            cands[r] = sorted(pool, key=lambda c: (-self._weight(US, c, r), c))[:per_role]
+        locked = [(c, ev.our_roles.get(c)) for c in ours]
+        target, _ = self.target_for(locked)
+
+        scored = []
+        for r1, r2 in combinations(open_roles, 2):
+            for a in cands[r1]:
+                for b in cands[r2]:
+                    if a == b:
+                        continue
+                    roles = {**ev.our_roles, a: r1, b: r2}
+                    total = self._terms(ours + [a, b], roles, theirs, ev.their_roles).total
+                    fit = self.coherence(locked, a, r1, target) + self.coherence([*locked, (a, r1)], b, r2, target)
+                    scored.append((total + fit, total, (a, r1), (b, r2)))
+        scored.sort(key=lambda x: (-x[0], x[2][0], x[3][0]))
+
+        valid, seen = [], set()  # (rank score, pair), best first, guardrails checked, each champion pair once
+        for score, total, (a, r1), (b, r2) in scored:
+            if (key := frozenset((a, b))) in seen:
+                continue
+            win = sigmoid(total)
+            first, second = (Suggestion(c, self.data.name(c), "pick", win, self._pair_reason(c, r), role=r, win_prob=win)
+                             for c, r in ((a, r1), (b, r2)))
+            if len(validate_suggestions(state, "pick", [first, second])) < 2:
+                continue
+            seen.add(key)
+            pair = self.data.synergy.pair(r1, a, r2, b)
+            valid.append((score, PickPair(first, second, win, to_pp(pair.s), pair.low_data)))
+
+        out: list[tuple[float, PickPair]] = []
+        shown: dict[int, int] = {}  # champion -> pairs it is already in
+        while len(out) < k:
+            left = [(s, p) for s, p in valid if all(p is not q for _, q in out)]
+            if not left:
+                break
+            pick = max(left, key=lambda sp: sp[0] - self.cfg.pair_repeat_margin  # first of equals wins
+                       * (shown.get(sp[1].first.champ_id, 0) + shown.get(sp[1].second.champ_id, 0)))
+            out.append(pick)
+            for c in (pick[1].first.champ_id, pick[1].second.champ_id):
+                shown[c] = shown.get(c, 0) + 1
+        return [p for _, p in sorted(out, key=lambda x: -x[0])]
+
+    def pick_record(self, c: int, role: str) -> dict:
+        """For display: the champion's meta win rate in that player's bracket, and the player's own record."""
+        bracket = self.team.brackets[role]
+        stat = self._bracket(bracket).role_stat(c, role)
+        entry = self.team.entry(c, role)
+        games, wins = (entry.games, entry.wins) if entry else (0, 0)
+        return {"meta_wr": stat.win_rate if stat else None, "bracket": bracket, "player_games": games,
+                "player_wr": wins / games if games else None}
+
+    def _pair_reason(self, c: int, role: str) -> str:
+        entry = self.team.entry(c, role)
+        return f"{ROLE_LABELS[role]} {entry.tier if entry else 'off-pool'}"
 
     def threats(self, state: DraftState, k: int = 2) -> list[Suggestion]:
         """The enemy's biggest threats among their locked picks: meta strength in their role, plus
@@ -566,7 +755,7 @@ class DraftEngine:
             opp = our_by_role.get(r)
             lane_wr = 1 - self._our_bracket(r).matchup_wr(r, opp, c) if opp is not None else 0.5
             lane = logit(lane_wr)
-            partners = [(logit(enemy.synergy_wr(c, o)), o) for o in ev.their_roles if o != c]
+            partners = [(self.data.synergy.pair(r, c, ro, o).s, o) for o, ro in ev.their_roles.items() if o != c]
             best_syn = max(partners, default=(0.0, None))
             syn = sum(s for s, _ in partners) / 2
             if opp is not None and lane > max(meta, best_syn[0], 0):
@@ -594,8 +783,9 @@ class DraftEngine:
         out.sort(key=lambda s: (-s.value, s.champ_id))
         return validate_suggestions(state, "enemy_pick", out[:k])
 
-    def _pick_reason(self, c: int, role: str, ours: list[int], their_roles: dict[int, str],
-                     flex_roles: list[str], flex: float, risk: float, counter: int | None) -> str:
+    def _pick_reason(self, c: int, role: str, our_roles: dict[int, str], their_roles: dict[int, str],
+                     flex_roles: list[str], flex: float, risk: float, counter: int | None,
+                     fit: tuple[float, str | None] = (0.0, None)) -> str:
         """'<Role> <tier>, <largest positive term>', plus a warning if counter risk outweighs it."""
         entry = self.team.entry(c, role)
         head = f"{ROLE_LABELS[role]} {entry.tier if entry else 'off-pool'}"
@@ -608,11 +798,14 @@ class DraftEngine:
         opp = next((o for o, r in their_roles.items() if r == role), None)
         if opp is not None:
             terms.append((_LO_TO_PROB * logit(bracket.matchup_wr(role, c, opp)), f"counters their {self.data.name(opp)}"))
-        team_b = self._bracket(self.cfg.team_bracket)
-        for o in ours:
-            terms.append((_LO_TO_PROB * logit(team_b.synergy_wr(c, o)), f"pairs with our {self.data.name(o)}"))
+        for o, r_o in our_roles.items():
+            if o != c:
+                syn = self.data.synergy.pair(role, c, r_o, o).s
+                terms.append((_LO_TO_PROB * syn, f"{_pp(to_pp(syn))} with your locked {self.data.name(o)}"))
         if flex > 0:
             terms.append((flex, "flex " + "/".join(ROLE_LABELS[r] for r in flex_roles)))
+        if fit[0] > 0 and fit[1] is not None:
+            terms.append((fit[0], f"fits our {STYLE_LABELS[fit[1]]}"))
 
         best = max((t for t in terms if t[0] > 0), key=lambda t: t[0], default=None)
         reason = f"{head}, {best[1]}" if best else head

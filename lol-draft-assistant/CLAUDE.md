@@ -16,7 +16,7 @@ Personal, local pick/ban assistant for one 5-stack on EUW. Read `docs/SPEC.md` b
 
 ## Environment
 - Windows (the League client only runs there). Python 3.12 managed with `uv`; web UI is Vite + Svelte 5 in `web/` (FastAPI serves `web/dist`).
-- Run tests: `uv run pytest` (~720 tests, ~45 s; the fuzz test is the slow part). Tests run with `DRAFTASSIST_STRICT=1`, so suggestion guard violations raise.
+- Run tests: `uv run pytest` (~790 tests, ~55 s; the fuzz test is the slow part). Tests run with `DRAFTASSIST_STRICT=1`, so suggestion guard violations raise.
 - Run the app: double-click **Draft Assistant** on the Desktop (`.venv\Scripts\draftassist.exe`: starts the server, opens http://localhost:8000). Dev: `uv run uvicorn draftassist.api.main:app --reload`.
 - After changing the UI: `cd web; npm run build`. After changing Python: restart the app (stats refresh live, code doesn't).
 
@@ -25,12 +25,13 @@ Personal, local pick/ban assistant for one 5-stack on EUW. Read `docs/SPEC.md` b
 | --- | --- |
 | Champion names/icons (each patch) | `uv run python -m draftassist.data.ddragon` |
 | OP.GG bootstrap stats (each patch) | `uv run python -m draftassist.data.opgg` |
-| Crawl (overnight; resumable) | `uv run python -m draftassist.data.crawl --hours 8` |
+| Crawl (overnight; resumable) | `uv run python -m draftassist.data.crawl --hours 8` (~1,800 matches/h) |
 | Crawl coverage / Phase 3 acceptance | `uv run python -m draftassist.data.coverage` |
 | Learning job (link players, history, comfort) | `uv run python -m draftassist.learning.jobs` |
 | Confirm logged games via match-v5 | `uv run python -m draftassist.data.postgame` |
 | Import pools from a file | `uv run python -m draftassist.data.pools import pools.txt` |
 | Ban value breakdown (audit) | `uv run python scripts/ban_audit.py [--real]` |
+| Damage and game length for already-crawled matches (from the Riot cache, no API calls) | `uv run python -m draftassist.data.backfill` |
 | App without the client | `draftassist --demo` or `draftassist --replay fixtures/lcu/flex-ranked-sample` |
 
 Env vars: `DRAFTASSIST_LCU` (client | demo | replay | off), `DRAFTASSIST_REPLAY`, `DRAFTASSIST_DB` (use a scratch copy for experiments), `DRAFTASSIST_RECORD`, `DRAFTASSIST_DEMO_LOG`, `DRAFTASSIST_STATS_REFRESH_S`, `DRAFT_FORMAT` (auto | tournament | ranked).
@@ -38,7 +39,7 @@ Env vars: `DRAFTASSIST_LCU` (client | demo | replay | off), `DRAFTASSIST_REPLAY`
 ## Team context
 - Ranked 5s uses tournament draft (3 bans, 3 picks, 2 bans, 2 picks); Flex/Solo use standard draft (5 simultaneous bans each, then B RR BB RR BB R). Both are supported and auto-detected.
 - Stats bracket is set per player on the Pools page (currently Top Gold, Jungle Emerald, Mid Gold, ADC Platinum, Support Iron). Enemy prior = Gold. The crawl covers every tier Iron–Emerald.
-- Weights live in Settings (stored in the DB, `app_settings`): α (meta) = 1.5, β (comfort) = 0.3, comfort games cap = 10, ban weights Threat 1.0 / Matchup 1.5 / Comp 1.0 / self-ban penalty 1.0. The spec's defaults (α = β = 1) were changed on purpose.
+- Weights live in Settings (stored in the DB, `app_settings`): α (meta) = 1.5, β (comfort) = 0.3, comfort games cap = 10, ban weights Threat 1.0 / Matchup 1.5 / Comp 1.0 / self-ban penalty 1.0, damage balance on (−0.05 above 85% one type, from 3 champions), comp coherence on (0.15), ban Comp synergy off, synergy bracket "all". The spec's defaults (α = β = 1) were changed on purpose.
 
 ## Status (2 Nov 2026)
 | Phase | State |
@@ -50,7 +51,7 @@ Env vars: `DRAFTASSIST_LCU` (client | demo | replay | off), `DRAFTASSIST_REPLAY`
 | 5 Learning | Done (comfort re-scoring with accept/lock, draft report, team style, prep sheet) |
 | 6 Model + scouting | Not started |
 
-Extra task docs done: `ban-score.md`, `ban-guardrails.md`, `flex-simultaneous-bans.md`, `ban-value-matchups.md` (audit in `ban-value-audit.md`), `history-broadcast-ui.md`. Next up, not started: `synergy-visualizer.md`.
+Extra task docs done: `ban-score.md`, `ban-guardrails.md`, `flex-simultaneous-bans.md`, `ban-value-matchups.md` (audit in `ban-value-audit.md`), `history-broadcast-ui.md`. `synergy-visualizer.md` built (Stages A–C, awaiting review): role-aware `synergy_pairs` + damage profile, Synergy page, engine synergy term from `EngineData.synergy`, damage balance, "Next 2 picks". Current patch only; older-patch history postponed. `comp-style.md`: Stages A–B done (game length, power curves, style seed `data/champion_styles.json` + Champions review page, Early/Late threshold ±0.15; comp panel for both teams, badges on Live / Synergy / Pools, 5 / 3 suggestion cards). Stage C built, awaiting review: comp coherence in pick value (not P(win)), damped 0 / 0.1 / 0.25 / 1 / 1 by our pick number, target from the Team page else our comp; Team page on the same labels; varied Next 2 picks (`pair_repeat_margin`). The old role-less `synergy` table is gone (`db/session.DROPPED_TABLES` drops it from older databases).
 
 Open points:
 - `flex-simultaneous-bans.md` test 2 assumes greedy recomputation spreads bans across lanes; under the lane ban score it concentrates (banning both bad top matchups is worth more). Implemented as specified; a per-lane diminishing-returns rule would need a decision.
@@ -67,9 +68,12 @@ Open points:
 - The League client's PUUID (a plain UUID) is not the Riot API's (encrypted per key). Players keep both: `client_puuid` for champ select, `api_puuid` for match-v5 (from account-v1).
 - LCU: a skipped ban is championId `-1` (0 = not chosen yet). Standard-draft bans are one simultaneous turn and the enemy's stay hidden until `ten_bans_reveal`. The two picks of a turn can lock in either order. `myTeam[].championId` is also set while hovering: locked picks come from completed actions.
 - `theirTeam` in Flex has no names, PUUIDs or positions: no enemy scouting there.
+- Enemy roles must be the most likely assignment (log role share from pick rates), never the one maximising their win rates: off-role games are rare and noisy (Graves top: 0.03% picks at 51% WR) and put junglers top.
 - SQLite runs in WAL mode (the app reads while the crawl writes). WAL files must never be committed.
 - `index.html` is served `no-cache`, otherwise browsers keep running an old UI bundle after updates.
 - `uvicorn[standard]` is required: plain uvicorn 404s the WebSocket.
 - Chart colours were validated with the dataviz palette checker on the panel surface `#161b22`: favourability teal `#1baf7a` / amber `#c98500` (red/green fails colour-blind checks), component bars blue/orange/aqua, sides `#2f6fb7` / `#c0423a`.
-- Development Riot keys expire 24 h after they are generated; the crawl stops with a clear message and resumes after a new key is pasted into `.env`.
+- Development Riot keys expire 24 h after they are generated; the crawl stops with a clear message and resumes after a new key is pasted into `.env`. Since 2 Nov 2026 `.env` holds an approved app key: no expiry, but the same 20 / 1 s and 100 / 2 min limits (~1,800 matches/h).
+- Riot encrypts PUUIDs per app: PUUIDs fetched with one key get 400 from another. Cache entries carry a key fingerprint (`riot.key_id`, a one-way hash) and `riot.sync_api_key` drops ladder seeds and players' `api_puuid` when the key changes (the crawl re-seeds; the learning job re-resolves Riot IDs). The client's PUUIDs are unaffected.
+- Playwright MCP saves screenshots relative to the workspace root (`Draft/`), not this project: pass `lol-draft-assistant/tests/screenshots/...`. It also writes page snapshots (with player names) to `.playwright-mcp/`; delete it after a session. Replay mode logs drafts: point `DRAFTASSIST_DB` at a scratch copy first.
 - When editing files that contain non-ASCII characters (⚠, −, ·), use the Edit/Write tools; shell heredocs and nested escaping have broken these several times.

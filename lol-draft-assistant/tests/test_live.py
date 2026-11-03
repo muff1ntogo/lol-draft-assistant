@@ -21,7 +21,7 @@ def test_sample_session_view(make_services):
     assert view["phase"] == "Pick 1" and view["action"] == "pick" and view["seconds_left"] == 25.0
     assert view["center"]["mode"] == "our_pick" and view["center"]["title"] == "PICK — Top"
     cards = view["center"]["cards"]
-    assert 1 <= len(cards) <= 3 and all(c["role"] == "top" for c in cards)
+    assert 1 <= len(cards) <= 5 and all(c["role"] == "top" for c in cards)  # our first pick: up to 5
     assert [b["name"] for b in view["their_bans"]] == ["Azir", "Jinx"]
     assert [b["name"] for b in view["our_bans"]] == ["Gnar", "Vi", "Rakan"]
     assert view["our_slots"][0]["hover"]["name"] == "K'Sante" and view["our_slots"][0]["champ"] is None

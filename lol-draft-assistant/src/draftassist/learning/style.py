@@ -1,11 +1,10 @@
-"""Team style (v2, advisory): classify each logged draft's comp from the champions' classes,
-then suggest the style that has been winning lately. The style itself is set by hand.
+"""Team style (advisory): classify each logged draft's comp, then suggest the style that has been winning
+lately. The style itself is set by hand, and the engine pulls our picks towards it (comp coherence).
 
-Styles from Data Dragon classes (Tank, Fighter, Assassin, Mage, Marksman, Support):
-    engage = Tanks + half the Fighters    (front-to-back, hard engage)
-    dive   = Assassins + half the Fighters (pick, dive the backline)
-    poke   = Mages + Marksmen beyond the one ADC (poke, scaling, siege)
-A comp scoring under 1.5 in every style is "balanced".
+Labels are the comp styles of docs/comp-style.md (engine/comp.py `team_comp`): Front to back, Dive, Poke,
+or Mixed when no style leads. Before Stage C this used Data Dragon classes and called Front to back
+"engage"; stored labels from then are re-classified, and a hand style saved as "engage" reads as
+Front to back ("balanced" as Mixed).
 """
 from __future__ import annotations
 
@@ -14,37 +13,35 @@ import json
 from sqlalchemy import Engine
 from sqlmodel import Session, col, select
 
-from draftassist.db.models import AppSetting, Champion, Draft, DraftAction
+from draftassist.db.models import AppSetting, Draft, DraftAction
+from draftassist.engine.comp import STYLE_LABELS, ChampionProfiles, team_comp
 
-STYLES = {"engage": "Engage / front-to-back", "dive": "Dive / pick", "poke": "Poke / scaling",
-          "balanced": "Balanced"}
+STYLES = {**STYLE_LABELS, "mixed": "Mixed"}
+LEGACY = {"engage": "front_to_back", "balanced": "mixed"}  # labels saved before docs/comp-style.md Stage C
 RECENT_GAMES = 20
 MIN_STYLE_GAMES = 3
 STYLE_K = 5  # shrink each style's win rate towards 50% by this many games
 STYLE_KEY = "team_style"
 
 
-def classify(tags: list[list[str]]) -> str:
-    count = lambda t: sum(t in champ for champ in tags)  # noqa: E731
-    scores = {"engage": count("Tank") + 0.5 * count("Fighter"),
-              "dive": count("Assassin") + 0.5 * count("Fighter"),
-              "poke": count("Mage") + max(count("Marksman") - 1, 0)}
-    best = max(scores, key=scores.get)
-    return best if scores[best] >= 1.5 else "balanced"
+def classify(profiles: ChampionProfiles, picks: list[tuple[int, str | None]]) -> str:
+    """A comp's style: the same rule as the Live screen's comp panel."""
+    return team_comp(profiles, picks).style
 
 
-def _draft_style(s: Session, d: Draft, tags: dict[int, list[str]]) -> str | None:
+def _draft_style(s: Session, d: Draft, profiles: ChampionProfiles) -> str | None:
     picks = s.exec(select(DraftAction).where(DraftAction.draft_id == d.draft_id, DraftAction.type == "pick",
                                              DraftAction.side == d.side)).all()
     if len(picks) < 5:
         return None
-    return classify([tags.get(a.champ_id, []) for a in picks])
+    return classify(profiles, [(a.champ_id, a.role) for a in picks])
 
 
 def get_hand_style(db: Engine) -> str | None:
     with Session(db) as s:
         row = s.get(AppSetting, STYLE_KEY)
-    return json.loads(row.value).get("style") if row else None
+    style = json.loads(row.value).get("style") if row else None
+    return LEGACY.get(style, style)
 
 
 def set_hand_style(db: Engine, style: str | None) -> None:
@@ -57,15 +54,18 @@ def set_hand_style(db: Engine, style: str | None) -> None:
         s.commit()
 
 
-def team_summary(db: Engine) -> dict:
+def team_summary(db: Engine, profiles: ChampionProfiles | None = None) -> dict:
     """Recent form, each style's record, the suggested style and the one set by hand."""
+    if profiles is None:
+        from draftassist.data.profiles import load_profiles
+
+        profiles = load_profiles(db, None)  # styles only: classification doesn't use timing
     with Session(db) as s:
-        tags = {c.champ_id: c.tags or [] for c in s.exec(select(Champion)).all()}
         drafts = s.exec(select(Draft).where(col(Draft.result).in_(("win", "loss")))
                         .order_by(col(Draft.played_at).desc())).all()[:RECENT_GAMES]
         for d in drafts:
-            if d.style_tag is None:
-                d.style_tag = _draft_style(s, d, tags)
+            if d.style_tag is None or d.style_tag not in STYLES:
+                d.style_tag = _draft_style(s, d, profiles)
                 s.add(d)
         s.commit()
         rows = [(d.style_tag, d.result == "win", d.played_at.isoformat()) for d in drafts]

@@ -47,16 +47,15 @@ def is_client_puuid(puuid: str) -> bool:
 
 
 def backfill_player_ids(db: Engine) -> None:
-    """Players linked before both ids were kept: sort the key into client or API PUUID."""
+    """Players linked before both ids were kept: a client PUUID key is also their client_puuid.
+    An API PUUID key is not copied to api_puuid: it may be from an earlier Riot API key (PUUIDs are
+    encrypted per app, and sync_api_key clears api_puuid on a key change), so the learning job looks
+    api_puuid up from the Riot ID with the current key instead."""
     with Session(db) as s:
         for p in s.exec(select(Player)).all():
-            if not p.resolved:
-                continue
-            if is_client_puuid(p.puuid) and not p.client_puuid:
+            if p.resolved and is_client_puuid(p.puuid) and not p.client_puuid:
                 p.client_puuid = p.puuid
-            elif not is_client_puuid(p.puuid) and not p.api_puuid:
-                p.api_puuid = p.puuid
-            s.add(p)
+                s.add(p)
         s.commit()
 
 
@@ -274,7 +273,46 @@ def import_pools(db: Engine, parsed: ParsedPools) -> dict[str, int]:
                                 wins=keep.wins if keep else 0, last_played=keep.last_played if keep else None))
             counts[role] = len(entries)
         s.commit()
+    _recount(db)
     return counts
+
+
+def _recount(db: Engine) -> None:
+    """Games, wins and comfort of every pool entry from the player's stored games, so a champion added
+    to a pool shows its record now, not after the next learning run."""
+    from draftassist.learning.comfort import rescore
+
+    rescore(db)
+
+
+def set_pool_entry(db: Engine, role: str, champ_id: int, tier: str) -> None:
+    """Add one champion to a player's pool, or change its tier (scored tier, lock and history kept)."""
+    if role not in ROLES:
+        raise ValueError(f"role must be one of {', '.join(ROLES)}")
+    if tier not in TIERS:
+        raise ValueError(f"tier must be one of {', '.join(TIERS)}")
+    with Session(db) as s:
+        player = _ensure_player(s, role)
+        e = s.get(PoolEntry, (player.puuid, champ_id, role))
+        if e is None:
+            e = PoolEntry(puuid=player.puuid, champ_id=champ_id, role=role, manual_tier=tier,
+                          comfort=tier_comfort(tier))
+        e.manual_tier = tier
+        s.add(e)
+        s.commit()
+    _recount(db)
+
+
+def remove_pool_entry(db: Engine, role: str, champ_id: int) -> bool:
+    """Take one champion out of a player's pool. False if it wasn't there."""
+    with Session(db) as s:
+        player = player_for_role(s, role)
+        e = s.get(PoolEntry, (player.puuid, champ_id, role)) if player else None
+        if e is None:
+            return False
+        s.delete(e)
+        s.commit()
+    return True
 
 
 def load_pools(db: Engine) -> dict[str, list[PoolEntry]]:
@@ -298,7 +336,8 @@ def load_team(db: Engine) -> OurTeam | None:
         return None
     brackets = {p["role"]: p["bracket"] for p in list_players(db)}
     cap = configured_cap(db)
-    return OurTeam({r: {e.champ_id: PoolChamp(e.manual_tier, comfort_score(e.manual_tier, e.games, e.wins, cap)) for e in entries}
+    return OurTeam({r: {e.champ_id: PoolChamp(e.manual_tier, comfort_score(e.manual_tier, e.games, e.wins, cap),
+                                              e.games, e.wins) for e in entries}
                     for r, entries in pools.items()}, brackets)
 
 

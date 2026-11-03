@@ -2,7 +2,8 @@
 
 Stats per bracket blend our crawl with the OP.GG bootstrap (all-tier): OP.GG is the prior each
 champion starts from, and the bracket's own games take over as they accumulate (bracket_stats).
-Matchups and synergy come from the crawl only. If neither source exists, everything falls back to
+Matchups come from the crawl only; so does role-aware synergy (data/synergy.py, pooled over every
+bracket by default) and the damage profile. If neither source exists, everything falls back to
 synthetic data over the real champion ids.
 
 Our team comes from imported pools (data/pools.py); before any import, each role gets placeholder
@@ -12,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from sqlalchemy import Engine
 from sqlmodel import Session, select
@@ -21,13 +22,13 @@ from draftassist.data.aggregate import PAIR_K, ROLE_K, shrink
 from draftassist.data.crawler import brackets_in_use
 from draftassist.data.ddragon import BASE_URL
 from draftassist.data.pools import load_team
+from draftassist.data.profiles import load_profiles
 from draftassist.db.models import (
     BootstrapRoleStats,
     BracketTotal,
     Champion,
     ChampRoleStats,
     Matchup,
-    Synergy,
 )
 from draftassist.engine.model import ROLES, BracketStats, EngineData, OurTeam, RoleStat
 from draftassist.engine.simulate import TEAM_BRACKETS, synthetic_data
@@ -101,7 +102,7 @@ def bracket_stats(s: Session, patch: str, bracket: str, boot: Bootstrap | None) 
 
     win rate  = (wins + k * prior) / (games + k),   k = 50, prior = OP.GG win rate (else 50%)
     pick/ban  = (count + M * prior) / (matches + M), M = 1,000 matches
-    matchups and synergy come from the crawl only, shrunk towards 50% (k = 200)."""
+    matchups come from the crawl only, shrunk towards 50% (k = 200)."""
     total = s.get(BracketTotal, (patch, bracket))
     n = total.matches if total else 0
     if n == 0 and boot is None:
@@ -133,9 +134,7 @@ def bracket_stats(s: Session, patch: str, bracket: str, boot: Bootstrap | None) 
             bans[c] = crawled_bans.get(c, 0) / n
     matchups = {(m.role, m.champ_a, m.champ_b): shrink(m.wins_a, m.games, PAIR_K)
                 for m in s.exec(select(Matchup).where(Matchup.patch == patch, Matchup.bracket == bracket))}
-    synergy = {frozenset((y.champ_a, y.champ_b)): shrink(y.wins, y.games, PAIR_K)
-               for y in s.exec(select(Synergy).where(Synergy.patch == patch, Synergy.bracket == bracket))}
-    return BracketStats(meta, matchups, synergy, bans), n
+    return BracketStats(meta, matchups, bans), n
 
 
 def placeholder_team(data: EngineData, brackets: Mapping[str, str] = TEAM_BRACKETS) -> OurTeam:
@@ -180,7 +179,12 @@ def load_engine_inputs(db: Engine) -> EngineInputs:
                 if stats is not None:
                     brackets[b] = stats
         if len(brackets) == len(needed):
-            data = EngineData(brackets, names)
+            from draftassist.data.settings_store import get_synergy_bracket
+            from draftassist.data.synergy import load_damage, load_synergy
+
+            synergy = load_synergy(db, bracket=get_synergy_bracket(db))
+            data = EngineData(brackets, names, synergy=synergy, damage=load_damage(db, synergy.window or patch),
+                              profiles=load_profiles(db, patch))
             sources = {b: ("crawl" if boot is None else "opgg" if crawled[b] == 0 else "blend") for b in needed}
             kinds = set(sources.values())
             source = kinds.pop() if len(kinds) == 1 else "blend"
@@ -199,4 +203,5 @@ def load_engine_inputs(db: Engine) -> EngineInputs:
             return EngineInputs(data, team, catalog, source, note, sources)
 
     data, team = synthetic_data(names=names or None)
+    data = replace(data, profiles=load_profiles(db, patch))
     return EngineInputs(data, load_team(db) or team, catalog, "fixture", FIXTURE_NOTE)

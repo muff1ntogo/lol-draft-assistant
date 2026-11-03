@@ -20,7 +20,7 @@ from draftassist.db.models import (
     CrawledMatch,
     Matchup,
     SeedPlayer,
-    Synergy,
+    SynergyPair,
 )
 
 FAKE_KEY = "RGAPI-test-0000"
@@ -211,8 +211,8 @@ def test_crawl_and_aggregate_end_to_end(engine, session, tmp_path):
         assert s.get(ChampRoleStats, ("16.21", "gold", 1, "top")).bans == 0
         mu = s.get(Matchup, ("16.21", "gold", "top", 1, 11))  # canonical a < b
         assert (mu.games, mu.wins_a) == (2, 1)
-        syn = s.get(Synergy, ("16.21", "gold", 1, 2))
-        assert (syn.games, syn.wins) == (2, 1)
+        syn = s.get(SynergyPair, ("16.21", "gold", "jungle", 2, "top", 1))  # role-aware, ordered by (role, champ)
+        assert (syn.games, syn.wins_w) == (2, 1.0)
         assert s.get(Champion, 1).roles == ["top"]
         assert len(s.exec(select(SeedPlayer)).all()) == 2
 

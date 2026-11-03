@@ -1,4 +1,5 @@
-"""User settings kept in the database (Settings page): ban value weights and the declared-intents flag."""
+"""User settings kept in the database (Settings page): ban value weights, the declared-intents flag and the
+engine settings (alpha, beta, damage balance, comp coherence...)."""
 from __future__ import annotations
 
 import json
@@ -44,7 +45,7 @@ ENGINE_KEY = "engine"
 
 
 def get_engine_settings(db: Engine) -> dict:
-    """alpha (meta), beta (comfort) and the comfort games cap."""
+    """alpha (meta), beta (comfort), the comfort games cap, damage balance and the ban synergy flag."""
     from draftassist.learning.comfort import DEFAULT_GAMES_CAP
 
     with Session(db) as s:
@@ -53,7 +54,12 @@ def get_engine_settings(db: Engine) -> dict:
     d = EngineConfig()
     cap = v.get("comfort_games_cap", DEFAULT_GAMES_CAP)
     return {"alpha": float(v.get("alpha", d.alpha)), "beta": float(v.get("beta", d.beta)),
-            "comfort_games_cap": int(cap) if cap else None}
+            "comfort_games_cap": int(cap) if cap else None,
+            "damage_balance": bool(v.get("damage_balance", d.damage_balance)),
+            "damage_penalty": float(v.get("damage_penalty", d.damage_penalty)),
+            "ban_comp_synergy": bool(v.get("ban_comp_synergy", d.ban_comp_synergy)),
+            "comp_coherence": bool(v.get("comp_coherence", d.comp_coherence)),
+            "comp_weight": float(v.get("comp_weight", d.comp_weight))}
 
 
 def get_alpha_beta(db: Engine) -> tuple[float, float]:
@@ -62,7 +68,9 @@ def get_alpha_beta(db: Engine) -> tuple[float, float]:
 
 
 def save_engine_settings(db: Engine, alpha: float | None = None, beta: float | None = None,
-                         comfort_games_cap: int | None = None) -> None:
+                         comfort_games_cap: int | None = None, damage_balance: bool | None = None,
+                         damage_penalty: float | None = None, ban_comp_synergy: bool | None = None,
+                         comp_coherence: bool | None = None, comp_weight: float | None = None) -> None:
     """Update only the values given; the others keep what was saved."""
     current = get_engine_settings(db)
     for name, value, hi in (("alpha", alpha, 5), ("beta", beta, 5)):
@@ -70,9 +78,17 @@ def save_engine_settings(db: Engine, alpha: float | None = None, beta: float | N
             raise ValueError(f"{name} must be between 0 and {hi}")
     if comfort_games_cap is not None and not 1 <= comfort_games_cap <= 200:
         raise ValueError("comfort games cap must be between 1 and 200")
+    if damage_penalty is not None and not -1 <= damage_penalty <= 0:
+        raise ValueError("damage penalty must be between -1 and 0 (log-odds)")
+    if comp_weight is not None and not 0 <= comp_weight <= 1:
+        raise ValueError("comp coherence weight must be between 0 and 1 (log-odds)")
     merged = {"alpha": current["alpha"] if alpha is None else alpha,
               "beta": current["beta"] if beta is None else beta,
               "comfort_games_cap": current["comfort_games_cap"] if comfort_games_cap is None else comfort_games_cap}
+    for name, value in (("damage_balance", damage_balance), ("damage_penalty", damage_penalty),
+                        ("ban_comp_synergy", ban_comp_synergy), ("comp_coherence", comp_coherence),
+                        ("comp_weight", comp_weight)):
+        merged[name] = current[name] if value is None else value
     with Session(db) as s:
         row = s.get(AppSetting, ENGINE_KEY) or AppSetting(key=ENGINE_KEY, value="{}")
         row.value = json.dumps(merged)
@@ -85,9 +101,14 @@ def save_alpha_beta(db: Engine, alpha: float, beta: float) -> None:
 
 
 def engine_config(db: Engine) -> EngineConfig:
+    from draftassist.learning.style import get_hand_style
+
     weights, declared = get_ban_settings(db)
-    alpha, beta = get_alpha_beta(db)
-    return EngineConfig(alpha=alpha, beta=beta, ban_weights=weights, ban_declared_intents=declared)
+    e = get_engine_settings(db)
+    return EngineConfig(alpha=e["alpha"], beta=e["beta"], ban_weights=weights, ban_declared_intents=declared,
+                        damage_balance=e["damage_balance"], damage_penalty=e["damage_penalty"],
+                        ban_comp_synergy=e["ban_comp_synergy"], comp_coherence=e["comp_coherence"],
+                        comp_weight=e["comp_weight"], comp_target=get_hand_style(db))
 
 
 def settings_payload(db: Engine) -> dict:
@@ -98,4 +119,28 @@ def settings_payload(db: Engine) -> dict:
                             "own": weights.own},
             "slider": round(weights.matchup / 2.5, 4) if on_slider else None,
             "ban_declared_intents": declared, "alpha": engine["alpha"], "beta": engine["beta"],
-            "comfort_games_cap": engine["comfort_games_cap"]}
+            "comfort_games_cap": engine["comfort_games_cap"], "damage_balance": engine["damage_balance"],
+            "damage_penalty": engine["damage_penalty"], "ban_comp_synergy": engine["ban_comp_synergy"],
+            "comp_coherence": engine["comp_coherence"], "comp_weight": engine["comp_weight"]}
+
+
+SYNERGY_KEY = "synergy"
+
+
+def get_synergy_bracket(db: Engine) -> str:
+    """Bracket the synergy score is read from: "all" (every crawled tier pooled) or one tier."""
+    with Session(db) as s:
+        row = s.get(AppSetting, SYNERGY_KEY)
+    return json.loads(row.value).get("bracket", "all") if row else "all"
+
+
+def save_synergy_bracket(db: Engine, bracket: str) -> None:
+    from draftassist.data.crawler import LEAGUE_TIERS
+
+    if bracket != "all" and bracket not in LEAGUE_TIERS:
+        raise ValueError(f"synergy bracket must be 'all' or one of {', '.join(LEAGUE_TIERS)}")
+    with Session(db) as s:
+        row = s.get(AppSetting, SYNERGY_KEY) or AppSetting(key=SYNERGY_KEY, value="{}")
+        row.value = json.dumps({"bracket": bracket})
+        s.add(row)
+        s.commit()

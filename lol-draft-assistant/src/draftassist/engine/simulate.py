@@ -14,6 +14,7 @@ from draftassist.engine.engine import DraftEngine, Suggestion
 from draftassist.engine.formats import DraftFormat, Side, Step, get_format
 from draftassist.engine.model import ROLE_LABELS, ROLES, BracketStats, EngineData, OurTeam, RoleStat
 from draftassist.engine.state import DraftState
+from draftassist.engine.synergy import PairScore, SynergyTable
 
 TEAM_BRACKETS = {"top": "gold", "jungle": "emerald", "mid": "gold", "adc": "gold", "support": "iron"}
 
@@ -49,9 +50,23 @@ def synthetic_data(seed: int = 7, n_champs: int = 170,
                 for b in in_role[i + 1:]:
                     if rng.random() < 0.6:
                         matchups[(r, a, b)] = _clamp(rng.gauss(0.5, 0.03), 0.40, 0.60)
-        synergy = {frozenset(rng.sample(ids, 2)): _clamp(rng.gauss(0.5, 0.02), 0.44, 0.56) for _ in range(400)}
         ban_rates = {c: rng.uniform(0.0, 0.35) if rng.random() < 0.3 else rng.uniform(0.0, 0.03) for c in ids}
-        brackets[name] = BracketStats(meta, matchups, synergy, ban_rates)
+        brackets[name] = BracketStats(meta, matchups, ban_rates)
+
+    # sparse role-aware duo synergy (log-odds), each champion in its main role
+    pairs = {}
+    for _ in range(400):
+        a, b = rng.sample(ids, 2)
+        x, y = (champ_roles[a][0], a), (champ_roles[b][0], b)
+        if x[0] != y[0]:
+            s = _clamp(rng.gauss(0.0, 0.08), -0.24, 0.24)
+            pairs[(x, y) if x < y else (y, x)] = PairScore(s, s, 200, False)
+    damage = {}
+    for c, rs in champ_roles.items():
+        phys = rng.random()
+        true = rng.uniform(0.0, 0.15) * min(phys, 1 - phys) * 2
+        for r in rs:
+            damage[(c, r)] = (phys - true / 2, 1 - phys - true / 2, true)
 
     tiers = {}
     for r in ROLES:
@@ -59,7 +74,8 @@ def synthetic_data(seed: int = 7, n_champs: int = 170,
         pool = rng.sample(in_role, min(4, len(in_role)))
         tiers[r] = dict(zip(pool, ("main", "comfortable", "comfortable", "learning")))
     names = dict(names) if names else {c: f"Champ{c}" for c in ids}
-    return EngineData(brackets, names), OurTeam.from_tiers(tiers, TEAM_BRACKETS)
+    return (EngineData(brackets, names, synergy=SynergyTable("synthetic", "all", pairs, {}), damage=damage),
+            OurTeam.from_tiers(tiers, TEAM_BRACKETS))
 
 
 @dataclass(frozen=True)

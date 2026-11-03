@@ -2,6 +2,7 @@
   import Champ from './Champ.svelte';
   import ComponentBar from './ComponentBar.svelte';
   import ComponentLegend from './ComponentLegend.svelte';
+  import CompPanel from './CompPanel.svelte';
 
   let { view, secondsLeft } = $props();
   const center = $derived(view.center);
@@ -25,7 +26,7 @@
         <span class="role">{slot.role_label}</span>
         {#if slot.champ}
           <Champ champ={slot.champ} size={56} />
-          <span class="name">{slot.champ.name}</span>
+          <span class="name">{slot.champ.name}{#if slot.badge?.text}<small class="badge">{slot.badge.text}</small>{/if}</span>
         {:else if slot.hover}
           <Champ champ={slot.hover} size={56} faded />
           <span class="name hover">
@@ -40,6 +41,7 @@
     <div class="bans">
       {#each view.our_bans as ban}<Champ champ={ban} size={36} banned />{/each}
     </div>
+    {#if view.comp}<CompPanel comp={view.comp.ours} title="Our comp" />{/if}
   </section>
 
   <section class="center">
@@ -56,6 +58,7 @@
             {:else if card.suggestion}
               <Champ champ={card.suggestion.champ} size={72} />
               <div class="gname">{card.suggestion.champ.name}</div>
+              {#if card.suggestion.badge?.text}<span class="badge">{card.suggestion.badge.text}</span>{/if}
               <div class="greason">{card.suggestion.reason}</div>
               <ComponentBar components={card.suggestion.components} />
               {#if card.status === 'hovering'}
@@ -73,12 +76,13 @@
     {:else if center.mode === 'our_ban' || center.mode === 'our_pick'}
       <div class="grouphead"><h2>{center.title}</h2>{#if center.mode === 'our_ban'}<ComponentLegend />{/if}</div>
       {#each center.cards as card, i}
-        <article class="card" class:highlighted={card.highlighted}>
+        <article class="card" class:highlighted={card.highlighted} class:compact={center.cards.length > 3}>
           <span class="rank">{i + 1}</span>
-          <Champ champ={card.champ} size={88} />
+          <Champ champ={card.champ} size={center.cards.length > 3 ? 60 : 88} />
           <div>
-            <div class="title">{card.champ.name}{#if card.role_label} <small>{card.role_label}</small>{/if}</div>
-            <div class="reason">{card.reason}</div>
+            <div class="title">{card.champ.name}{#if card.role_label} <small>{card.role_label}</small>{/if}
+              {#if card.badge?.text}<span class="badge">{card.badge.text}</span>{/if}</div>
+            <div class="reason">{card.reason}{#if card.effect?.length}<span class="effect">{` → ${card.effect.join(', ')}`}</span>{/if}</div>
             {#if card.components}<ComponentBar components={card.components} />{/if}
             {#each card.warnings as w}<div class="warn">{w}</div>{/each}
           </div>
@@ -97,6 +101,22 @@
           </div>
         </article>
       {/if}
+      {#if center.next_two?.length}
+        <h3 class="nexthead">Next 2 picks</h3>
+        {#each center.next_two as pair}
+          <div class="pairrow">
+            {#each pair.picks as p}
+              <span class="pairpick"><Champ champ={p.champ} size={44} /><span><strong title={p.badge?.text || null}>{p.champ.name} <small>{p.role_label}</small></strong>
+                <small title="Meta: win rate in {p.bracket}. You: the player's games on it in this role, last 60 days.">{p.meta_wr == null ? '—' : Math.round(p.meta_wr * 100) + '%'} meta · {#if p.player_games}{Math.round(p.player_wr * 100)}% you ({p.player_games} g){:else}no games yet{/if}</small></span></span>
+            {/each}
+            <span class="pairstats">
+              <span class="syn" class:pos={pair.synergy_pp > 0.5} class:neg={pair.synergy_pp < -0.5}
+                    title={pair.low_data ? 'Few games together: shrunk towards 0' : 'Pair synergy'}>
+                {pair.synergy_pp > 0 ? '+' : pair.synergy_pp < 0 ? '−' : ''}{Math.abs(pair.synergy_pp).toFixed(1)}pp together{pair.low_data ? '*' : ''}</span>
+            </span>
+          </div>
+        {/each}
+      {/if}
     {:else if center.mode === 'enemy_turn'}
       <h2>{center.title}</h2>
       <p class="muted">Their most likely picks</p>
@@ -104,7 +124,8 @@
         <article class="card enemy">
           <Champ champ={card.champ} size={72} />
           <div>
-            <div class="title">{card.champ.name} <small>{pct(card.prob)} · {card.role_label}</small></div>
+            <div class="title">{card.champ.name} <small>{pct(card.prob)} · {card.role_label}</small>
+              {#if card.badge?.text}<span class="badge">{card.badge.text}</span>{/if}</div>
             <div class="reason">
               {#if card.answer}
                 Our answer: <strong>{card.answer.champ.name}</strong> ({pp(card.answer.resp_pp)})
@@ -137,7 +158,7 @@
       <div class="slot">
         {#if slot.champ}
           <Champ champ={slot.champ} size={56} />
-          <span class="name">{slot.champ.name}</span>
+          <span class="name">{slot.champ.name}{#if slot.badge?.text}<small class="badge">{slot.badge.text}</small>{/if}</span>
         {:else}
           <span class="empty"></span>
         {/if}
@@ -147,6 +168,7 @@
     <div class="bans">
       {#each view.their_bans as ban}<Champ champ={ban} size={36} banned />{/each}
     </div>
+    {#if view.comp}<CompPanel comp={view.comp.theirs} title="Their comp" />{/if}
   </section>
 </main>
 
@@ -182,7 +204,24 @@
   .card { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 18px;
           background: var(--panel); border: 2px solid var(--line); border-radius: 10px; padding: 14px 18px; }
   .card.enemy { grid-template-columns: auto 1fr; }
+  .nexthead { margin-top: 6px; }
+  .pairrow { display: grid; grid-template-columns: 1fr 1fr auto; align-items: center; gap: 14px;
+             background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; }
+  .pairpick { display: flex; align-items: center; gap: 10px; font-size: 18px; }
+  .pairpick > span { display: flex; flex-direction: column; }
+  .pairpick small { color: var(--muted); font-size: 13px; }
+  .pairstats { display: flex; flex-direction: column; align-items: flex-end; font-size: 16px; font-variant-numeric: tabular-nums; }
+  .syn.pos { color: #4fd1a1; }
+  .syn.neg { color: #e0a640; }
   .card.highlighted { border-color: var(--gold); background: var(--panel-2); }
+  .card.compact { gap: 14px; padding: 8px 14px; }
+  .card.compact .title { font-size: 23px; }
+  .card.compact .reason { font-size: 17px; margin-top: 2px; }
+  .card.compact .rank { font-size: 22px; }
+  .badge { font-size: 13px; font-weight: 500; color: #c9d1d9; background: #2d3540; border-radius: 4px;
+           padding: 1px 6px; margin-left: 8px; white-space: nowrap; vertical-align: middle; }
+  .name .badge { margin: 2px 0 0; align-self: flex-start; font-size: 12px; }
+  .effect { color: var(--gold); }
   .hovercard { opacity: 0.9; }
   .rank { font-size: 28px; font-weight: 700; color: var(--muted); width: 1.2em; }
   .title { font-size: 30px; font-weight: 700; }

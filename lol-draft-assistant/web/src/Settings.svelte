@@ -5,6 +5,11 @@
   let declared = $state(false);
   let alpha = $state(1.0);
   let beta = $state(1.0);
+  let damageBalance = $state(true);
+  let damagePenalty = $state(-0.05);
+  let banSynergy = $state(false);
+  let compCoherence = $state(true);
+  let compWeight = $state(0.15);
   let message = $state('');
 
   fetch('/api/settings').then((r) => r.json()).then((s) => {
@@ -14,6 +19,11 @@
     alpha = s.alpha;
     beta = s.beta;
     cap = s.comfort_games_cap ?? 10;
+    damageBalance = s.damage_balance;
+    damagePenalty = s.damage_penalty;
+    banSynergy = s.ban_comp_synergy;
+    compCoherence = s.comp_coherence;
+    compWeight = s.comp_weight;
   });
 
   function fromSlider() {
@@ -26,7 +36,9 @@
     const res = await fetch('/api/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ban_weights: weights, ban_declared_intents: declared, alpha, beta, comfort_games_cap: cap }),
+      body: JSON.stringify({ ban_weights: weights, ban_declared_intents: declared, alpha, beta, comfort_games_cap: cap,
+                             damage_balance: damageBalance, damage_penalty: damagePenalty, ban_comp_synergy: banSynergy,
+                             comp_coherence: compCoherence, comp_weight: compWeight }),
     });
     const body = await res.json();
     if (res.ok) {
@@ -83,6 +95,35 @@
       (at {cap} games the games part tops out at {(0.4 * Math.log(1 + cap)).toFixed(2)} log-odds, × β = {(beta * 0.4 * Math.log(1 + cap)).toFixed(2)}).
       Tiers still count every game.
     </p>
+
+    <label class="check">
+      <input type="checkbox" bind:checked={damageBalance} />
+      Damage balance: penalise a comp that is more than 85% one damage type
+    </label>
+    {#if damageBalance}
+      <label class="row">Penalty (log-odds)
+        <input type="number" min="-1" max="0" step="0.01" bind:value={damagePenalty} /></label>
+      <p class="muted">Applies once three or more of our picks have damage data; −0.05 is about −1.25pp win chance.</p>
+    {/if}
+
+    <label class="check">
+      <input type="checkbox" bind:checked={compCoherence} />
+      Comp style: pull picks towards our style (the Team page's, else the one our comp is heading for)
+    </label>
+    {#if compCoherence}
+      <label class="row">Strength (log-odds)
+        <input type="number" min="0" max="1" step="0.05" bind:value={compWeight} /></label>
+      <p class="muted">
+        Off at our first pick, a tenth at the second, a quarter at the third, full at picks 4–5, so it can't take over the early
+        calls. At full strength a perfect fit adds about {(25 * compWeight * 2 / 3).toFixed(1)}pp to a pick's score.
+        It ranks picks but isn't counted in the win %.
+      </p>
+    {/if}
+
+    <label class="check">
+      <input type="checkbox" bind:checked={banSynergy} />
+      Ban phase 2: Comp also counts how much a ban target would complete strong synergy with the enemy's picks
+    </label>
 
     <label class="check">
       <input type="checkbox" bind:checked={declared} />

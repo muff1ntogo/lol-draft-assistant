@@ -6,6 +6,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
+from draftassist.engine.comp import EMPTY_PROFILES, ChampionProfiles
+from draftassist.engine.synergy import EMPTY as EMPTY_SYNERGY
+from draftassist.engine.synergy import SynergyTable
+
 ROLES: tuple[str, ...] = ("top", "jungle", "mid", "adc", "support")
 ROLE_LABELS = {"top": "Top", "jungle": "Jungle", "mid": "Mid", "adc": "ADC", "support": "Support"}
 
@@ -38,7 +42,6 @@ class RoleStat:
 class BracketStats:
     meta: Mapping[int, Mapping[str, RoleStat]]  # champ -> role -> stats
     matchups: Mapping[tuple[str, int, int], float] = field(default_factory=dict)  # (role, a, b) -> a's lane WR
-    synergy: Mapping[frozenset[int], float] = field(default_factory=dict)  # {a, b} -> duo WR
     ban_rates: Mapping[int, float] = field(default_factory=dict)  # champ -> share of games banned
 
     def role_stat(self, champ: int, role: str) -> RoleStat | None:
@@ -55,14 +58,14 @@ class BracketStats:
         wr = self.matchup_wr_or_none(role, a, b)
         return 0.5 if wr is None else wr
 
-    def synergy_wr(self, a: int, b: int) -> float:
-        return self.synergy.get(frozenset((a, b)), 0.5)
-
 
 @dataclass(frozen=True)
 class EngineData:
     brackets: Mapping[str, BracketStats]
     names: Mapping[int, str]  # champ_id -> display name
+    synergy: SynergyTable = EMPTY_SYNERGY  # role-aware duo synergy, pooled window (engine/synergy.py)
+    damage: Mapping[tuple[int, str], tuple[float, float, float]] = field(default_factory=dict)  # (champ, role) -> phys/magic/true share
+    profiles: ChampionProfiles = EMPTY_PROFILES  # comp type and fight style per champion (engine/comp.py)
 
     def champions(self) -> frozenset[int]:
         ids = set(self.names)
@@ -78,6 +81,8 @@ class EngineData:
 class PoolChamp:
     tier: str  # main | comfortable | learning
     comfort: float
+    games: int = 0  # the player's recent games with it in this role (last 60 days, learning/comfort.py)
+    wins: int = 0
 
 
 @dataclass(frozen=True)
@@ -135,7 +140,6 @@ class EngineConfig:
     off_pool_penalty: float = -0.4  # comfort for a champion outside the player's pool
     off_role_wr: float = 0.40  # win rate assumed for a champion in a role it has no stats for
     enemy_bracket: str = "gold"  # enemy prior
-    team_bracket: str = "gold"  # duo synergy for our side (mixed-elo team average)
     enemy_strength_weight: float = 10.0  # enemy model: log(pick rate) + w * logit(win rate)
     risk_weight: float = 0.1
     risk_horizon: int = 3  # counter risk is full once the enemy has this many picks left
@@ -143,5 +147,21 @@ class EngineConfig:
     lane_ban: LaneBanConfig = field(default_factory=LaneBanConfig)
     ban_weights: BanWeights = field(default_factory=BanWeights)
     ban_declared_intents: bool = False  # standard draft: may we suggest banning a teammate's declared pick?
+    damage_balance: bool = True  # penalise a comp that is almost all one damage type
+    damage_penalty: float = -0.05  # log-odds when one type is above damage_threshold
+    damage_threshold: float = 0.85
+    damage_min_champs: int = 3  # don't judge a comp on fewer champions with damage data
+    # Comp coherence (docs/comp-style.md Stage C): pick value pulls towards the team style set on the Team
+    # page, else the style our comp is converging on. In pick value only, not in P(win): it is a preference,
+    # not a measured effect. Damped by how many picks we have locked so it can't take over our first 3 picks.
+    comp_coherence: bool = True
+    comp_weight: float = 0.15  # log-odds at full strength per unit of fit (a perfect fit ~ +2.5pp of value)
+    comp_damping: tuple[float, ...] = (0.0, 0.1, 0.25, 1.0, 1.0)  # by our locked picks: our pick 1 .. 5; real
+    # data (16.21): picks 2-3 are near ties (median #1-#2 gap ~0.5pp), so more than this decides them
+    comp_target: str | None = None  # the Team page's style: a comp STYLES key, "mixed" (no pull) or None
+    # Next 2 picks: cost each time a pair's champion was already shown (log-odds, ~3pp). Real data (16.21,
+    # 120 turns): one champion in all 3 pairs 13% -> 1%; the 3rd pair ends ~1.1pp further from the best.
+    pair_repeat_margin: float = 0.12
+    ban_comp_synergy: bool = False  # ban phase 2: Comp also counts synergy with the enemy's locked picks
     min_ban_relevance: float = 0.10  # bans below this share of still-open roles are wasted
     role_share_floor: float = 0.001  # P(champ in role) for roles with no data, when inferring filled roles

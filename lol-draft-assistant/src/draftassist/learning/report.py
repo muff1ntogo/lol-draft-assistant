@@ -85,6 +85,7 @@ def draft_report(db: Engine, engine: DraftEngine, draft_id: int) -> dict | None:
         {"factor": "Their champions' strength", "pp": -_pp(t.meta_them)},
         {"factor": "Lane matchups", "pp": _pp(t.lane)},
         {"factor": "Synergy (ours minus theirs)", "pp": _pp(t.syn_us - t.syn_them)},
+        {"factor": "Damage balance", "pp": _pp(t.damage)},
     ], key=lambda f: -abs(f["pp"]))
 
     deviations = []

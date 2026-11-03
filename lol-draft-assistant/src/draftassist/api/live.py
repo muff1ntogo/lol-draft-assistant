@@ -14,6 +14,15 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from draftassist.api.draftlog import DraftLogger
 from draftassist.data.provider import ChampionCatalog
+from draftassist.engine.comp import (
+    NARROW_CARDS,
+    STYLE_LABELS,
+    ChampionProfiles,
+    badge,
+    card_count,
+    comp_effect,
+    team_comp,
+)
 from draftassist.engine.engine import DraftEngine, Suggestion
 from draftassist.engine.guards import strict_mode
 from draftassist.engine.model import ROLE_LABELS, ROLES
@@ -73,7 +82,8 @@ class LiveHub:
             self._clients.discard(ws)
 
 
-def _ban_card(catalog: ChampionCatalog, s: Suggestion, hovered: set[int], weights=None) -> dict:
+def _ban_card(catalog: ChampionCatalog, s: Suggestion, hovered: set[int], weights=None,
+              profiles: ChampionProfiles | None = None) -> dict:
     card = {"champ": catalog.card(s.champ_id), "reason": s.reason, "value": round(s.value, 4),
             "relevance": None if s.relevance is None else round(s.relevance, 3),
             "discount": None if s.discount is None else round(s.discount, 3),
@@ -84,6 +94,8 @@ def _ban_card(catalog: ChampionCatalog, s: Suggestion, hovered: set[int], weight
             name: {"raw": round(raw, 5), "weighted": round(weight * raw, 5)}
             for name, raw, weight in (("threat", s.threat, weights.threat), ("matchup", s.matchup, weights.matchup),
                                       ("comp", s.comp, weights.comp), ("own", s.own_loss or 0.0, weights.own))}
+    if profiles is not None:
+        card["badge"] = badge(profiles, s.champ_id, s.role).as_dict()
     return card
 
 
@@ -105,19 +117,29 @@ def _ban_group(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDraft, h
             "role": b.role, "role_label": ROLE_LABELS.get(b.role or "", "Teammate"), "player": b.player,
             "status": "suggested" if b.status == "pending" else b.status,
             "status_champ": catalog.card(b.champ_id) if b.status in ("hovering", "locked") else None,
-            "suggestion": _ban_card(catalog, s, hovered, engine.cfg.ban_weights) if s else None,
+            "suggestion": _ban_card(catalog, s, hovered, engine.cfg.ban_weights, engine.data.profiles) if s else None,
             "note": None if s or b.status in ("locked", "skipped") else NO_USEFUL_BAN,
         })
     return {"mode": "our_ban_group", "title": "BANS", "cards": cards}
 
 
-def _pick_card(catalog: ChampionCatalog, s: Suggestion, hovered: set[int]) -> dict:
+def _pick_card(catalog: ChampionCatalog, s: Suggestion, hovered: set[int], profiles: ChampionProfiles,
+               ours: list[tuple[int, str | None]]) -> dict:
+    """ours: our locked picks with roles, for what this pick does to our comp."""
     warnings = []
     if s.champ_id in hovered and s.counter_risk >= HOVER_FLAG_RISK and s.counter_id:
         warnings.append(f"⚠ easy to counter: {catalog.card(s.counter_id)['name']}")
     return {"champ": catalog.card(s.champ_id), "reason": s.reason, "role": s.role,
             "role_label": ROLE_LABELS.get(s.role or "", ""), "win_prob": round(s.win_prob, 4),
-            "warnings": warnings, "highlighted": s.champ_id in hovered}
+            "warnings": warnings, "highlighted": s.champ_id in hovered,
+            "badge": badge(profiles, s.champ_id, s.role).as_dict(),
+            "effect": comp_effect(profiles, ours, s.champ_id, s.role)}
+
+
+def _target(engine: DraftEngine, ours: list[tuple[int, str | None]]) -> dict | None:
+    """The style our picks are pulled towards (comp coherence), for the comp panel."""
+    style, source = engine.target_for(ours)
+    return None if style is None else {"style": style, "label": STYLE_LABELS[style], "source": source}
 
 
 def _score_hover(engine: DraftEngine, state: DraftState, open_roles: list[str], champ: int,
@@ -143,13 +165,21 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
     turn = None if finished else ("us" if st.is_our_turn else "them")
     open_roles = [r for r in ROLES if r not in ev.our_roles.values()]
     hovered = {c for c, _ in st.hovers}
+    profiles = engine.data.profiles
+    ours = [(c, ev.our_roles.get(c)) for c in st.our_picks]
+    theirs = [(c, ev.their_roles.get(c)) for c in st.their_picks]
+    n_cards = card_count(step.kind if step else None, step.phase if step else None, len(ours))
+
+    def badge_of(champ: int, role: str | None) -> dict | None:
+        return badge(profiles, champ, role).as_dict() if champ else None
 
     our_slots = []
     role_order = {r: i for i, r in enumerate(ROLES)}
     for s in sorted(live.our_slots, key=lambda s: (role_order.get(s.role or ev.our_roles.get(s.champ_id, ""), 9), s.cell_id)):
         role = s.role or ev.our_roles.get(s.champ_id)
         slot = {"role": role, "role_label": ROLE_LABELS.get(role or "", "?"), "champ": card(s.champ_id),
-                "hover": card(s.hover_id), "is_local": s.is_local, "hover_score": None}
+                "hover": card(s.hover_id), "is_local": s.is_local, "hover_score": None,
+                "badge": badge_of(s.champ_id, role)}
         if s.hover_id and s.hover_id not in st.unavailable() and not finished:
             scored = _score_hover(engine, st, open_roles, s.hover_id, s.role)
             if scored is not None:
@@ -158,7 +188,8 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
                 slot["hover_score"] = {"win_prob": round(scored.win_prob, 4), "reason": scored.reason, "warning": flag}
         our_slots.append(slot)
     their_slots = [{"champ": card(s.champ_id), "role": ev.their_roles.get(s.champ_id),
-                    "role_label": ROLE_LABELS.get(ev.their_roles.get(s.champ_id, ""), "")}
+                    "role_label": ROLE_LABELS.get(ev.their_roles.get(s.champ_id, ""), ""),
+                    "badge": badge_of(s.champ_id, ev.their_roles.get(s.champ_id))}
                    for s in live.their_slots]
 
     center: dict[str, Any]
@@ -171,20 +202,30 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
         # Ranked bans are simultaneous: show ours while any teammate is still banning, minus the
         # champions teammates are already about to ban.
         about_to_ban = live.ally_ban_hovers
-        bans = [s for s in engine.suggest_bans(st, k=3 + len(about_to_ban)) if s.champ_id not in about_to_ban][:3]
+        n = NARROW_CARDS if st.format.simultaneous_bans else n_cards  # Flex bans: unchanged
+        bans = [s for s in engine.suggest_bans(st, k=n + len(about_to_ban)) if s.champ_id not in about_to_ban][:n]
         center = {"mode": "our_ban", "title": "BAN",
-                  "cards": [_ban_card(catalog, s, hovered, engine.cfg.ban_weights) for s in bans]}
+                  "cards": [_ban_card(catalog, s, hovered, engine.cfg.ban_weights, profiles) for s in bans]}
     elif st.is_our_turn:
         role = live.actor_role if live.actor_role in open_roles else None
-        picks = engine.suggest_picks(st, k=3, role=role)
-        cards = [_pick_card(catalog, s, hovered) for s in picks]
+        picks = engine.suggest_picks(st, k=n_cards, role=role)
+        cards = [_pick_card(catalog, s, hovered, profiles, ours) for s in picks]
         center = {"mode": "our_pick", "title": f"PICK — {ROLE_LABELS[role]}" if role else "PICK", "cards": cards,
                   "hover_card": None}
+        if engine.back_to_back(st):
+            center["next_two"] = [
+                {"picks": [{"champ": card(s.champ_id), "role": s.role, "role_label": ROLE_LABELS[s.role], "reason": s.reason,
+                            "badge": badge_of(s.champ_id, s.role),
+                            **{k: round(v, 4) if isinstance(v, float) else v
+                               for k, v in engine.pick_record(s.champ_id, s.role).items()}}
+                           for s in (pair.first, pair.second)],
+                 "win_prob": round(pair.win_prob, 4), "synergy_pp": round(pair.synergy_pp, 1), "low_data": pair.low_data}
+                for pair in engine.suggest_pick_pairs(st, k=3)]
         actor_hover = next((sl.hover_id for sl in live.our_slots if sl.cell_id == live.actor_cell_id), 0)
         if actor_hover and actor_hover not in {s.champ_id for s in picks}:
             scored = _score_hover(engine, st, open_roles, actor_hover, live.actor_role)
             if scored is not None:
-                center["hover_card"] = _pick_card(catalog, scored, hovered)
+                center["hover_card"] = _pick_card(catalog, scored, hovered, profiles, ours)
     else:
         tables = engine.lane_ban_tables(st)
         cards = []
@@ -195,6 +236,7 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
                 answer = {"champ": card(row.via), "resp_pp": round(row.resp, 1)}
             cards.append({"champ": card(s.champ_id), "prob": round(s.enemy_prob, 4), "role": s.role,
                           "role_label": ROLE_LABELS.get(s.role or "", ""), "answer": answer,
+                          "badge": badge_of(s.champ_id, s.role),
                           "answer_note": None if answer else (row.via_note if row else "no answer in our pool")})
         center = {"mode": "enemy_turn", "title": f"THEIR {'BAN' if step.kind == 'ban' else 'PICK'}", "cards": cards}
 
@@ -205,6 +247,8 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
         "our_slots": our_slots, "their_slots": their_slots,
         "our_bans": [card(c) for c in st.bans(st.our_side)],
         "their_bans": [card(c) for c in st.bans(st.their_side)],
+        "comp": {"ours": {**team_comp(profiles, ours).as_dict(), "target": _target(engine, ours)},
+                 "theirs": team_comp(profiles, theirs).as_dict()},
         "center": center,
     }
 
@@ -224,6 +268,7 @@ class LiveService:
         self.gameflow_phase: str | None = None
         self.queue_id: int | None = None
         self._resolved_for: int | None = None  # game id whose teammates were already matched to players
+        self.current: LiveDraft | None = None  # latest parsed champ select (Synergy page: "Use current draft")
 
     def _waiting(self) -> dict:
         return {"status": "waiting", "message": "Waiting for champ select", "client": self.client_status,
@@ -231,10 +276,12 @@ class LiveService:
 
     def _build(self, session: dict | None) -> tuple[dict, LiveDraft | None]:
         if session is None:
+            self.current = None
             return self._waiting(), None
         try:
             roles = self.players.roles_by_puuid() if self.players else None
             live = parse_session(session, self.draft_format, roles)
+            self.current = live
             return build_live_view(self.engine, self.catalog, live, self.data_source, self.note), live
         except SessionParseError as e:
             log.error("could not parse champ select session: %s", e)

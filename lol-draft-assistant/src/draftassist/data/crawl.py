@@ -6,7 +6,7 @@
 Stats are re-aggregated every 15 minutes while it runs (--aggregate-every), so a running app picks
 them up between drafts.
 
-At development-key rates (100 requests / 2 min) expect about 3,000 matches an hour, less while
+At development or personal-key rates (100 requests / 2 min) expect about 1,800 matches an hour, less while
 seeding and listing match ids. Ctrl+C stops cleanly: whatever was stored is aggregated.
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ from draftassist.config import load_settings
 from draftassist.data.aggregate import aggregate
 from draftassist.data.coverage import coverage, format_report
 from draftassist.data.crawler import LEAGUE_TIERS, Crawler, CrawlStats, brackets_in_use, current_patch
-from draftassist.data.riot import RiotAuthError, RiotClient
+from draftassist.data.riot import RiotAuthError, RiotClient, sync_api_key
 from draftassist.db.models import SeedPlayer
 from draftassist.db.session import init_db
 
@@ -54,6 +54,8 @@ def main(argv: list[str] | None = None) -> int:
     stats = CrawlStats()
     try:
         riot = RiotClient(settings.riot_api_key, settings.cache_dir)
+        if sync_api_key(db, settings.riot_api_key):
+            print("New Riot API key: ladder seeds from the old key were dropped (PUUIDs are encrypted per app)")
         crawler = Crawler(riot, db, patch, brackets)
         with Session(db) as s:
             seeds = s.exec(select(func.count()).select_from(SeedPlayer)).one()
@@ -78,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         totals = aggregate(db, patch)
     print(f"\nStored this run: {stats.stored} | other patch: {stats.skipped_other_patch} | "
-          f"invalid/remake: {stats.skipped_invalid} | players: {stats.players_crawled}")
+          f"invalid/remake: {stats.skipped_invalid} | players: {stats.players_crawled} (rejected {stats.players_rejected})")
     print(f"Matches per bracket for {patch}: {totals}\n")
     print(format_report(db, patch, coverage(db, patch, brackets)))
     return 0

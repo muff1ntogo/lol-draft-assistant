@@ -105,7 +105,7 @@ def test_suggestions_are_stored_with_each_action(svc, engine):
         first = s.exec(select(DraftAction).where(DraftAction.draft_id == draft_id, DraftAction.seq == 1)).one()
         enemy = s.exec(select(DraftAction).where(DraftAction.draft_id == draft_id, DraftAction.seq == 8)).one()
     shown = json.loads(first.suggestions_json)
-    assert shown["kind"] == "suggested" and len(shown["items"]) == 3 and shown["items"][0]["reason"]
+    assert shown["kind"] == "suggested" and len(shown["items"]) == 5 and shown["items"][0]["reason"]  # ban phase 1
     assert first.our_rank == 1 and first.champ_id == shown["items"][0]["champ_id"]
     assert json.loads(enemy.suggestions_json)["kind"] == "predicted"
 

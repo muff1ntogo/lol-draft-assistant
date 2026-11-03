@@ -3,10 +3,12 @@
   import Pools from './Pools.svelte';
   import History from './History.svelte';
   import Prep from './Prep.svelte';
+  import Synergy from './Synergy.svelte';
+  import Champions from './Champions.svelte';
   import Settings from './Settings.svelte';
   import Team from './Team.svelte';
 
-  const PAGES = { live: 'Live', prep: 'Prep', pools: 'Pools', history: 'History', team: 'Team', settings: 'Settings' };
+  const PAGES = { live: 'Live', prep: 'Prep', synergy: 'Synergy', pools: 'Pools', champions: 'Champions', history: 'History', team: 'Team', settings: 'Settings' };
   const pageFromHash = () => (location.hash.slice(2) in PAGES ? location.hash.slice(2) : 'live');
   let page = $state(pageFromHash());
   window.addEventListener('hashchange', () => (page = pageFromHash()));
@@ -58,6 +60,10 @@
   <Pools />
 {:else if page === 'prep'}
   <Prep />
+{:else if page === 'synergy'}
+  <Synergy />
+{:else if page === 'champions'}
+  <Champions />
 {:else if page === 'settings'}
   <Settings />
 {:else if page === 'team'}

@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from sqlmodel import Session, select
 
@@ -9,7 +11,7 @@ from draftassist.data.pools import (
     resolve_from_session,
     set_players,
 )
-from draftassist.db.models import Champion, Player, PoolEntry
+from draftassist.db.models import Champion, Player, PlayerGame, PoolEntry
 from draftassist.engine.model import tier_comfort
 from draftassist.lcu.parser import parse_session
 
@@ -78,8 +80,12 @@ def test_reimport_replaces_role_but_keeps_lock_and_history(db):
     import_pools(db, parse_pool_text(SPEC_EXAMPLE, CHAMPS))
     with Session(db) as s:
         e = s.exec(select(PoolEntry).where(PoolEntry.champ_id == 897)).one()
-        e.tier_locked, e.scored_tier, e.games = True, "comfortable", 12
+        e.tier_locked, e.scored_tier = True, "comfortable"
         s.add(e)
+        now_ms = int(time.time() * 1000)
+        for i in range(12):  # the player's stored games: the pool's record is counted from these
+            s.add(PlayerGame(puuid=e.puuid, match_id=f"EUW1_{i}", champ_id=897, role="top", win=i % 2 == 0,
+                             queue_id=420, game_start_ms=now_ms - 86_400_000, source="match-v5"))
         s.commit()
     import_pools(db, parse_pool_text("TOP\nK'Sante: learning\nGnar: main", CHAMPS))
     with Session(db) as s:

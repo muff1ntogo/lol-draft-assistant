@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 import time
 
+import httpx
+
 from sqlalchemy import Engine
 from sqlmodel import Session, select
 
@@ -75,12 +77,33 @@ def fetch_history(db: Engine, riot: RiotClient, now: float | None = None) -> dic
         players = [p for p in s.exec(select(Player)).all() if p.api_puuid]
     for p in players:
         try:
-            added[p.role] = _fetch_player(db, riot, p, since)
+            try:
+                added[p.role] = _fetch_player(db, riot, p, since)
+            except httpx.HTTPStatusError as e:
+                # 400: a PUUID from another Riot API key (encrypted per app). Look it up again, retry once.
+                if e.response.status_code != 400 or not p.riot_id or not (fresh := _re_resolve(db, riot, p)):
+                    raise
+                added[p.role] = _fetch_player(db, riot, fresh, since)
         except RiotAuthError:
             raise
         except Exception:  # one player's trouble doesn't stop the others
             log.exception("match history for %s failed", p.role)
     return added
+
+
+def _re_resolve(db: Engine, riot: RiotClient, p: Player) -> Player | None:
+    puuid = riot.account_puuid(p.riot_id)
+    if not puuid or puuid == p.api_puuid:
+        return None
+    log.warning("%s's API PUUID was rejected; re-resolved it from their Riot ID", p.role)
+    with Session(db) as s:
+        stored = s.get(Player, p.puuid)
+        stored.api_puuid = puuid
+        s.add(stored)
+        s.commit()
+        s.refresh(stored)
+        s.expunge(stored)
+    return stored
 
 
 def _fetch_player(db: Engine, riot: RiotClient, p: Player, since: int) -> int:

@@ -22,6 +22,7 @@ from draftassist.learning.history import collect_logged, fetch_history
 from draftassist.learning.jobs import run_learning
 from draftassist.learning.prep import prep_sheet
 from draftassist.learning.report import draft_report, model_check
+from draftassist.engine.comp import ChampionProfiles, ChampStyle
 from draftassist.learning.style import classify, set_hand_style, team_summary
 from draftassist.lcu.demo import demo_sessions
 
@@ -228,10 +229,15 @@ def test_model_check_trend_then_calibration(db):
 
 # ---------- style ----------
 def test_style_classification():
-    assert classify([["Tank"], ["Tank", "Fighter"], ["Mage"], ["Marksman"], ["Support", "Tank"]]) == "engage"
-    assert classify([["Assassin"], ["Assassin"], ["Fighter"], ["Marksman"], ["Support"]]) == "dive"
-    assert classify([["Mage"], ["Mage"], ["Fighter"], ["Marksman"], ["Mage", "Support"]]) == "poke"
-    assert classify([["Fighter"], ["Fighter"], ["Mage"], ["Marksman"], ["Support"]]) == "balanced"
+    # docs/comp-style.md Stage C: the Live comp panel's rule (more in test_comp_ranking.py)
+    def st(ftb, dive, poke, front=False):
+        return ChampStyle((ftb, dive, poke), front, "seed", False, False)
+    profiles = ChampionProfiles({1: st(0.8, 0.2, 0, True), 2: st(0.6, 0.4, 0, True), 3: st(0.2, 0.8, 0),
+                                 4: st(0, 1, 0), 5: st(0.1, 0.2, 0.7), 6: st(0, 0.1, 0.9)}, {})
+    assert classify(profiles, [(1, None), (2, None), (5, None)]) == "front_to_back"
+    assert classify(profiles, [(3, None), (4, None), (5, None)]) == "dive"
+    assert classify(profiles, [(5, None), (6, None), (3, None)]) == "poke"
+    assert classify(profiles, [(1, None), (4, None), (6, None)]) == "mixed"
 
 
 def test_team_summary_suggests_after_three_games(make_services, db):
@@ -306,6 +312,8 @@ def test_comfort_cap_setting_drives_engine_and_pools(make_services, db):
         assert client.put("/api/settings", json=put).status_code == 200
         assert client.put("/api/settings", json={**put, "comfort_games_cap": 0}).status_code == 422
         top = client.get("/api/pools").json()["pools"]["top"][0]
-    assert get_engine_settings(db) == {"alpha": 1.5, "beta": 0.3, "comfort_games_cap": 5}  # alpha/beta kept
+    assert get_engine_settings(db) == {"alpha": 1.5, "beta": 0.3, "comfort_games_cap": 5, "damage_balance": True,
+                                      "damage_penalty": -0.05, "ban_comp_synergy": False, "comp_coherence": True,
+                                          "comp_weight": 0.15}  # alpha/beta kept
     assert top["comfort"] == pytest.approx(round(comfort_score("main", 30, 20, games_cap=5), 2))  # 20W 10L
     assert svc.engine.team.entry(897, "top").comfort == pytest.approx(comfort_score("main", 30, 20, games_cap=5))

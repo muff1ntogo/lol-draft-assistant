@@ -19,11 +19,17 @@ from fastapi import Body, FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import Engine
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from draftassist.api.draftlog import DraftLogger
 from draftassist.api.recap import history_filters, history_rows, recap
 from draftassist.api.live import LiveHub, LiveService
+from draftassist.api.synergy import (
+    DEFAULT_THRESHOLD_PP,
+    SynergySource,
+    build_synergy_view,
+    draft_context,
+)
 from draftassist.config import PROJECT_ROOT, Settings, load_settings
 from draftassist.data import ddragon
 from draftassist.data.pools import (
@@ -32,18 +38,30 @@ from draftassist.data.pools import (
     list_players,
     load_pools,
     parse_pool_text,
+    remove_pool_entry,
     set_players,
+    set_pool_entry,
 )
 from draftassist.data.provider import ChampionCatalog, load_catalog, load_engine_inputs, stats_version
-from draftassist.data.settings_store import engine_config, save_ban_settings, save_engine_settings, settings_payload
+from draftassist.data.profiles import load_profiles, reset_style, save_style
+from draftassist.data.settings_store import (
+    engine_config,
+    get_synergy_bracket,
+    save_ban_settings,
+    save_engine_settings,
+    save_synergy_bracket,
+    settings_payload,
+)
 from draftassist.learning.comfort import accept as accept_tiers
 from draftassist.learning.comfort import set_locked
 from draftassist.learning.jobs import LearningResult, run_in_background
 from draftassist.learning.prep import prep_sheet
 from draftassist.learning.report import draft_report, model_check
 from draftassist.learning.style import set_hand_style, team_summary
+from draftassist.db.models import Champion
 from draftassist.db.session import init_db
 from draftassist.engine.engine import DraftEngine
+from draftassist.engine.comp import STYLE_LABELS, STYLES, TIMING_LABELS, badge
 from draftassist.engine.formats import TOURNAMENT, get_format
 from draftassist.engine.lane_ban import RoleBanTable
 from draftassist.engine.model import ROLE_LABELS, ROLES, BanWeights
@@ -67,6 +85,23 @@ class Services:
     settings: Settings | None = None
     loaded_version: tuple | None = None  # stats_version() the engine was built from
     learning: dict | None = None  # last learning run: {"running", "finished_at", "summary"}
+    synergy_override: SynergySource | None = None  # tests: a fixed table instead of the engine's
+
+    def synergy_source(self) -> SynergySource:
+        """The engine's scored synergy pairs and damage profiles (reloaded with the stats)."""
+        if self.synergy_override is not None:
+            return self.synergy_override
+        return SynergySource(self.engine.data.synergy, self.engine.data.damage, self.engine.data.profiles)
+
+    def refresh_profiles(self) -> bool:
+        """After a style review: give the engine the new champion profiles, but not mid-draft."""
+        if self.db is None or self.in_draft():
+            return False
+        from dataclasses import replace
+
+        patch = ".".join(self.catalog.patch.split(".")[:2]) if self.catalog.patch else None
+        self.engine.data = replace(self.engine.data, profiles=load_profiles(self.db, patch))
+        return True
 
     @property
     def engine(self) -> DraftEngine:
@@ -148,6 +183,10 @@ class Services:
 
 def build_services(settings: Settings) -> Services:
     db = init_db(settings.db_path)
+    if settings.has_riot_api_key:
+        from draftassist.data.riot import sync_api_key
+
+        sync_api_key(db, settings.riot_api_key)  # a new key: PUUIDs from the old one are useless
     if not load_catalog(db).champs:
         try:  # first run: fetch champion names/icons so live drafts show real champions
             with httpx.Client(timeout=30) as client, Session(db) as session:
@@ -371,14 +410,44 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
 
     @app.get("/api/pools")
     def get_pools(request: Request) -> dict:
+        return _pools_payload(request.app.state.services)
+
+    def _pool_changed(svc: Services) -> dict:
+        """After an edit: rebuild the engine (not mid-draft: suggestions must not change under the shot-caller)."""
+        applied = not svc.in_draft()
+        if applied:
+            svc.reload()
+        return {**_pools_payload(svc), "applied": applied}
+
+    @app.put("/api/pools/{role}/{champ_id}")
+    def put_pool_entry(request: Request, role: str, champ_id: int, tier: str = Body(..., embed=True)) -> dict:
+        """Add a champion to a player's pool, or change its tier."""
         svc: Services = request.app.state.services
+        if champ_id not in svc.catalog.champs:
+            raise HTTPException(404, "unknown champion")
+        try:
+            set_pool_entry(_db(svc), role, champ_id, tier)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        return _pool_changed(svc)
+
+    @app.delete("/api/pools/{role}/{champ_id}")
+    def delete_pool_entry(request: Request, role: str, champ_id: int) -> dict:
+        svc: Services = request.app.state.services
+        if not remove_pool_entry(_db(svc), role, champ_id):
+            raise HTTPException(404, "not in that pool")
+        return _pool_changed(svc)
+
+    def _pools_payload(svc: Services) -> dict:
         db = _db(svc)
         pools = load_pools(db)
+        profiles = _profiles(svc)
         tier_order = {"main": 0, "comfortable": 1, "learning": 2}
         return {
             "players": list_players(db),
             "learning": svc.learning or {"running": False},
             "pools": {r: [{"champ": svc.catalog.card(e.champ_id), "manual_tier": e.manual_tier,
+                           "badge": badge(profiles, e.champ_id, r).as_dict(),
                            "scored_tier": e.scored_tier, "tier_locked": e.tier_locked, "games": e.games, "wins": e.wins,
                            "comfort": round(e.comfort, 2),
                            "last_played": e.last_played.isoformat() if e.last_played else None,
@@ -387,6 +456,8 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
                           for e in sorted(entries, key=lambda e: (tier_order.get(e.manual_tier, 9), e.champ_id))]
                       for r, entries in pools.items()},
             "using_placeholder_pools": not any(pools.values()),
+            "champions": sorted(({"id": c, "name": name} for c, (_, name) in svc.catalog.champs.items()),
+                                key=lambda c: c["name"]),
         }
 
     @app.post("/api/pools/import")
@@ -408,14 +479,19 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
     @app.put("/api/settings")
     def put_settings(request: Request, ban_weights: dict = Body(...), ban_declared_intents: bool = Body(False),
                      alpha: float | None = Body(None), beta: float | None = Body(None),
-                     comfort_games_cap: int | None = Body(None)) -> dict:
+                     comfort_games_cap: int | None = Body(None), damage_balance: bool | None = Body(None),
+                     damage_penalty: float | None = Body(None), ban_comp_synergy: bool | None = Body(None),
+                     comp_coherence: bool | None = Body(None), comp_weight: float | None = Body(None)) -> dict:
         svc: Services = request.app.state.services
         db = _db(svc)
         try:
             weights = BanWeights(float(ban_weights["threat"]), float(ban_weights["matchup"]),
                                  float(ban_weights["comp"]), float(ban_weights.get("own", BanWeights().own)))
             save_ban_settings(db, weights, ban_declared_intents)
-            save_engine_settings(db, alpha=alpha, beta=beta, comfort_games_cap=comfort_games_cap)
+            save_engine_settings(db, alpha=alpha, beta=beta, comfort_games_cap=comfort_games_cap,
+                                 damage_balance=damage_balance, damage_penalty=damage_penalty,
+                                 ban_comp_synergy=ban_comp_synergy, comp_coherence=comp_coherence,
+                                 comp_weight=comp_weight)
             if comfort_games_cap is not None:
                 from draftassist.learning.comfort import rescore
 
@@ -424,6 +500,100 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
             raise HTTPException(422, f"invalid settings: {e}") from None
         svc.reload()
         return settings_payload(db)
+
+    # ---------- synergy ----------
+    @app.post("/api/synergy")
+    def post_synergy(request: Request, roles: list[str] = Body(...), columns: dict[str, list[int]] | None = Body(None),
+                     locks: dict[str, int] | None = Body(None), threshold_pp: float = Body(DEFAULT_THRESHOLD_PP),
+                     use_draft: bool = Body(False)) -> dict:
+        """The Synergy page's graph. Read-only; POST only because the selection is a JSON body."""
+        svc: Services = request.app.state.services
+        if not 2 <= len(roles) <= 5 or len(set(roles)) != len(roles) or not set(roles) <= set(ROLES):
+            raise HTTPException(422, f"choose 2 to 5 distinct roles from {', '.join(ROLES)}")
+        for r in (*(columns or {}), *(locks or {})):
+            if r not in ROLES:
+                raise HTTPException(422, f"unknown role {r!r}")
+        engine, live = svc.engine, svc.live.current
+        unavailable: set[int] = set()
+        all_locks = dict(locks or {})
+        draft = {"live": False}
+        if use_draft and live is not None:
+            ev = engine.evaluate(live.state)
+            unavailable, draft_locks = draft_context(live, ev.our_roles)
+            all_locks |= draft_locks
+            draft = {"live": True, "locks": draft_locks, "unavailable": sorted(unavailable)}
+        players = {p["role"]: p["riot_id"] for p in list_players(svc.db)} if svc.db is not None else {}
+        view = build_synergy_view(svc.synergy_source(), svc.catalog, engine.team, roles, columns, all_locks,
+                                  threshold_pp, unavailable, players)
+        champs = sorted((c for c in (svc.catalog.card(i) for i in svc.catalog.champs) if c), key=lambda c: c["name"])
+        return {**view, "draft": draft, "champions": champs,
+                "synergy_bracket": get_synergy_bracket(svc.db) if svc.db is not None else "all"}
+
+    @app.put("/api/synergy/bracket")
+    def put_synergy_bracket(request: Request, bracket: str = Body(..., embed=True)) -> dict:
+        svc: Services = request.app.state.services
+        try:
+            save_synergy_bracket(_db(svc), bracket)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        if svc.in_draft():
+            return {"synergy_bracket": bracket, "applied": False}  # suggestions must not change mid-draft
+        svc.reload()  # the engine's synergy term uses the same table
+        return {"synergy_bracket": bracket, "applied": True}
+
+    # ---------- champion styles (docs/comp-style.md) ----------
+    def _style_row(svc: Services, champ: Champion, profiles) -> dict:
+        st = profiles.style(champ.champ_id)
+        timing = {}
+        for role in champ.roles or []:
+            tc = profiles.curve(champ.champ_id, role)
+            timing[role] = None if tc is None else {"curve": round(tc.curve, 3), "games": tc.games, "label": tc.label}
+        return {"champ": svc.catalog.card(champ.champ_id), "roles": champ.roles or [], "tags": champ.tags or [],
+                "weights": {k: round(v, 3) for k, v in st.as_dict().items()}, "frontline": st.frontline,
+                "source": st.source, "reviewed": st.reviewed, "unsure": st.unsure, "timing": timing}
+
+    def _profiles(svc: Services):
+        patch = ".".join(svc.catalog.patch.split(".")[:2]) if svc.catalog.patch else None
+        return load_profiles(_db(svc), patch)
+
+    @app.get("/api/champions/styles")
+    def get_champion_styles(request: Request) -> dict:
+        svc: Services = request.app.state.services
+        profiles = _profiles(svc)
+        with Session(_db(svc)) as s:
+            champs = sorted(s.exec(select(Champion)).all(), key=lambda c: c.name)
+        rows = [_style_row(svc, c, profiles) for c in champs]
+        return {"champions": rows, "total": len(rows), "reviewed": sum(r["reviewed"] for r in rows),
+                "styles": STYLE_LABELS, "timings": TIMING_LABELS}
+
+    def _one(svc: Services, champ_id: int) -> dict:
+        with Session(_db(svc)) as s:
+            champ = s.get(Champion, champ_id)
+        if champ is None:
+            raise HTTPException(404, "unknown champion")
+        return _style_row(svc, champ, _profiles(svc))
+
+    @app.put("/api/champions/styles/{champ_id}")
+    def put_champion_style(request: Request, champ_id: int, weights: dict[str, float] | None = Body(None),
+                           frontline: bool | None = Body(None)) -> dict:
+        """Save the user's review; weights null = confirm the seed as is."""
+        svc: Services = request.app.state.services
+        _one(svc, champ_id)
+        try:
+            w = None if weights is None else tuple(float(weights[k]) for k in STYLES)
+            save_style(_db(svc), champ_id, w, frontline)
+        except (KeyError, TypeError, ValueError) as e:
+            raise HTTPException(422, f"invalid style: {e}") from None
+        svc.refresh_profiles()
+        return _one(svc, champ_id)
+
+    @app.delete("/api/champions/styles/{champ_id}")
+    def delete_champion_style(request: Request, champ_id: int) -> dict:
+        """Back to the seed (or Data Dragon classes)."""
+        svc: Services = request.app.state.services
+        reset_style(_db(svc), champ_id)
+        svc.refresh_profiles()
+        return _one(svc, champ_id)
 
     # ---------- learning ----------
     @app.post("/api/pools/accept")
@@ -452,16 +622,22 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
 
     @app.get("/api/team")
     def get_team(request: Request) -> dict:
-        return team_summary(_db(request.app.state.services))
+        svc: Services = request.app.state.services
+        return team_summary(_db(svc), _profiles(svc))
 
     @app.put("/api/team/style")
     def put_team_style(request: Request, style: str | None = Body(None, embed=True)) -> dict:
-        db = _db(request.app.state.services)
+        """The style our picks are pulled towards (comp coherence). Applied at once, except mid-draft."""
+        svc: Services = request.app.state.services
+        db = _db(svc)
         try:
             set_hand_style(db, style or None)
         except ValueError as e:
             raise HTTPException(422, str(e)) from None
-        return team_summary(db)
+        applied = not svc.in_draft()
+        if applied:
+            svc.reload()
+        return {**team_summary(db, _profiles(svc)), "applied": applied}
 
     @app.get("/api/prep")
     def get_prep(request: Request) -> dict:

@@ -74,7 +74,11 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     settings = load_settings()
     db = init_db(settings.db_path)
-    make = (lambda: RiotClient(settings.riot_api_key, settings.cache_dir)) if settings.has_riot_api_key else None
+    if settings.has_riot_api_key:
+        from draftassist.data.riot import sync_api_key
+
+        sync_api_key(db, settings.riot_api_key)
+    make =(lambda: RiotClient(settings.riot_api_key, settings.cache_dir)) if settings.has_riot_api_key else None
     res = run_learning(db, make)
     print(f"Logged games added: {res.logged_games} | match history added per role: {res.history_games}"
           + (f" | {res.history_error}" if res.history_error else ""))

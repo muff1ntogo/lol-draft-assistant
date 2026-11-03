@@ -4,7 +4,7 @@
 2. For each seed (least recently crawled first, round-robin across brackets) pull ranked Solo/Duo
    and Flex match ids from the last two weeks.
 3. Fetch each new match; keep it if it is on the current patch and not a remake; store
-   participants (champion, team, role, win) and bans.
+   participants (champion, team, role, win, damage to champions by type) and bans.
 
 Resumable: stored matches are skipped, every response is cached on disk, and seeds remember
 when they were last crawled. Run it overnight:
@@ -18,6 +18,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+import httpx
 from sqlalchemy import Engine
 from sqlmodel import Session, col, select
 
@@ -67,6 +68,15 @@ class ParsedMatch:
     game_start_ms: int
     participants: tuple[tuple[int, int, str, bool], ...]  # champ, team, role, win
     bans: tuple[tuple[int, int, int], ...]  # team, pick_turn, champ
+    damage: tuple[tuple[int | None, int | None, int | None], ...] = ()  # physical, magic, true; same order
+    duration_s: int | None = None
+
+
+DAMAGE_FIELDS = ("physicalDamageDealtToChampions", "magicDamageDealtToChampions", "trueDamageDealtToChampions")
+
+
+def parse_damage(p: dict) -> tuple[int | None, int | None, int | None]:
+    return tuple(p.get(f) for f in DAMAGE_FIELDS)
 
 
 def parse_match(match: dict) -> ParsedMatch | None:
@@ -74,18 +84,20 @@ def parse_match(match: dict) -> ParsedMatch | None:
     info = match["info"]
     if info.get("queueId") not in QUEUES or info.get("gameDuration", 0) < MIN_DURATION_S:
         return None
-    participants = []
+    participants, damage = [], []
     for p in info["participants"]:
         role = POSITIONS.get(p.get("teamPosition") or "")
         if role is None:
             return None
         participants.append((p["championId"], p["teamId"], role, bool(p["win"])))
+        damage.append(parse_damage(p))
     for team in (100, 200):
         if sorted(r for _, t, r, _ in participants if t == team) != sorted(POSITIONS.values()):
             return None
     bans = tuple((t["teamId"], b["pickTurn"], b["championId"]) for t in info["teams"] for b in t.get("bans", []))
     return ParsedMatch(match["metadata"]["matchId"], patch_of(info["gameVersion"]), info["queueId"],
-                       info.get("gameStartTimestamp", 0), tuple(participants), bans)
+                       info.get("gameStartTimestamp", 0), tuple(participants), bans, tuple(damage),
+                       info.get("gameDuration"))
 
 
 @dataclass
@@ -94,6 +106,7 @@ class CrawlStats:
     skipped_other_patch: int = 0
     skipped_invalid: int = 0
     players_crawled: int = 0
+    players_rejected: int = 0  # the API refused their PUUID (400), e.g. a seed fetched with another key
 
     @property
     def total_stored(self) -> int:
@@ -164,7 +177,14 @@ class Crawler:
 
     def _crawl_player(self, player: SeedPlayer, bracket: str, start_time: int, ids_per_queue: int,
                       stats: CrawlStats, done) -> None:
-        ids = [m for q in QUEUES for m in self.riot.match_ids(player.puuid, q, start_time, ids_per_queue)]
+        try:
+            ids = [m for q in QUEUES for m in self.riot.match_ids(player.puuid, q, start_time, ids_per_queue)]
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code != 400:
+                raise
+            log.warning("match ids rejected for a %s seed (400); skipping the player", bracket)
+            ids = []
+            stats.players_rejected += 1
         with Session(self.db) as s:
             known = set(s.exec(select(CrawledMatch.match_id).where(col(CrawledMatch.match_id).in_(ids))).all())
         for match_id in ids:
@@ -193,10 +213,12 @@ class Crawler:
     def _store(self, m: ParsedMatch, bracket: str) -> None:
         with Session(self.db) as s:
             s.add(CrawledMatch(match_id=m.match_id, patch=m.patch, bracket=bracket, queue_id=m.queue_id,
-                               game_start_ms=m.game_start_ms))
+                               game_start_ms=m.game_start_ms, game_duration_s=m.duration_s))
             s.flush()
-            for champ, team, role, win in m.participants:
-                s.add(MatchParticipant(match_id=m.match_id, champ_id=champ, team_id=team, role=role, win=win))
+            damage = m.damage or ((None, None, None),) * len(m.participants)
+            for (champ, team, role, win), (phys, magic, true) in zip(m.participants, damage):
+                s.add(MatchParticipant(match_id=m.match_id, champ_id=champ, team_id=team, role=role, win=win,
+                                       dmg_phys=phys, dmg_magic=magic, dmg_true=true))
             for team, turn, champ in m.bans:
                 s.add(MatchBan(match_id=m.match_id, team_id=team, pick_turn=turn, champ_id=champ))
             s.commit()

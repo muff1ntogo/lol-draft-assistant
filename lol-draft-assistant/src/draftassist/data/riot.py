@@ -1,6 +1,10 @@
 """Riot API client: one shared token-bucket rate limiter and an on-disk cache of every response.
 
 The API key travels only in the X-Riot-Token header; it is never logged, printed or cached.
+
+Riot encrypts PUUIDs per app, so PUUIDs fetched with one key are rejected (400) by another key's app.
+Cache entries carry a short one-way fingerprint of the key (`key_id`) and an entry from another key is a
+miss; `sync_api_key` drops the stored PUUIDs (ladder seeds, our players' API PUUIDs) when the key changes.
 """
 from __future__ import annotations
 
@@ -27,6 +31,40 @@ DAY = 86_400.0
 
 class RiotAuthError(RuntimeError):
     """The key was rejected (401/403). Development keys expire after 24 hours."""
+
+
+def key_id(api_key: str) -> str:
+    """Short one-way fingerprint telling keys apart without storing them."""
+    return hashlib.sha256(api_key.encode()).hexdigest()[:12]
+
+
+API_KEY_SETTING = "riot_api_key_id"
+
+
+def sync_api_key(db, api_key: str) -> bool:
+    """Record the key in use. On a change (or the first time, when the origin of stored PUUIDs is unknown)
+    drop what was fetched under the old key: ladder seeds and our players' API PUUIDs (the learning job
+    re-resolves those from Riot IDs). Returns True if anything was reset."""
+    from sqlmodel import Session, delete, select
+
+    from draftassist.db.models import AppSetting, Player, SeedPlayer
+
+    current = key_id(api_key)
+    with Session(db) as s:
+        row = s.get(AppSetting, API_KEY_SETTING)
+        if row is not None and json.loads(row.value) == current:
+            return False
+        s.exec(delete(SeedPlayer))
+        for p in s.exec(select(Player)).all():
+            if p.api_puuid:
+                p.api_puuid = None
+                s.add(p)
+        row = row or AppSetting(key=API_KEY_SETTING, value="")
+        row.value = json.dumps(current)
+        s.add(row)
+        s.commit()
+    log.info("Riot API key changed: ladder seeds and API PUUIDs reset")
+    return True
 
 
 class RateLimiter:
@@ -72,6 +110,16 @@ class RateLimiter:
             self._sleep(wait)
 
 
+def cache_path(cache_root: Path, host: str, path: str, params: dict | None) -> Path:
+    """Where RiotClient caches GET {host}{path}?{params}; cache_root is `<cache_dir>/riot`."""
+    key = json.dumps([host, path, sorted((params or {}).items())])
+    return cache_root / host / f"{hashlib.sha1(key.encode()).hexdigest()}.json"
+
+
+def match_path(match_id: str) -> str:
+    return f"/lol/match/v5/matches/{match_id}"
+
+
 class RiotClient:
     def __init__(self, api_key: str, cache_dir: Path, limiter: RateLimiter | None = None,
                  transport: httpx.BaseTransport | None = None, sleep: Callable[[float], None] = time.sleep,
@@ -80,6 +128,7 @@ class RiotClient:
             raise RiotAuthError("RIOT_API_KEY is not set (put it in .env)")
         self._http = httpx.Client(timeout=30, transport=transport, headers={"X-Riot-Token": api_key})
         self._cache = cache_dir / "riot"
+        self.key_id = key_id(api_key)
         self.limiter = limiter or RateLimiter(sleep=sleep)
         self._sleep, self._clock, self._max_retries = sleep, clock, max_retries
         self.requests_made = 0
@@ -93,16 +142,16 @@ class RiotClient:
 
     # ---------- cache ----------
     def _cache_path(self, host: str, path: str, params: dict | None) -> Path:
-        key = json.dumps([host, path, sorted((params or {}).items())])
-        return self._cache / host / f"{hashlib.sha1(key.encode()).hexdigest()}.json"
+        return cache_path(self._cache, host, path, params)
 
     def get(self, host: str, path: str, params: dict | None = None, ttl: float | None = None) -> Any:
         """GET https://{host}.api.riotgames.com{path}. Returns parsed JSON, or None for 404.
-        Cached responses are reused forever (ttl=None) or while younger than ttl seconds."""
+        Cached responses are reused forever (ttl=None) or while younger than ttl seconds, if fetched
+        with the same key (bodies hold PUUIDs, which are encrypted per app)."""
         cache = self._cache_path(host, path, params)
         if cache.is_file():
             entry = json.loads(cache.read_text(encoding="utf-8"))
-            if ttl is None or self._clock() - entry["fetched_at"] < ttl:
+            if entry.get("key") == self.key_id and (ttl is None or self._clock() - entry["fetched_at"] < ttl):
                 self.cache_hits += 1
                 return entry["body"]
 
@@ -119,8 +168,9 @@ class RiotClient:
             self.limiter.update_from_header(resp.headers.get("X-App-Rate-Limit"))
             if resp.status_code in (401, 403):
                 raise RiotAuthError(f"Riot API rejected the key ({resp.status_code}). "
-                                    "Development keys expire after 24 hours: generate a new one at "
-                                    "https://developer.riotgames.com and update RIOT_API_KEY in .env")
+                                    "Development keys expire after 24 hours: generate a new one (or use "
+                                    "your app's key) at https://developer.riotgames.com and update "
+                                    "RIOT_API_KEY in .env")
             if resp.status_code == 429:
                 wait = float(resp.headers.get("Retry-After", 2 ** attempt))
                 log.info("rate limited on %s; waiting %.0f s", path, wait)
@@ -135,7 +185,8 @@ class RiotClient:
                 resp.raise_for_status()
                 body = resp.json()
             cache.parent.mkdir(parents=True, exist_ok=True)
-            cache.write_text(json.dumps({"fetched_at": self._clock(), "body": body}), encoding="utf-8")
+            cache.write_text(json.dumps({"fetched_at": self._clock(), "key": self.key_id, "body": body}),
+                             encoding="utf-8")
             return body
         raise RuntimeError(f"Riot API: giving up on {path} after {self._max_retries + 1} attempts")
 
@@ -155,7 +206,7 @@ class RiotClient:
         return self.get(REGION, path, params, ttl=0.25 * DAY) or []
 
     def match(self, match_id: str) -> dict | None:
-        return self.get(REGION, f"/lol/match/v5/matches/{match_id}")
+        return self.get(REGION, match_path(match_id))
 
     def account_puuid(self, riot_id: str) -> str | None:
         """'Name#TAG' -> PUUID (account-v1), None if no such account."""

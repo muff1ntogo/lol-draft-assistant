@@ -32,6 +32,15 @@ class ChampRoleStats(SQLModel, table=True):
     wins: int = 0
     picks: int = 0
     bans: int = 0  # champion-level: matches where it was banned (same on each of its role rows)
+    # Damage profile: mean per-game share of damage to champions (None until damage is crawled)
+    dmg_phys: float | None = None
+    dmg_magic: float | None = None
+    dmg_true: float | None = None
+    # Power curve (docs/comp-style.md): games and wins in short (< 25 min) and long (> 32 min) games
+    games_short: int | None = None
+    wins_short: int | None = None
+    games_long: int | None = None
+    wins_long: int | None = None
 
 
 class Matchup(SQLModel, table=True):
@@ -46,15 +55,34 @@ class Matchup(SQLModel, table=True):
     wins_a: int = 0
 
 
-class Synergy(SQLModel, table=True):
-    __tablename__ = "synergy"
+class SynergyPair(SQLModel, table=True):
+    """Role-aware same-team duos over a pooled, time-decayed window (docs/synergy-visualizer.md).
+    `window` names the newest patch in the window; `bracket` is a tier or "all" (every tier pooled).
+    Each pair is stored once, with (role_a, champ_a) < (role_b, champ_b)."""
+    __tablename__ = "synergy_pairs"
 
-    patch: str = Field(primary_key=True)
+    window: str = Field(primary_key=True)
     bracket: str = Field(primary_key=True)
+    role_a: str = Field(primary_key=True)
     champ_a: int = Field(primary_key=True)
+    role_b: str = Field(primary_key=True)
     champ_b: int = Field(primary_key=True)
+    games: int = 0  # raw count (the low-data flag)
+    games_w: float = 0.0  # time-decay weighted
+    wins_w: float = 0.0
+
+
+class SynergyRoleStats(SQLModel, table=True):
+    """Champion strength per role over the same window as synergy_pairs, so it is removed consistently."""
+    __tablename__ = "synergy_role_stats"
+
+    window: str = Field(primary_key=True)
+    bracket: str = Field(primary_key=True)
+    champ_id: int = Field(primary_key=True)
+    role: str = Field(primary_key=True)
     games: int = 0
-    wins: int = 0
+    games_w: float = 0.0
+    wins_w: float = 0.0
 
 
 class Player(SQLModel, table=True):
@@ -145,6 +173,7 @@ class CrawledMatch(SQLModel, table=True):
     bracket: str = Field(index=True)  # bracket of the seed player it was found through
     queue_id: int
     game_start_ms: int
+    game_duration_s: int | None = None  # None for matches stored before it was recorded (data.backfill)
 
 
 class MatchParticipant(SQLModel, table=True):
@@ -155,6 +184,9 @@ class MatchParticipant(SQLModel, table=True):
     team_id: int  # 100 blue, 200 red
     role: str  # engine role
     win: bool
+    dmg_phys: int | None = None  # physical / magic / true damage dealt to champions
+    dmg_magic: int | None = None
+    dmg_true: int | None = None
 
 
 class MatchBan(SQLModel, table=True):
@@ -189,6 +221,19 @@ class BootstrapRoleStats(SQLModel, table=True):
     role_rate: float  # share of the champion's games played in this role
     source: str = "opgg"
     fetched_at: datetime  # timezone-aware (UTC)
+
+
+class ChampionStyle(SQLModel, table=True):
+    """The user's review of a champion's team-fight style (docs/comp-style.md). Overrides the seed file;
+    weights None = the seed confirmed as is."""
+    __tablename__ = "champion_styles"
+
+    champ_id: int = Field(primary_key=True)
+    front_to_back: float | None = None
+    dive: float | None = None
+    poke: float | None = None
+    frontline: bool | None = None
+    updated_at: datetime  # timezone-aware (UTC)
 
 
 class AppSetting(SQLModel, table=True):
