@@ -572,6 +572,30 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         return {**body, "draft": draft, "champions": champs,
                 "synergy_bracket": get_synergy_bracket(svc.db) if svc.db is not None else "all"}
 
+    @app.post("/api/prep/plan")
+    def post_prep_plan(request: Request, locks: dict[str, int] = Body(...), side: str = Body("blue"),
+                       format: str = Body("tournament"), use_draft: bool = Body(False)) -> dict:
+        """The Prep page's bottom half (docs/synergy-v2.md, Stage 5): Win lane / Win teamfights / Combined
+        bans, pick order by side, fills for the other roles, plan risks and backups for the plan (the locks)."""
+        from draftassist.api.synergy_v2 import plan_json
+        from draftassist.data.settings_store import get_synergy_v2_settings
+        from draftassist.engine.formats import STANDARD_RANKED
+        from draftassist.engine.plan import PlanContext
+
+        svc: Services = request.app.state.services
+        if side not in ("blue", "red") or format not in ("tournament", "flex"):
+            raise HTTPException(422, "side must be blue or red; format tournament or flex")
+        if any(r not in ROLES for r in locks) or len(set(locks.values())) != len(locks):
+            raise HTTPException(422, f"locks: one champion per role, roles from {', '.join(ROLES)}")
+        live = svc.live.current
+        if use_draft and live is not None:
+            state = live.state
+        else:
+            state = DraftState(STANDARD_RANKED if format == "flex" else TOURNAMENT, side)
+        d = get_synergy_v2_settings(svc.db)["ban_teamfight_d"] if svc.db is not None else 1.0
+        ctx = PlanContext(svc.engine, svc.synergy_v2(), dict(locks), state)
+        return {**plan_json(ctx, svc.catalog.card, d), "live": bool(use_draft and live is not None)}
+
     @app.put("/api/synergy/bracket")
     def put_synergy_bracket(request: Request, bracket: str = Body(..., embed=True)) -> dict:
         svc: Services = request.app.state.services

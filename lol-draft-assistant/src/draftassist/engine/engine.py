@@ -393,8 +393,12 @@ class DraftEngine:
             raise ValueError("not our turn")
         return self.suggest_bans(state, k) if step.kind == "ban" else self.suggest_picks(state, k, role)
 
-    def _lane_ban_tables(self, state: DraftState, ev: Evaluation) -> dict[str, RoleBanTable]:
+    def _lane_ban_tables(self, state: DraftState, ev: Evaluation,
+                         plan: dict[str, int] | None = None) -> dict[str, RoleBanTable]:
+        """`plan` (Prep page, docs/synergy-v2.md): our planned champion per role, treated as locked there."""
         our_by_role = {r: c for c, r in ev.our_roles.items()}
+        for r, c in (plan or {}).items():
+            our_by_role.setdefault(r, c)
         their_filled = set(ev.their_roles.values())
         unavailable = state.unavailable()
         return {
@@ -415,7 +419,8 @@ class DraftEngine:
         return self._lane_ban_tables(state, self._evaluate(state))
 
     # ---------- bans ----------
-    def _ban_candidates(self, state: DraftState) -> list[BanCandidate]:
+    def _ban_candidates(self, state: DraftState, plan: dict[str, int] | None = None,
+                        extra: dict[int, float] | None = None) -> list[BanCandidate]:
         """Every ban candidate with its three components (docs/ban-value-matchups.md), unfiltered:
 
             ban value = relevance * discount * (a * Threat + b * Matchup + c * Comp)
@@ -431,7 +436,11 @@ class DraftEngine:
         OwnLoss = for one of our own pool champions, in a role we haven't locked yet: how much better
                   it is than that player's best other available option (alpha * meta + beta * comfort,
                   log-odds); 0 if it isn't their best. Subtracted with weight `own`, outside the
-                  enemy-side multipliers: banning our own pick costs us whatever the enemy does."""
+                  enemy-side multipliers: banning our own pick costs us whatever the enemy does.
+
+        Prep plans (docs/synergy-v2.md, Stage 5): `plan` treats our planned champions as locked in their
+        roles (Matchup responders, Comp targets, no self-ban check there); `extra` (log-odds per champion)
+        is added inside the weighted sum, e.g. d x Win teamfights."""
         self._assign_cache.clear()
         cfg, w = self.cfg, self.cfg.ban_weights
         ev = self._evaluate(state)
@@ -439,12 +448,14 @@ class DraftEngine:
         unavailable = state.unavailable()
         relevance = self.ban_relevance(state)
         filled = self.role_filled_probs(state)
-        tables = self._lane_ban_tables(state, ev)
+        tables = self._lane_ban_tables(state, ev, plan)
         team_lane = team_lane_ban(tables.values())
         enemy = self._enemy()
         blind = state.format.simultaneous_bans and state.step is not None and state.step.kind == "ban"
         locked = [(o, r) for o, r in ev.our_roles.items()]
-        own_best = self._own_best_two(state, ev)
+        locked += [(c, r) for r, c in (plan or {}).items()
+                   if r not in ev.our_roles.values() and c not in ev.our_roles and c not in unavailable]
+        own_best = self._own_best_two(state, ev, set(plan or ()))
         syn_on = cfg.ban_comp_synergy and state.step is not None and state.step.phase == 2 and bool(ev.their_roles)
 
         out = []
@@ -480,7 +491,7 @@ class DraftEngine:
                             best_pair, comp_partner = part, j
                 comp += comp_syn
             discount = 1 - enemy_team_ban_prob(enemy.ban_rates.get(c, 0.0)) if blind else 1.0
-            weighted = w.threat * threat + w.matchup * matchup + w.comp * comp
+            weighted = w.threat * threat + w.matchup * matchup + w.comp * comp + (extra or {}).get(c, 0.0)
             own_loss, own_role = 0.0, None
             for r, best in own_best.items():
                 if c in self.team.pools.get(r, {}) and best and best[0][1] == c:
@@ -498,13 +509,14 @@ class DraftEngine:
         self._last_tables = tables
         return out
 
-    def _own_best_two(self, state: DraftState, ev: Evaluation) -> dict[str, list[tuple[float, int]]]:
+    def _own_best_two(self, state: DraftState, ev: Evaluation,
+                      planned: set[str] = frozenset()) -> dict[str, list[tuple[float, int]]]:
         """Per role we haven't locked: our two best available options by pick weight (pool champions,
         plus the best off-pool champion as a fallback). Used for the self-ban penalty."""
         unavailable = state.unavailable()
         out = {}
         for r in ROLES:
-            if r in ev.our_roles.values():
+            if r in ev.our_roles.values() or r in planned:
                 continue
             pool = [c for c in self.team.pools.get(r, {}) if c not in unavailable]
             if not pool:
@@ -543,18 +555,21 @@ class DraftEngine:
         return validate_suggestions(state, "ban", out, self.cfg.min_ban_relevance,
                                     forbidden=declared)
 
-    def ban_group(self, state: DraftState, owners: list[str | None]) -> list[tuple[str | None, Suggestion | None]]:
+    def ban_group(self, state: DraftState, owners: list[str | None], plan: dict[str, int] | None = None,
+                  extra: dict[int, float] | None = None,
+                  exclude: frozenset[int] = frozenset()) -> list[tuple[str | None, Suggestion | None]]:
         """Simultaneous bans (Flex): one coordinated ban per owner (docs/flex-simultaneous-bans.md).
 
         Chosen greedily with recomputation: take the best, treat it as banned, re-score (the enemy
         pick distribution and lane ban scores shift), take the next. Then each ban goes to the role
         whose lane ban score it helps most, by a one-to-one assignment maximising the total (bans
         with no lane owner fill whoever is left). Owners without a useful ban get None."""
-        declared = self._declared_intents(state)
+        declared = self._declared_intents(state) | exclude
         chosen: list[tuple[Suggestion, dict[str, float]]] = []
         current = state
         for _ in range(len(owners)):
-            best = next((b for b in self._ban_candidates(current) if b.value > 0 and b.champ_id not in declared), None)
+            best = next((b for b in self._ban_candidates(current, plan, extra)
+                         if b.value > 0 and b.champ_id not in declared), None)
             if best is None:
                 break
             chosen.append((self._ban_suggestion(current, best, self._last_tables), best.lanes))

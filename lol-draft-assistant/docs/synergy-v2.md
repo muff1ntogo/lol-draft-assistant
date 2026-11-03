@@ -211,6 +211,11 @@ Trio-specific win-rate data; roam pairs (JG–SUP, MID–SUP) as separate in-lan
 - `web/src/PlanSynergy.svelte` (top half) inside `Prep.svelte`; the plan (locks) is remembered per browser. The old Synergy page, `/api/synergy` and `build_synergy_view` (with their tests) are gone; `#/synergy` opens Prep. The old Prep sheet moved into a collapsed "Patch overview" at the bottom.
 - Measured on the scratch database (real pools of 8–10 per role): the page payload with no locks and threshold 0 in Teamfight scope is 0.24 s / 390 kB; with 4 locks 14 ms. Screenshots at 1920×1080: no horizontal overflow.
 
+### Stage 5 (3 Nov 2026)
+- `engine/plan.py`: `PlanContext` (engine, synergy evaluator, plan, DraftState), `win_lane_bans`, `win_teamfight_bans`, `combined_bans`, `pick_order` / `our_slots`, `fills`, `plan_risks`, `backups`. `engine.py`: `_ban_candidates` / `_lane_ban_tables` / `ban_group` take an optional `plan` (treated as locked) and `extra` (added to the weighted sum); the defaults leave Live unchanged. `TeamModel.vs_batch` scores one comp against many enemy comps at once.
+- `POST /api/prep/plan` (locks, side, format tournament | flex, use_draft) → bans (lane / teamfight / combined, each with reason, value, owner in Flex, components), picks (order with one line each, fills, risks, backups). `web/src/PlanBansPicks.svelte` under the top half, on the same plan.
+- Measured on the scratch database (4 locks): 0.37 s cold, ~0.08 s warm, tournament and Flex. Live suggestion budgets are untouched (the Live path calls the engine with no plan).
+
 ## Decision log (Stages 3–5, built without review: please check these)
 
 Each entry: the question, the options, what I chose and why.
@@ -242,3 +247,28 @@ Each entry: the question, the options, what I chose and why.
 **S4-6. Where the plan lives.** In the browser (localStorage, like the old visualiser's locks); Stage 6 (pinning) would store it server-side. Clicking a pair row locks both champions; a completion row locks the one champion.
 
 **S4-7. Screenshots.** Taken with Playwright against a scratch database (a script, not a pytest test: the project has no Python Playwright dependency, and screenshots stay local in `tests/screenshots/`).
+
+**S5-1. P(enemy picks X) for Win teamfights.** Options: the engine's next-pick probability (Threat); X's per-team pick rate. **Chose the per-team pick rate given it isn't banned**: `Σ_roles pick_rate / 2 / (1 − ban_rate)` (pick rates count both teams), capped at 95%. The plan is about the whole draft, not the next pick. Champions under 0.2% are skipped.
+
+**S5-2. ΔTeam for a candidate.** Team vs enemy with X in an average enemy comp (missing roles = role averages; revealed enemy picks kept), minus without it, averaged over X's open roles by role share (roles ≥ 10% of its games). Reason = the rule X hurts us most through, with its pp.
+
+**S5-3. Our own plan champions are never banned** in any list (like declared intents in Flex). Own-pool bans of non-plan champions stay allowed (ban-guardrails).
+
+**S5-4. Win lane value.** `0.04 × TeamLaneBan` × relevance (× the enemy-ban discount in Flex): the Matchup component on its own, so the list reads "what protects our lanes". Reason names the plan champion it protects, "worst common lane" when it is the lowest Resp among the role's 10 most picked opponents, "no matchup data" when Resp is the no-data baseline.
+
+**S5-5. Combined.** The engine's ban value with the plan as locked: Matchup uses plan champions as the only responders; Comp counts counters to plan champions (weighted by the enemy lane still being open); the self-ban penalty skips planned roles. Plus `d × Win teamfights` inside the weighted sum (so relevance and the Flex discount apply), d = 1.0 (Settings). The reason switches to the teamfight rule when that term is the largest. Flex: the engine's greedy group bans, one per teammate (owner shown).
+
+**S5-6. Pick order: how the spec's "contest − counter + flex" is put into one unit.** Everything in pp of win chance, per slot:
+- contest(slot) = 1 − (1 − q·share of enemy bans before the slot)(1 − P(enemy picks it)·enemy picks before / 5), q = P(the enemy team bans it) from the ban rate;
+- cost of losing it = 25 × (engine pick weight over its backup + Overall drop to the backup), floored at 0; 5pp if the pool has no backup;
+- counter cost = the engine's own counter-risk weighting: 100 × risk_weight × best counter's lane logit × min(1, enemy picks after / risk_horizon);
+- flex = 100 × flex_bonus × (roles − 1) × enemy picks after / 5.
+The assignment of plan champions to our open slots is chosen by brute force (≤ 120 permutations) to minimise contest × cost + counter − flex. "Priority" shown = contest at our last slot × cost − counter at our first slot + flex. Alternative considered: rank by priority and fill slots in order (ignores that waiting lowers counter risk and raises contest at different rates per champion).
+
+**S5-7. Slot groups.** Our picks with no enemy pick between them, and the last pick phase as one group: tournament blue B1 / B2–B3 / B4–B5, red R1–R2 / R3 / R4–R5 (as in the spec); Flex blue B1 / B2–B3 / B4–B5, red R1–R2 / R3–R4 / R5. Lines: first group "B1 X: contested 18%, safe blind" (or who counters it), held picks "Hold X to B4/B5: countered by Y (−3.4pp)".
+
+**S5-8. Plan risks: enemy comp identities.** For each identity, an enemy comp of real champions: per open role, the enemy's 12 most-picked champions, the one contributing most to that identity. Shown when it lowers Team vs enemy. Alternative: synthetic "pure identity" comps (not real drafts).
+
+**S5-9. Backups.** The player's pool champion that keeps Overall highest (Stat + Style + Team), never banned, picked or another plan champion; shown as the Overall change (it can be positive: then the backup scores better than the plan champion on synergy alone).
+
+**S5-10. Format default and side.** Tournament (Ranked 5s) by default, with a Flex toggle; side toggle blue / red; both remembered per browser. The bottom half follows the top half's plan, including champions locked in a live draft when "use current draft" is on.

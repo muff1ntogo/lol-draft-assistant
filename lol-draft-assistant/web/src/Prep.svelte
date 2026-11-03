@@ -4,10 +4,13 @@
   // validated against the panel surface, and every value is also printed signed.
   import Champ from './Champ.svelte';
   import PlanSynergy from './PlanSynergy.svelte';
+  import PlanBansPicks from './PlanBansPicks.svelte';
 
   const savedPlan = (() => { try { return JSON.parse(localStorage.getItem('prep-plan') || '{}'); } catch { return {}; } })();
   let locks = $state(savedPlan);
   let planView = $state(null);
+  // the plan the bottom half works on: the locks, plus champions locked in a live draft ("use current draft")
+  const planLocks = $derived(planView ? Object.fromEntries(planView.plan.champs.map((c) => [c.role, c.id])) : locks);
   $effect(() => {
     try { localStorage.setItem('prep-plan', JSON.stringify(locks)); } catch { /* not remembered */ }
   });
@@ -23,6 +26,7 @@
 <main class="page">
   <h1>Prep <a class="synlink" href="#/tags">Tags →</a> <a class="synlink" href="#/rules">Rules →</a></h1>
   <PlanSynergy bind:locks onplan={(d) => (planView = d)} />
+  <PlanBansPicks locks={planLocks} />
 
   <details class="overview">
   <summary>Patch overview <span class="muted">(without a plan: priority bans, best 3, blind and flex picks, lane ban tables)</span></summary>

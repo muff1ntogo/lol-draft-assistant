@@ -341,6 +341,24 @@ class TeamModel:
         return TeamVs(float(own.sum() + cross.sum()), float(own.sum()), float(cross.sum()),
                       sorted(parts, key=lambda rv: -abs(rv[1])))
 
+    def vs_batch(self, ours: Comp, theirs: Sequence[Comp], fill: bool = True) -> tuple[np.ndarray, np.ndarray]:
+        """Team vs enemy for one comp of ours against many enemy comps at once: (totals (N,), per-rule
+        contributions (N, own rules + cross rules)), in log-odds. Used to score ban candidates."""
+        n = len(theirs)
+        if n == 0:
+            return np.zeros(0), np.zeros((0, len(self.rules)))
+        f_ours = self.features([ours], fill)[0]
+        own = (f_ours[None, :] - self.features(theirs, fill)) * self.beta()
+        many = [ours] * n
+        cross = (self.cross(many, theirs, fill) - self.cross(theirs, many, fill)) * self.gamma()
+        parts = np.hstack([own, cross])
+        return parts.sum(axis=1), parts
+
+    def identity_parts(self, champ: int, role: str) -> dict[str, float]:
+        """One champion's contribution to each comp identity."""
+        parts = self._identity_parts(self._arrays([[(champ, role)]]))[0, ROLE_INDEX[role]]
+        return dict(zip(IDENTITIES, map(float, parts)))
+
     def damage_profile(self, comp: Comp) -> dict[str, float]:
         s = self._shares(self._arrays([comp]))[0]
         return {"physical": float(s[0]), "magic": float(s[1]), "true": float(s[2])}

@@ -54,3 +54,39 @@ def evaluation_json(result: CompResult, card: Callable[[int], dict], suggestions
     return {"pairs": [pair_json(p, card) for p in result.pairs], "team": team_json(result),
             "suggestions": {role: [suggestion_json(s, card, tier(s.champ, role)) for s in rows]
                             for role, rows in (suggestions or {}).items()}}
+
+
+def plan_json(ctx, card: Callable[[int], dict], d_weight: float) -> dict:
+    """The Prep page's bottom half (docs/synergy-v2.md, Stage 5) for a PlanContext."""
+    from draftassist.engine.plan import backups, combined_bans, fills, pick_order, plan_risks, win_lane_bans, \
+        win_teamfight_bans
+
+    def ban(b) -> dict:
+        return {"champ": card(b.champ_id), "value_pp": pp(b.value), "reason": b.reason, "role": b.role,
+                "owner": b.owner, "relevance": None if b.relevance is None else round(b.relevance, 3),
+                "discount": None if b.discount is None else round(b.discount, 3),
+                "warnings": list(b.warnings),
+                "components": {"threat_pp": pp(b.threat), "matchup_pp": pp(b.matchup), "comp_pp": pp(b.comp),
+                               "teamfight_pp": pp(b.teamfight)}}
+
+    order = [{"champ": card(o.champ), "role": o.role, "slot": o.label, "group": o.group,
+              "contest": round(o.contest, 3), "counter": card(o.counter) if o.counter else None,
+              "counter_edge_pp": round(o.counter_edge_pp, 2), "counter_pp": round(o.counter_pp, 2),
+              "loss_pp": round(o.loss_pp, 2), "priority_pp": round(o.priority_pp, 2), "line": o.line}
+             for o in pick_order(ctx)]
+    risks = plan_risks(ctx)
+    return {
+        "empty": not ctx.plan, "side": ctx.state.our_side, "format": ctx.state.format.name,
+        "bans": {"lane": [ban(b) for b in win_lane_bans(ctx)], "teamfight": [ban(b) for b in win_teamfight_bans(ctx)],
+                 "combined": [ban(b) for b in combined_bans(ctx, d_weight)]},
+        "picks": {
+            "order": order,
+            "fill": {role: [suggestion_json(s, card) for s in rows] for role, rows in fills(ctx).items()},
+            "risks": {"champions": [{"champ": card(r["champ"]), "role": r["role"], "delta_pp": pp(-r["delta"]),
+                                     "rule": r["rule"]} for r in risks["champions"]],
+                      "identities": [{"identity": r["identity"], "name": r["name"], "delta_pp": pp(-r["delta"]),
+                                      "champs": [card(x) for x in r["champs"]]} for r in risks["identities"]]},
+            "backups": {role: (None if b is None else {"champ": card(b.champ), "change_pp": pp(-b.drop)})
+                        for role, b in backups(ctx).items()},
+        },
+    }
