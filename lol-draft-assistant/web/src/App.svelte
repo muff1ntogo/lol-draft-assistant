@@ -8,6 +8,7 @@
   import Team from './Team.svelte';
   import Tags from './Tags.svelte';
   import Rules from './Rules.svelte';
+  import PlanBar from './PlanBar.svelte';
 
   const PAGES = { live: 'Live', prep: 'Prep', pools: 'Pools', champions: 'Champions', history: 'History', team: 'Team', settings: 'Settings' };
   const HIDDEN = { tags: 'Tags', rules: 'Rules' }; // reached from the Prep page's header, not the nav
@@ -86,6 +87,10 @@
     {#if view.status === 'error'}<p class="error">{view.message}</p>{/if}
     {#if view.client}<p>League client: {view.client}</p>{/if}
   </main>
+{/if}
+
+{#if page === 'live' && view.plan}
+  {#key view.plan.text}<PlanBar bar={view.plan} />{/key}
 {/if}
 
 <style>

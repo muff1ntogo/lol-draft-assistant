@@ -249,3 +249,61 @@ def test_live_budgets_hold_with_a_pinned_plan():
     start = time.perf_counter()
     engine.suggest_picks(b1, k=5, bonus=eff.pick_bonus)
     assert time.perf_counter() - start < 0.2
+
+
+# ---------- the plan bar (bottom of the Live screen) ----------
+def _live(st, our_slots=()):
+    from draftassist.lcu.parser import LiveDraft
+
+    return LiveDraft(st, tuple(our_slots), (), "BAN_PICK", 20.0, None, None, 1)
+
+
+def test_plan_bar_shows_what_differs_from_the_plan():
+    from draftassist.api.live import build_live_view
+    from draftassist.data.provider import ChampionCatalog
+    from draftassist.engine.formats import TOURNAMENT
+    from draftassist.lcu.parser import Slot
+
+    data, team, engine, plan = setup()
+    pin = build_pin(engine, evaluator(data), plan)
+    catalog = ChampionCatalog("16.21.1", {c: (data.name(c), data.name(c)) for c in data.champions()})
+    plan_bans = pin["bans"]["tournament"]["blue"]
+    off_plan_ban = next(c for c in sorted(data.champions()) if c not in plan_bans and c not in plan.values()
+                        and c not in team.pool_champs())
+    # B ban (off plan), R ban (a plan ban), B ban, R ban (our planned support), B ban, R ban, then B1 picks
+    # someone else for our planned jungle
+    other_jg = next(c for c in sorted(team.pools["jungle"]) if c != plan["jungle"] and c not in plan.values())
+    actions = (off_plan_ban, plan_bans[0], SKIPPED, plan["support"], SKIPPED, SKIPPED, other_jg)
+    st = DraftState(TOURNAMENT, "blue", actions)
+    view = build_live_view(engine, catalog, _live(st, [Slot(1, "jungle", other_jg, 0)]), "fixture", None, pin)
+    bar = view["plan"]
+    slots = {s["role"]: s for s in bar["slots"]}
+    assert slots["jungle"]["status"] == "replaced" and slots["jungle"]["actual"]["id"] == other_jg
+    assert slots["support"]["status"] == "banned" and slots["support"]["backup"] is not None
+    assert slots["mid"]["status"] == "planned"
+    assert all(s["planned"]["icon"] is not None or s["planned"]["name"] for s in bar["slots"])
+    bans = {b["champ"]["id"]: b["status"] for b in bar["bans"]["plan"]}
+    assert bans[plan_bans[0]] == "theirs"
+    assert all(v == ("picked" if c == other_jg else "open") for c, v in bans.items() if c != plan_bans[0])
+    assert [c["id"] for c in bar["bans"]["off_plan"]] == [off_plan_ban]
+    for key in ("plan", "now"):
+        summ = bar["summary"][key]
+        assert {"damage", "timing_label", "style_label", "shares"} <= set(summ)
+        if summ["damage"]:
+            assert sum(summ["damage"].values()) == pytest.approx(1.0, abs=1e-3)
+    assert bar["summary"]["now"]["picks"] >= 1
+
+
+def test_plan_bar_while_waiting(svc):
+    team = svc.engine.team
+    plan = {}
+    for r in ("jungle", "mid"):
+        plan[r] = next(c for c in sorted(team.pools[r]) if c not in plan.values())
+    svc.pinned = build_pin(svc.engine, svc.synergy_v2(), plan)
+    waiting = svc.live.handle_session(None)
+    assert waiting["status"] == "waiting"
+    bar = waiting["plan"]
+    assert [s["status"] for s in bar["slots"]] == ["planned", "planned"]
+    assert bar["summary"]["now"] is None and bar["summary"]["plan"]["picks"] == 2
+    svc.pinned = None
+    assert svc.live.handle_session(None).get("plan") is None

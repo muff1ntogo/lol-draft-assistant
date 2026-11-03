@@ -150,16 +150,95 @@ def _score_hover(engine: DraftEngine, state: DraftState, open_roles: list[str], 
     return next((s for s in ranked if s.champ_id == champ), None)
 
 
-def _plan_banner(catalog: ChampionCatalog, banner: dict) -> dict:
-    """The thin banner on top of the Live screen: `Plan: A · B · C — intact` (docs/synergy-v2.md, Stage 6)."""
+def _comp_summary(engine: DraftEngine, comp: list[tuple[int, str]]) -> dict:
+    """Damage split, comp timing (Early / Mix / Late) and fight style for a set of champions."""
+    known = [d for c, r in comp if (d := engine.data.damage.get((c, r))) is not None]
+    damage = None
+    if known:
+        tot = [sum(d[i] for d in known) for i in range(3)]
+        z = sum(tot) or 1.0
+        damage = {"physical": round(tot[0] / z, 4), "magic": round(tot[1] / z, 4), "true": round(tot[2] / z, 4)}
+    return {**team_comp(engine.data.profiles, list(comp)).as_dict(), "damage": damage}
+
+
+def _plan_bar(engine: DraftEngine, catalog: ChampionCatalog, pin: dict, banner: dict | None = None,
+              st: DraftState | None = None, our_roles: dict[int, str] | None = None) -> dict:
+    """The pinned plan's bar at the bottom of the Live screen (docs/synergy-v2.md, Stage 6): each planned
+    champion with its status against the live draft, the plan's bans, our off-plan bans, and the comp
+    summaries of the plan and of where the draft stands now (our picks + the plan's remaining champions,
+    or their backups once gone). Without a draft (waiting) only the plan itself."""
     card = catalog.card
-    champs = [(r, c) for r in ROLES if (c := banner["champs"].get(r))]
+    locks = {r: int(c) for r, c in pin["locks"].items()}
+    backups = {r: (int(b) if b else None) for r, b in (pin.get("backups") or {}).items()}
+    order = [r for r in ROLES if r in locks]
+    plan_comp = [(locks[r], r) for r in order]
+    banner = banner or {"state": "intact", "champs": locks, "at_risk": [], "gone": [], "picked": []}
     label = {"intact": "intact", "at_risk": "at risk", "broken": "broken"}[banner["state"]]
-    text = f"Plan: {' · '.join(card(c)['name'] for _, c in champs)} — {label}"
-    return {"state": banner["state"], "text": text, "champs": [{**card(c), "role": r} for r, c in champs],
-            "at_risk": [card(c) for c in banner["at_risk"]], "picked": banner["picked"],
-            "gone": [{"champ": card(g["champ"]), "role": g["role"], "role_label": ROLE_LABELS[g["role"]],
-                      "backup": card(g["backup"]) if g["backup"] else None} for g in banner["gone"]]}
+    text = f"Plan: {' · '.join(card(c)['name'] for c, _ in plan_comp)} — {label}"
+    out = {"state": banner["state"], "label": label, "text": text,
+           "champs": [{**card(c), "role": r} for c, r in plan_comp],
+           "at_risk": [card(c) for c in banner["at_risk"]], "picked": banner["picked"],
+           "gone": [{"champ": card(g["champ"]), "role": g["role"], "role_label": ROLE_LABELS[g["role"]],
+                     "backup": card(g["backup"]) if g["backup"] else None} for g in banner["gone"]]}
+
+    profiles = engine.data.profiles
+    slots, now = [], None
+    if st is None:
+        for c, r in plan_comp:
+            slots.append({"role": r, "role_label": ROLE_LABELS[r], "planned": card(c), "status": "planned",
+                          "actual": None, "backup": card(backups.get(r)) if backups.get(r) else None,
+                          "badge": badge(profiles, c, r).as_dict()})
+        out |= {"slots": slots, "bans": None,
+                "summary": {"plan": _comp_summary(engine, plan_comp), "now": None}}
+        return out
+
+    our_roles = our_roles or {}
+    ours = set(st.our_picks)
+    theirs = set(st.their_picks)
+    banned = set(st.bans())
+    by_role = {r: c for c, r in our_roles.items()}
+    unavailable = st.unavailable()
+    now_comp = [(c, r) for c, r in our_roles.items()]
+    for c, r in plan_comp:
+        actual = None
+        if c in ours:
+            status = "picked"
+        elif r in by_role:
+            status, actual = "replaced", by_role[r]
+        elif c in banned:
+            status = "banned"
+        elif c in theirs:
+            status = "taken"
+        elif c in banner["at_risk"]:
+            status = "at_risk"
+        else:
+            status = "planned"
+        if r not in by_role and c not in ours:
+            fill = c if c not in unavailable else backups.get(r)
+            if fill and fill not in unavailable:
+                now_comp.append((fill, r))
+        slots.append({"role": r, "role_label": ROLE_LABELS[r], "planned": card(c), "status": status,
+                      "actual": card(actual) if actual else None,
+                      "backup": card(backups.get(r)) if backups.get(r) else None,
+                      "badge": badge(profiles, c, r).as_dict()})
+    plan_bans = [int(c) for c in pin.get("bans", {}).get(st.format.name, {}).get(st.our_side, [])]
+    our_bans = st.bans(st.our_side)
+    their_bans = set(st.bans(st.their_side))
+
+    def ban_status(c: int) -> str:
+        if c in our_bans:
+            return "ours"
+        if c in their_bans:
+            return "theirs"
+        if c in ours or c in theirs:
+            return "picked"
+        return "open"
+
+    out |= {"slots": slots,
+            "bans": {"plan": [{"champ": card(c), "status": ban_status(c)} for c in plan_bans],
+                     "off_plan": [card(c) for c in our_bans if c not in plan_bans]},
+            "summary": {"plan": _comp_summary(engine, plan_comp), "now": _comp_summary(engine, now_comp)}}
+    return out
 
 
 def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDraft,
@@ -271,7 +350,7 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
         "comp": {"ours": {**team_comp(profiles, ours).as_dict(), "target": _target(engine, ours)},
                  "theirs": team_comp(profiles, theirs).as_dict()},
         "center": center,
-        "plan": _plan_banner(catalog, effects.banner) if effects else None,
+        "plan": _plan_bar(engine, catalog, pin, effects.banner, st, ev.our_roles) if effects else None,
     }
 
 
@@ -294,8 +373,10 @@ class LiveService:
         self.pin_provider: Callable[[], dict | None] | None = None  # the pinned plan (docs/synergy-v2.md, Stage 6)
 
     def _waiting(self) -> dict:
+        pin = self.pin_provider() if self.pin_provider else None
         return {"status": "waiting", "message": "Waiting for champ select", "client": self.client_status,
-                "gameflow_phase": self.gameflow_phase, "data_source": self.data_source, "note": self.note}
+                "gameflow_phase": self.gameflow_phase, "data_source": self.data_source, "note": self.note,
+                "plan": _plan_bar(self.engine, self.catalog, pin) if pin else None}
 
     def _build(self, session: dict | None) -> tuple[dict, LiveDraft | None]:
         if session is None:

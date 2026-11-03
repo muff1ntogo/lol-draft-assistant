@@ -219,7 +219,13 @@ Trio-specific win-rate data; roam pairs (JG–SUP, MID–SUP) as separate in-lan
 ### Stage 6 (3 Nov 2026)
 - `engine/plan.py`: `build_pin` (the plan, its pick order and Combined bans for both sides and both formats, backups, bonuses) and `pin_effects` (banner state, ban bonus, pick bonus for a DraftState). `engine.py`: `suggest_bans` / `ban_group` / `suggest_picks` take an optional `bonus`; `Suggestion.plan` marks a bonus. Parser: `LiveDraft.enemy_hovers` (champions in the enemy's in-progress ban or pick action).
 - API: `GET / POST / DELETE /api/plan/pin`; the pin is kept in `app_settings` (`pinned_plan`), so it survives a restart. Live payload: `plan` (banner text, state, at-risk and gone champions with backups); cards carry `plan`. `drafts.plan_json` stores the plan pinned when the champ select started; History rows and recaps show "plan followed? yes / partly / no".
-- UI: "Pin for next game" / "Unpin" on Prep (bottom half header); the Live banner (blue intact, amber at risk, red broken, with the backup) and an Unpin button; `plan` tags on cards; History chip and recap line. Settings: plan ban / pick bonus.
+- UI: "Pin for next game" / "Unpin" on Prep (bottom half header); `plan` tags on cards; History chip and recap line. Settings: plan ban / pick bonus.
+- **Plan bar** (after review, replacing the thin top banner): fixed at the bottom of the Live screen, while waiting and during champ select (`web/src/PlanBar.svelte`, payload `plan` from `api/live.py`):
+  - state (intact / at risk / broken) and Unpin;
+  - each planned champion (icon, name, role) with its status against the draft: planned, picked ✓, replaced → what we picked in that role instead, banned / taken by them → its backup, at risk;
+  - bans: the plan's Combined bans for this side and format (banned by us, banned by them, picked, not banned yet) and our off-plan bans;
+  - summaries for the **plan** and for **now** (our picks + the plan's remaining champions, or their backups once gone): damage split (AD / AP / true), comp timing (Early / Mix / Late) and fight style (Front to back / Dive / Poke, comp-style labels).
+  - It fits the Live screen at 1920×1080 at its fullest (5 cards + Next 2 picks), with no scroll.
 - Budgets with a pinned plan (full-size synthetic data, tested): single ban turn < 200 ms, Flex group turn < 300 ms, pick turn < 200 ms.
 
 ## Decision log (Stages 3–6, built without review: please check these)
@@ -290,3 +296,5 @@ The assignment of plan champions to our open slots is chosen by brute force (≤
 **S6-5. Plan adherence.** yes = every plan champion was picked by us (any role), partly = some, no = none, with "n of m". Bans aren't scored: a ban list is a menu, not a plan.
 
 **S6-6. Unpin from Live** is one click (a DELETE); the banner disappears at once on that screen and from the next champ-select event everywhere.
+
+**S6-7. Plan bar contents.** Timing and fight style use the comp-style labels (`engine/comp.py`: power curves, reviewed Dive / Poke / Front to back weights) so the bar matches the comp panels and badges on the same screen; the synergy v2 identity (engage / poke / pick / protect / split, from tags) stays on Prep. "Now" fills roles we haven't picked with the plan champion while it's available, else its backup, so it shows where the plan is heading, not only what is locked. Damage uses the per-champion damage profile from the crawl (no data → "no damage data").
