@@ -206,6 +206,11 @@ Trio-specific win-rate data; roam pairs (JG–SUP, MID–SUP) as separate in-lan
 - Settings page: a "Synergy (Prep page)" section (Stat / Style / Team weights, confidence k, rule prior SD — saving it refits — and d for the Stage 5 Combined bans).
 - Measured on the scratch database: building + warming the evaluator 0.12 s; evaluate through the API 12–15 ms.
 
+### Stage 4 (3 Nov 2026)
+- `POST /api/prep/synergy` (`api/prep_view.py`): scope, view, threshold, locks, columns, use_draft → five columns (nodes with tier, lock, unavailable, `untagged`, comp-style badge, `gain_pp` chip), edges for the scope and view with every component, the plan panel (`evaluate` of the locks: pairs, totals, Team shown from 3 roles, identity, damage, trait bars, top team rules) and the table (core pairs; from 2 locks the top 10 single-champion completions).
+- `web/src/PlanSynergy.svelte` (top half) inside `Prep.svelte`; the plan (locks) is remembered per browser. The old Synergy page, `/api/synergy` and `build_synergy_view` (with their tests) are gone; `#/synergy` opens Prep. The old Prep sheet moved into a collapsed "Patch overview" at the bottom.
+- Measured on the scratch database (real pools of 8–10 per role): the page payload with no locks and threshold 0 in Teamfight scope is 0.24 s / 390 kB; with 4 locks 14 ms. Screenshots at 1920×1080: no horizontal overflow.
+
 ## Decision log (Stages 3–5, built without review: please check these)
 
 Each entry: the question, the options, what I chose and why.
@@ -223,3 +228,17 @@ Each entry: the question, the options, what I chose and why.
 **S3-6. Suggestions for missing roles.** Pool champions only (as specified), ranked by Overall gain including Team (filled). Excluded: `banned`, enemy champions, our own comp; then checked by `guards.validate_suggestions` against a provisional `DraftState` so availability still has one source of truth.
 
 **S3-7. Settings scope.** The weights apply to the Prep page and its plan (Stages 4–5). The Live engine's v1 synergy term and its damage-balance penalty are unchanged (decision 5 above); the Team model's `damage_imbalance` rule is the v2 replacement on Prep.
+
+**S4-1. What "Overall" means for an edge.** In-lane scope: the pair's **Lane** score. Teamfight scope: the pair's **part of Overall** (`0.50·c·Stat + (0.25 + 0.50·(1 − c))·Style` for core pairs, `0.50·Stat` for the others), so edges sum to the plan's Stat + Style. Alternative: always Lane (undefined for non-core pairs).
+
+**S4-2. The threshold slider.** Options: keep the old trio threshold; filter edges by |value|. **Chose edges by |value|** in the selected view (default 0.5pp, matching the old "hide within ±0.5pp"). Trios are dropped from the page: trio-specific data is out of scope, and the plan panel already scores any 3+ champions with pairs plus Team.
+
+**S4-3. The old Synergy page.** Options: keep it alongside; redirect; delete. **Deleted** the page, `/api/synergy`, `build_synergy_view` and their tests (`tests/test_synergy_view.py`), since the spec replaces them. The draft-context and column helpers stay (`api/synergy.py`), with their tests moved to `tests/test_prep_page.py`. `#/synergy` redirects to Prep.
+
+**S4-4. The old Prep sheet** (priority bans per side, best 3, blind-safe and flex picks, lane ban tables). Options: delete; replace with Stage 5; keep. **Kept, collapsed** under "Patch overview" at the bottom: it answers "no plan yet" questions that Stage 5 doesn't.
+
+**S4-5. Completion rows.** "Top completions of the plan" = the best single champion added in any open role (top 10 by Overall gain), each with the full comp's Stat / Style / Team / Overall and the strongest new rule as "why". Alternative: completing all open roles at once (combinatorial; Stage 5's "fill" covers the per-role view).
+
+**S4-6. Where the plan lives.** In the browser (localStorage, like the old visualiser's locks); Stage 6 (pinning) would store it server-side. Clicking a pair row locks both champions; a completion row locks the one champion.
+
+**S4-7. Screenshots.** Taken with Playwright against a scratch database (a script, not a pytest test: the project has no Python Playwright dependency, and screenshots stay local in `tests/screenshots/`).

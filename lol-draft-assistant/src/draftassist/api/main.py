@@ -24,12 +24,8 @@ from sqlmodel import Session, select
 from draftassist.api.draftlog import DraftLogger
 from draftassist.api.recap import history_filters, history_rows, recap
 from draftassist.api.live import LiveHub, LiveService
-from draftassist.api.synergy import (
-    DEFAULT_THRESHOLD_PP,
-    SynergySource,
-    build_synergy_view,
-    draft_context,
-)
+from draftassist.api.prep_view import SCOPES, VIEWS, build_prep_view
+from draftassist.api.synergy import draft_context
 from draftassist.config import PROJECT_ROOT, Settings, load_settings
 from draftassist.data import ddragon
 from draftassist.data.pools import (
@@ -90,7 +86,6 @@ class Services:
     settings: Settings | None = None
     loaded_version: tuple | None = None  # stats_version() the engine was built from
     learning: dict | None = None  # last learning run: {"running", "finished_at", "summary"}
-    synergy_override: SynergySource | None = None  # tests: a fixed table instead of the engine's
     tags_path: Path = TAGS_FILE  # judgement tags (docs/synergy-v2.md); tests point it at a scratch copy
     style_rules_path: Path = STYLE_RULES_FILE
     team_rules_path: Path = TEAM_RULES_FILE
@@ -117,12 +112,6 @@ class Services:
 
     def invalidate_synergy(self) -> None:
         self._synergy_v2 = None
-
-    def synergy_source(self) -> SynergySource:
-        """The engine's scored synergy pairs and damage profiles (reloaded with the stats)."""
-        if self.synergy_override is not None:
-            return self.synergy_override
-        return SynergySource(self.engine.data.synergy, self.engine.data.damage, self.engine.data.profiles)
 
     def refresh_profiles(self) -> bool:
         """After a style review: give the engine the new champion profiles, but not mid-draft."""
@@ -554,14 +543,14 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         return settings_payload(db)
 
     # ---------- synergy ----------
-    @app.post("/api/synergy")
-    def post_synergy(request: Request, roles: list[str] = Body(...), columns: dict[str, list[int]] | None = Body(None),
-                     locks: dict[str, int] | None = Body(None), threshold_pp: float = Body(DEFAULT_THRESHOLD_PP),
-                     use_draft: bool = Body(False)) -> dict:
-        """The Synergy page's graph. Read-only; POST only because the selection is a JSON body."""
+    @app.post("/api/prep/synergy")
+    def post_prep_synergy(request: Request, scope: str = Body("teamfight"), view: str = Body("overall"),
+                          threshold_pp: float = Body(0.5), locks: dict[str, int] | None = Body(None),
+                          columns: dict[str, list[int]] | None = Body(None), use_draft: bool = Body(False)) -> dict:
+        """The Prep page's top half (docs/synergy-v2.md, Stage 4). Read-only; POST because the selection is JSON."""
         svc: Services = request.app.state.services
-        if not 2 <= len(roles) <= 5 or len(set(roles)) != len(roles) or not set(roles) <= set(ROLES):
-            raise HTTPException(422, f"choose 2 to 5 distinct roles from {', '.join(ROLES)}")
+        if scope not in SCOPES or view not in VIEWS:
+            raise HTTPException(422, f"scope must be one of {', '.join(SCOPES)}; view one of {', '.join(VIEWS)}")
         for r in (*(columns or {}), *(locks or {})):
             if r not in ROLES:
                 raise HTTPException(422, f"unknown role {r!r}")
@@ -569,16 +558,18 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         unavailable: set[int] = set()
         all_locks = dict(locks or {})
         draft = {"live": False}
+        enemy: list[tuple[int, str]] = []
         if use_draft and live is not None:
             ev = engine.evaluate(live.state)
             unavailable, draft_locks = draft_context(live, ev.our_roles)
             all_locks |= draft_locks
+            enemy = [(c, r) for c, r in ev.their_roles.items()]
             draft = {"live": True, "locks": draft_locks, "unavailable": sorted(unavailable)}
         players = {p["role"]: p["riot_id"] for p in list_players(svc.db)} if svc.db is not None else {}
-        view = build_synergy_view(svc.synergy_source(), svc.catalog, engine.team, roles, columns, all_locks,
-                                  threshold_pp, unavailable, players)
+        body = build_prep_view(svc.synergy_v2(), svc.catalog, engine.team, scope, view, threshold_pp, all_locks,
+                               columns, unavailable, players, enemy, engine.data.profiles)
         champs = sorted((c for c in (svc.catalog.card(i) for i in svc.catalog.champs) if c), key=lambda c: c["name"])
-        return {**view, "draft": draft, "champions": champs,
+        return {**body, "draft": draft, "champions": champs,
                 "synergy_bracket": get_synergy_bracket(svc.db) if svc.db is not None else "all"}
 
     @app.put("/api/synergy/bracket")
@@ -590,7 +581,7 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
             raise HTTPException(422, str(e)) from None
         if svc.in_draft():
             return {"synergy_bracket": bracket, "applied": False}  # suggestions must not change mid-draft
-        svc.reload()  # the engine's synergy term uses the same table
+        svc.reload()  # the engine's synergy term and the Prep page use the same table
         return {"synergy_bracket": bracket, "applied": True}
 
     # ---------- champion styles (docs/comp-style.md) ----------

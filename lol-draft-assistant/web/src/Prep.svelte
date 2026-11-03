@@ -3,6 +3,14 @@
   // (ban-value-matchups.md). Ban colour: teal = banning helps us, amber = it hurts us, grey = even;
   // validated against the panel surface, and every value is also printed signed.
   import Champ from './Champ.svelte';
+  import PlanSynergy from './PlanSynergy.svelte';
+
+  const savedPlan = (() => { try { return JSON.parse(localStorage.getItem('prep-plan') || '{}'); } catch { return {}; } })();
+  let locks = $state(savedPlan);
+  let planView = $state(null);
+  $effect(() => {
+    try { localStorage.setItem('prep-plan', JSON.stringify(locks)); } catch { /* not remembered */ }
+  });
 
   let data = $state(null);
   let sheet = $state(null);
@@ -13,7 +21,11 @@
 </script>
 
 <main class="page">
-  <h1>Prep <a class="synlink" href="#/synergy">Synergy visualiser →</a> <a class="synlink" href="#/tags">Tags →</a> <a class="synlink" href="#/rules">Rules →</a></h1>
+  <h1>Prep <a class="synlink" href="#/tags">Tags →</a> <a class="synlink" href="#/rules">Rules →</a></h1>
+  <PlanSynergy bind:locks onplan={(d) => (planView = d)} />
+
+  <details class="overview">
+  <summary>Patch overview <span class="muted">(without a plan: priority bans, best 3, blind and flex picks, lane ban tables)</span></summary>
   {#if sheet}
     <div class="sheet">
       {#each ['blue', 'red'] as side}
@@ -100,11 +112,15 @@
   {:else}
     <p class="muted">Loading…</p>
   {/if}
+  </details>
 </main>
 
 <style>
-  .page { max-width: 1500px; margin: 0 auto; padding: 20px 28px 60px; }
-  h1 { font-size: 32px; margin: 8px 0 8px; }
+  .page { max-width: 1880px; margin: 0 auto; padding: 12px 20px 60px; }
+  h1 { font-size: 28px; margin: 4px 0 8px; }
+  .overview { margin-top: 24px; }
+  .overview > summary { cursor: pointer; font-size: 20px; font-weight: 600; margin-bottom: 12px; }
+  .overview > summary span { font-size: 14px; font-weight: 400; }
   .synlink { font-size: 15px; font-weight: 400; color: var(--gold); margin-left: 16px; text-decoration: none; }
   h2 { font-size: 18px; margin: 0 0 8px; }
   h2 small { color: var(--muted); font-weight: 400; font-size: 14px; }

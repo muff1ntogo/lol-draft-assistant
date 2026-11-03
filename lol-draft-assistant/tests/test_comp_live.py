@@ -6,7 +6,7 @@ from dataclasses import replace
 import pytest
 
 from draftassist.api.live import build_live_view
-from draftassist.api.synergy import SynergySource, build_synergy_view
+from draftassist.api.prep_view import build_prep_view
 from draftassist.engine.comp import (
     ChampionProfiles,
     ChampStyle,
@@ -150,8 +150,13 @@ def test_live_view_has_comp_for_both_teams_and_badges():
 
 
 def test_synergy_nodes_carry_badges():
-    src = SynergySource(data().synergy, {}, PROFILES)
-    view = build_synergy_view(src, CATALOG, TEAM, ["jungle", "support"])
+    from draftassist.engine.style import StyleModel
+    from draftassist.engine.synergy_v2 import SynergyEvaluator
+    from draftassist.engine.team import TeamModel
+    from draftassist.engine.traits import EMPTY_TRAITS
+
+    ev = SynergyEvaluator(data().synergy, EMPTY_TRAITS, StyleModel([], {}), TeamModel([], EMPTY_TRAITS))
+    view = build_prep_view(ev, CATALOG, TEAM, profiles=PROFILES)
     nodes = {n["id"]: n for col in view["columns"] for n in col["nodes"]}
     assert nodes[SEJUANI]["badge"]["text"] == "Early · Front to back / Dive · Front-line"
     assert nodes[NAUTILUS]["badge"]["styles"] == ["front_to_back", "dive"]
