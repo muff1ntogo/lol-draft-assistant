@@ -15,28 +15,23 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
-from fastapi import Body, FastAPI, HTTPException, Request, WebSocket
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import Engine
 from sqlmodel import Session
 
-from draftassist.api.deps import db_of
 from draftassist.api.draftlog import DraftLogger
+from draftassist.api.history_routes import router as history_router
+from draftassist.api.learning_routes import router as learning_router
 from draftassist.api.live import LiveHub, LiveService
-from draftassist.api.recap import history_filters, history_rows, recap
+from draftassist.api.pool_routes import router as pool_router
+from draftassist.api.settings_routes import router as settings_router
 from draftassist.api.synergy_routes import router as synergy_router
 from draftassist.config import PROJECT_ROOT, Settings, load_settings
 from draftassist.data import ddragon
 from draftassist.data.pools import (
     PlayerDirectoryDb,
-    import_pools,
-    list_players,
-    load_pools,
-    parse_pool_text,
-    remove_pool_entry,
-    set_players,
-    set_pool_entry,
 )
 from draftassist.data.profiles import load_profiles
 from draftassist.data.provider import ChampionCatalog, load_catalog, load_engine_inputs, stats_version
@@ -45,27 +40,15 @@ from draftassist.data.settings_store import (
     engine_config,
     get_synergy_bracket,
     load_pinned,
-    save_ban_settings,
-    save_engine_settings,
-    settings_payload,
 )
 from draftassist.data.synergy_model import build_evaluator
 from draftassist.data.tags import TAGS_FILE, sync_tags
 from draftassist.db.session import init_db
-from draftassist.engine.comp import badge
 from draftassist.engine.engine import DraftEngine
-from draftassist.engine.formats import TOURNAMENT, get_format
-from draftassist.engine.lane_ban import RoleBanTable
-from draftassist.engine.model import ROLE_LABELS, ROLES, BanWeights
-from draftassist.engine.state import DraftState
+from draftassist.engine.formats import get_format
 from draftassist.lcu.demo import demo_sessions
 from draftassist.lcu.recorder import SessionRecorder
-from draftassist.learning.comfort import accept as accept_tiers
-from draftassist.learning.comfort import set_locked
 from draftassist.learning.jobs import LearningResult, run_in_background
-from draftassist.learning.prep import prep_sheet
-from draftassist.learning.report import draft_report, model_check
-from draftassist.learning.style import set_hand_style, team_summary
 
 log = logging.getLogger(__name__)
 WEB_DIST = PROJECT_ROOT / "web" / "dist"
@@ -350,48 +333,6 @@ async def run_replay(live: LiveService, folder: Path, interval: float = 1.5) -> 
         await asyncio.sleep(interval * 2)
 
 
-def _band(ban: float, neutral: float) -> str:
-    if ban > neutral:
-        return "positive"
-    if ban < -neutral:
-        return "negative"
-    return "neutral"
-
-
-def lane_ban_report(engine: DraftEngine) -> list[dict]:
-    """The Prep page's per-role tables: mu, then Opp / PR / Resp / via / Ban sorted by Ban, plus each
-    opponent's final team ban value (all components), to compare the lane view with the ranking."""
-    empty = DraftState(TOURNAMENT, "blue")
-    tables: dict[str, RoleBanTable] = engine.lane_ban_tables(empty)
-    team_value = {r["champ_id"]: r["value"] for r in engine.ban_breakdown(empty)}
-    neutral = engine.cfg.lane_ban.neutral_band
-    name = engine.data.name
-    return [
-        {
-            "role": r,
-            "role_label": ROLE_LABELS[r],
-            "player_bracket": engine.team.brackets[r],
-            "mu": round(tables[r].mu, 2),
-            "rows": [
-                {
-                    "opp_id": row.opp,
-                    "opp": name(row.opp),
-                    "pr": round(100 * row.pick_rate, 1),
-                    "resp": round(row.resp, 1),
-                    "via_id": row.via,
-                    "via": name(row.via) if row.via is not None else row.via_note,
-                    "ban": round(row.ban, 2),
-                    "band": _band(round(row.ban, 2), neutral),  # matches the displayed value
-                    "degenerate": row.degenerate,
-                    "team_ban_value": round(team_value[row.opp], 4) if row.opp in team_value else None,
-                }
-                for row in tables[r].rows
-            ],
-        }
-        for r in ROLES
-    ]
-
-
 class UIFiles(StaticFiles):
     """The built UI. index.html is revalidated on every load so an updated app never runs a stale
     bundle; the hashed asset files can be cached."""
@@ -403,7 +344,6 @@ class UIFiles(StaticFiles):
         return response
 
 
-_db = db_of
 
 
 def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
@@ -448,233 +388,8 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
     async def live_ws(ws: WebSocket) -> None:
         await ws.app.state.services.hub.serve(ws)
 
-    @app.get("/api/prep/lane-bans")
-    def prep_lane_bans(request: Request) -> dict:
-        svc: Services = request.app.state.services
-        return {
-            "data_source": svc.data_source,
-            "note": svc.note,
-            "enemy_bracket": svc.engine.cfg.enemy_bracket,
-            "roles": lane_ban_report(svc.engine),
-        }
-
-    # ---------- players & pools ----------
-    @app.get("/api/players")
-    def get_players(request: Request) -> list[dict]:
-        return list_players(_db(request.app.state.services))
-
-    @app.put("/api/players")
-    def put_players(request: Request, players: list[dict] = Body(..., embed=True)) -> list[dict]:
-        svc: Services = request.app.state.services
-        resolver = None
-        if svc.settings is not None and svc.settings.has_riot_api_key:
-            from draftassist.data.riot import RiotClient
-
-            riot = RiotClient(svc.settings.riot_api_key, svc.settings.cache_dir)
-            resolver = riot.account_puuid
-        try:
-            stored = set_players(_db(svc), players, resolver)
-        except ValueError as e:
-            raise HTTPException(422, str(e)) from None
-        svc.reload()
-        return stored
-
-    @app.get("/api/pools")
-    def get_pools(request: Request) -> dict:
-        return _pools_payload(request.app.state.services)
-
-    def _pool_changed(svc: Services) -> dict:
-        """After an edit: rebuild the engine (not mid-draft: suggestions must not change under the shot-caller)."""
-        applied = not svc.in_draft()
-        if applied:
-            svc.reload()
-        return {**_pools_payload(svc), "applied": applied}
-
-    @app.put("/api/pools/{role}/{champ_id}")
-    def put_pool_entry(request: Request, role: str, champ_id: int, tier: str = Body(..., embed=True)) -> dict:
-        """Add a champion to a player's pool, or change its tier."""
-        svc: Services = request.app.state.services
-        if champ_id not in svc.catalog.champs:
-            raise HTTPException(404, "unknown champion")
-        try:
-            set_pool_entry(_db(svc), role, champ_id, tier)
-        except ValueError as e:
-            raise HTTPException(422, str(e)) from None
-        return _pool_changed(svc)
-
-    @app.delete("/api/pools/{role}/{champ_id}")
-    def delete_pool_entry(request: Request, role: str, champ_id: int) -> dict:
-        svc: Services = request.app.state.services
-        if not remove_pool_entry(_db(svc), role, champ_id):
-            raise HTTPException(404, "not in that pool")
-        return _pool_changed(svc)
-
-    def _pools_payload(svc: Services) -> dict:
-        db = _db(svc)
-        pools = load_pools(db)
-        profiles = svc.profiles()
-        tier_order = {"main": 0, "comfortable": 1, "learning": 2}
-        return {
-            "players": list_players(db),
-            "learning": svc.learning or {"running": False},
-            "pools": {r: [{"champ": svc.catalog.card(e.champ_id), "manual_tier": e.manual_tier,
-                           "badge": badge(profiles, e.champ_id, r).as_dict(),
-                           "scored_tier": e.scored_tier, "tier_locked": e.tier_locked, "games": e.games, "wins": e.wins,
-                           "comfort": round(e.comfort, 2),
-                           "last_played": e.last_played.isoformat() if e.last_played else None,
-                           "proposal": (e.scored_tier if e.scored_tier and e.scored_tier != e.manual_tier
-                                        and not e.tier_locked else None)}
-                          for e in sorted(entries, key=lambda e: (tier_order.get(e.manual_tier, 9), e.champ_id))]
-                      for r, entries in pools.items()},
-            "using_placeholder_pools": not any(pools.values()),
-            "champions": sorted(({"id": c, "name": name} for c, (_, name) in svc.catalog.champs.items()),
-                                key=lambda c: c["name"]),
-        }
-
-    @app.post("/api/pools/import")
-    def post_pool_import(request: Request, text: str = Body(..., embed=True)) -> dict:
-        svc: Services = request.app.state.services
-        db = _db(svc)
-        parsed = parse_pool_text(text, svc.catalog.champs)
-        if not parsed.ok:
-            raise HTTPException(422, {"errors": parsed.errors})
-        counts = import_pools(db, parsed)
-        svc.reload()
-        return {"imported": counts}
-
-    # ---------- settings ----------
-    @app.get("/api/settings")
-    def get_settings(request: Request) -> dict:
-        return settings_payload(_db(request.app.state.services))
-
-    @app.put("/api/settings")
-    def put_settings(request: Request, ban_weights: dict = Body(...), ban_declared_intents: bool = Body(False),
-                     alpha: float | None = Body(None), beta: float | None = Body(None),
-                     comfort_games_cap: int | None = Body(None), damage_balance: bool | None = Body(None),
-                     damage_penalty: float | None = Body(None), ban_comp_synergy: bool | None = Body(None),
-                     comp_coherence: bool | None = Body(None), comp_weight: float | None = Body(None)) -> dict:
-        svc: Services = request.app.state.services
-        db = _db(svc)
-        try:
-            weights = BanWeights(float(ban_weights["threat"]), float(ban_weights["matchup"]),
-                                 float(ban_weights["comp"]), float(ban_weights.get("own", BanWeights().own)))
-            save_ban_settings(db, weights, ban_declared_intents)
-            save_engine_settings(db, alpha=alpha, beta=beta, comfort_games_cap=comfort_games_cap,
-                                 damage_balance=damage_balance, damage_penalty=damage_penalty,
-                                 ban_comp_synergy=ban_comp_synergy, comp_coherence=comp_coherence,
-                                 comp_weight=comp_weight)
-            if comfort_games_cap is not None:
-                from draftassist.learning.comfort import rescore
-
-                rescore(db)  # stored comfort shown on the Pools page uses the new cap
-        except (KeyError, TypeError, ValueError) as e:
-            raise HTTPException(422, f"invalid settings: {e}") from None
-        svc.reload()
-        return settings_payload(db)
-
-    app.include_router(synergy_router)  # synergy v2: Prep, plan, pin, tags, rules, evaluate (api/synergy_routes.py)
-
-    # ---------- learning ----------
-    @app.post("/api/pools/accept")
-    def post_accept(request: Request, role: str = Body(...), champ_id: int | None = Body(None)) -> dict:
-        svc: Services = request.app.state.services
-        changed = accept_tiers(_db(svc), role, champ_id)
-        svc.reload()
-        return {"changed": changed}
-
-    @app.post("/api/pools/lock")
-    def post_lock(request: Request, role: str = Body(...), champ_id: int = Body(...), locked: bool = Body(...)) -> dict:
-        svc: Services = request.app.state.services
-        if not set_locked(_db(svc), role, champ_id, locked):
-            raise HTTPException(404, "no such pool entry")
-        svc.reload()
-        return {"locked": locked}
-
-    @app.get("/api/learning")
-    def get_learning(request: Request) -> dict:
-        return request.app.state.services.learning or {"running": False}
-
-    @app.post("/api/learning/run")
-    def post_learning(request: Request) -> dict:
-        svc: Services = request.app.state.services
-        return {"started": svc.learn(), **(svc.learning or {})}
-
-    @app.get("/api/team")
-    def get_team(request: Request) -> dict:
-        svc: Services = request.app.state.services
-        return team_summary(_db(svc), svc.profiles())
-
-    @app.put("/api/team/style")
-    def put_team_style(request: Request, style: str | None = Body(None, embed=True)) -> dict:
-        """The style our picks are pulled towards (comp coherence). Applied at once, except mid-draft."""
-        svc: Services = request.app.state.services
-        db = _db(svc)
-        try:
-            set_hand_style(db, style or None)
-        except ValueError as e:
-            raise HTTPException(422, str(e)) from None
-        applied = not svc.in_draft()
-        if applied:
-            svc.reload()
-        return {**team_summary(db, svc.profiles()), "applied": applied}
-
-    @app.get("/api/prep")
-    def get_prep(request: Request) -> dict:
-        svc: Services = request.app.state.services
-        return {"data_source": svc.data_source, **prep_sheet(svc.engine, svc.catalog.card)}
-
-    @app.get("/api/model-check")
-    def get_model_check(request: Request) -> dict:
-        return model_check(_db(request.app.state.services))
-
-    # ---------- history ----------
-    @app.get("/api/history")
-    def get_history(request: Request, queue: str | None = None, side: str | None = None,
-                    result: str | None = None, patch: str | None = None) -> dict:
-        svc: Services = request.app.state.services
-        rows = history_rows(_db(svc), svc.catalog, queue or None, side or None, result or None, patch or None)
-        return {"games": rows, "filters": history_filters(history_rows(_db(svc), svc.catalog))}
-
-    @app.get("/api/history/{draft_id}")
-    def get_recap(request: Request, draft_id: int) -> dict:
-        svc: Services = request.app.state.services
-        body = recap(_db(svc), svc.engine, svc.catalog, draft_id)
-        if body is None:
-            raise HTTPException(404, "no such game")
-        report = draft_report(_db(svc), svc.engine, draft_id)
-        if report is not None:
-            card = svc.catalog.card
-            for d in report["deviations"]:
-                d["picked"], d["suggested"] = card(d["picked"]), card(d["suggested"])
-        body["report"] = report
-        return body
-
-    @app.get("/api/art/{version}/{kind}/{key}")
-    def get_art(request: Request, version: str, kind: str, key: str):
-        """Data Dragon champion art pinned to a patch, fetched once and cached on disk."""
-        import re
-
-        from fastapi.responses import FileResponse
-
-        if not re.fullmatch(r"\d+\.\d+\.\d+", version) or not re.fullmatch(r"[A-Za-z0-9]+", key) \
-                or kind not in ("square", "loading"):
-            raise HTTPException(404)
-        svc: Services = request.app.state.services
-        cache_dir = svc.settings.cache_dir if svc.settings else PROJECT_ROOT / "cache"
-        ext = "png" if kind == "square" else "jpg"
-        path = cache_dir / "ddragon" / "art" / version / kind / f"{key}.{ext}"
-        if not path.is_file():
-            url = (f"{ddragon.BASE_URL}/cdn/{version}/img/champion/{key}.png" if kind == "square"
-                   else f"{ddragon.BASE_URL}/cdn/img/champion/loading/{key}_0.jpg")
-            try:
-                resp = httpx.get(url, timeout=15)
-            except httpx.HTTPError:
-                raise HTTPException(404) from None
-            if resp.status_code != 200:
-                raise HTTPException(404)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(resp.content)
-        return FileResponse(path, headers={"Cache-Control": "public, max-age=604800"})
+    for router in (pool_router, settings_router, synergy_router, learning_router, history_router):
+        app.include_router(router)
 
     if (web_dist / "index.html").is_file():
         app.mount("/", UIFiles(directory=web_dist, html=True), name="web")
