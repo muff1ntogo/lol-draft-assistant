@@ -168,6 +168,47 @@ class ChampionTraits:
 
 
 KNOWN_TERMS = frozenset(TAGS) | frozenset(DERIVED_TERMS) | {
-    "cc", "frontline", "peel", "dmg_phys", "dmg_magic", "dmg_true", "power_curve", "lane_pressure", "ranged"}
+    "cc", "frontline", "peel", "dmg_phys", "dmg_magic", "dmg_true", "power_curve", "lane_pressure", "ranged",
+    "cc_all", "frontline_all", "peel_all"}
 
 EMPTY_TRAITS = ChampionTraits({}, {}, {})
+
+
+def validate_term(expr: str) -> str:
+    """A rule term: one or more factors joined by `*`, each a known term, optionally `not <term>`.
+    Returns the normalised expression; raises ValueError for an unknown term."""
+    factors = [f.strip() for f in str(expr).split("*")]
+    for f in factors:
+        name = f[4:].strip() if f.startswith("not ") else f
+        if name not in KNOWN_TERMS:
+            raise ValueError(f"unknown trait term: {name!r}")
+    return " * ".join(factors)
+
+
+def term_value(traits: ChampionTraits, champ: int, role: str, expr: str) -> float | None:
+    """Product of the factors' intensities; None if any factor is unknown."""
+    out = 1.0
+    for f in expr.split("*"):
+        v = traits.intensity(champ, role, f.strip())
+        if v is None:
+            return None
+        out *= v
+    return out
+
+
+def term_role_averages(traits: ChampionTraits, role: str, exprs) -> dict[str, float]:
+    """Mean of each term over the role's known champions (measured games as weights, tags-only = 1).
+    0 when nothing in the role is known. Used to fill unknown values in team features, so a missing
+    trait reads as typical (and cancels against the average comp) rather than as 0."""
+    champs = {c for c, r in traits.measured if r == role} | {c for c, r in traits.tags if r == role}
+    out = {}
+    for e in exprs:
+        num = den = 0.0
+        for c in champs:
+            v = term_value(traits, c, role, e)
+            if v is None:
+                continue
+            w = float((traits.measured.get((c, role)) or {}).get("games") or 1)
+            num, den = num + w * v, den + w
+        out[e] = num / den if den else 0.0
+    return out

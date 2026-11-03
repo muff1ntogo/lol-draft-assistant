@@ -289,6 +289,10 @@ class ChampionTraitRow(SQLModel, table=True):
     power_curve_slope: float | None = None  # log-odds per game-length bucket: negative = early
     lane_pressure: float | None = None
     ranged: float | None = None
+    # percentiles across every role (team rules)
+    cc_all: float | None = None
+    frontline_all: float | None = None
+    peel_all: float | None = None
 
 
 class ChampionTag(SQLModel, table=True):
@@ -307,3 +311,18 @@ class ChampionTag(SQLModel, table=True):
     enchanter: int = 0
     hypercarry: int = 0
     reviewed: bool = False
+
+
+class SynergyFit(SQLModel, table=True):
+    """Fitted synergy v2 rules (docs/synergy-v2.md, Stage 2), refitted by aggregation and on prior edits.
+    model: style | team (coefficients, log-odds, pooled over brackets) | team_side (blue-side intercept;
+    support = matches) | team_mean (per bracket: the average comp's feature, for Team = f(comp) - f(avg))."""
+    __tablename__ = "synergy_fits"
+
+    window: str = Field(primary_key=True)
+    bracket: str = Field(primary_key=True)
+    model: str = Field(primary_key=True)
+    rule_id: str = Field(primary_key=True)
+    prior_pp: float | None = None  # the prior the fit used
+    value: float = 0.0
+    support: int = 0  # style: games of pairs the rule applies to; team: matches where it applied

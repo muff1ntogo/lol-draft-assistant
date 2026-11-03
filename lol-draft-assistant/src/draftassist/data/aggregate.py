@@ -90,5 +90,19 @@ def aggregate(db: Engine, patch: str) -> dict[str, int]:
             conn.execute(text("UPDATE champions SET roles = :roles WHERE champ_id = :champ"),
                          {"roles": json.dumps(keep), "champ": champ})
         s.commit()
+    _fit_synergy(db, patch)
     return totals
+
+
+def _fit_synergy(db: Engine, patch: str) -> None:
+    """Refit the synergy v2 style and team rules on the new data (docs/synergy-v2.md). A broken rule file
+    must not stop the stats from refreshing: it is logged and the old fits stay."""
+    import logging
+
+    from draftassist.data.synergy_model import fit_synergy_model
+
+    try:
+        fit_synergy_model(db, patch)
+    except (OSError, ValueError, ArithmeticError):
+        logging.getLogger(__name__).exception("synergy fit failed; keeping the previous fits")
 

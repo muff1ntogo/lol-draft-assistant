@@ -71,9 +71,11 @@ def aggregate_traits(conn, window: str, patches: Mapping[str, float] | None = No
         for row in _trait_rows(rows, ranges):
             conn.execute(text(
                 'INSERT INTO champion_traits ("window", bracket, champ_id, role, games, games_w, cc, frontline, '
-                "peel, dmg_phys, dmg_magic, dmg_true, power_curve, power_curve_slope, lane_pressure, ranged) "
+                "peel, dmg_phys, dmg_magic, dmg_true, power_curve, power_curve_slope, lane_pressure, ranged, cc_all, "
+                "frontline_all, peel_all) "
                 "VALUES (:window, :bracket, :champ_id, :role, :games, :games_w, :cc, :frontline, :peel, "
-                ":dmg_phys, :dmg_magic, :dmg_true, :power_curve, :power_curve_slope, :lane_pressure, :ranged)"),
+                ":dmg_phys, :dmg_magic, :dmg_true, :power_curve, :power_curve_slope, :lane_pressure, :ranged, "
+                ":cc_all, :frontline_all, :peel_all)"),
                 {**row, "window": window, "bracket": bracket})
 
 
@@ -94,14 +96,22 @@ def _trait_rows(rows, ranges: Mapping[int, float | None]) -> list[dict]:
                     "power_curve_slope": raw[(champ, role)]["slope"], "ranged": ranged(ranges.get(champ))})
     for role in {k[1] for k in raw}:
         keys = [k for k in raw if k[1] == role]
-        pct = {s: percentiles({k: raw[k]["src"].get(s) for k in keys}) for s in _SOURCES}
+        pct = {src: percentiles({k: raw[k]["src"].get(src) for k in keys}) for src in _SOURCES}
         curve = percentiles({k: raw[k]["slope"] for k in keys})
         for row in (o for o in out if o["role"] == role):
             k = (row["champ_id"], role)
             for trait, sources in TRAIT_SOURCES.items():
-                vals = [pct[s][k] for s in sources if pct[s].get(k) is not None]
+                vals = [pct[src][k] for src in sources if pct[src].get(k) is not None]
                 row[trait] = sum(vals) / len(vals) if vals else None
             row["power_curve"] = curve.get(k)
+    # the same traits ranked across every role, for team rules
+    keys = list(raw)
+    pct_all = {src: percentiles({k: raw[k]["src"].get(src) for k in keys}) for src in _SOURCES}
+    for row in out:
+        k = (row["champ_id"], row["role"])
+        for trait in ("cc", "frontline", "peel"):
+            vals = [pct_all[src][k] for src in TRAIT_SOURCES[trait] if pct_all[src].get(k) is not None]
+            row[f"{trait}_all"] = sum(vals) / len(vals) if vals else None
     return out
 
 
@@ -115,6 +125,6 @@ def load_traits(db: Engine, window: str | None = None, bracket: str = ALL) -> Ch
                                                      ChampionTraitRow.bracket == bracket)).all() if window else []
         ranges = {c.champ_id: c.attack_range for c in s.exec(select(Champion)).all()}
     fields = ("cc", "frontline", "peel", "dmg_phys", "dmg_magic", "dmg_true", "power_curve", "power_curve_slope",
-              "lane_pressure", "ranged")
+              "lane_pressure", "ranged", "cc_all", "frontline_all", "peel_all")
     measured = {(r.champ_id, r.role): {f: getattr(r, f) for f in fields} | {"games": r.games} for r in rows}
     return ChampionTraits(measured, load_tags(db), ranges)

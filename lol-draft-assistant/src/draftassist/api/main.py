@@ -44,6 +44,8 @@ from draftassist.data.pools import (
 )
 from draftassist.data.provider import ChampionCatalog, load_catalog, load_engine_inputs, stats_version
 from draftassist.data.profiles import load_profiles, reset_style, save_style
+from draftassist.data.rules import STYLE_RULES_FILE, TEAM_RULES_FILE, set_prior
+from draftassist.data.synergy_model import fit_synergy_model, load_synergy_model
 from draftassist.data.tags import TAGS_FILE, remove_tag, sync_tags, update_tag
 from draftassist.data.traits import load_traits
 from draftassist.engine.traits import TAGS
@@ -90,6 +92,8 @@ class Services:
     learning: dict | None = None  # last learning run: {"running", "finished_at", "summary"}
     synergy_override: SynergySource | None = None  # tests: a fixed table instead of the engine's
     tags_path: Path = TAGS_FILE  # judgement tags (docs/synergy-v2.md); tests point it at a scratch copy
+    style_rules_path: Path = STYLE_RULES_FILE
+    team_rules_path: Path = TEAM_RULES_FILE
 
     def synergy_source(self) -> SynergySource:
         """The engine's scored synergy pairs and damage profiles (reloaded with the stats)."""
@@ -650,6 +654,52 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         svc: Services = request.app.state.services
         remove_tag(_db(svc), svc.tags_path, champ_id, role)
         return _tag_one(svc, champ_id)
+
+    # ---------- synergy v2 rules (docs/synergy-v2.md, Stage 2) ----------
+    def _rules_payload(svc: Services) -> dict:
+        from draftassist.data.settings_store import get_synergy_v2_settings
+        from draftassist.engine.style import CODE_OF, flagged
+
+        db = _db(svc)
+        model = load_synergy_model(db, style_path=svc.style_rules_path, team_path=svc.team_rules_path)
+
+        def row(kind: str, rule, extra: dict) -> dict:
+            f = model.fits.get((kind, rule.id))
+            fitted = None if f is None or f.prior_pp != rule.prior_pp else round(25 * f.value, 2)
+            return {"id": rule.id, "note": rule.note, "prior_pp": rule.prior_pp, "fitted_pp": fitted,
+                    "support": f.support if f else 0,
+                    "flagged": fitted is not None and flagged(rule.prior_pp, fitted), **extra}
+
+        style = [row("style", r, {"pair": r.pair, "when": {CODE_OF[role]: t for role, t in r.when}})
+                 for r in model.style.rules]
+        team = [row("team", r, {"cross": r.cross, "feature": r.feature, "ours": r.ours, "theirs": r.theirs})
+                for r in model.team.rules]
+        return {"window": model.window, "matches": model.matches,
+                "prior_sd_pp": get_synergy_v2_settings(db)["prior_sd_pp"], "style": style, "team": team}
+
+    @app.get("/api/rules")
+    def get_rules(request: Request) -> dict:
+        return _rules_payload(request.app.state.services)
+
+    @app.put("/api/rules")
+    def put_rule(request: Request, kind: str = Body(...), id: str = Body(...), prior_pp: float = Body(...)) -> dict:
+        """Edit one rule's prior: written back to its YAML file, then every rule is refitted."""
+        svc: Services = request.app.state.services
+        try:
+            set_prior(kind, id, prior_pp, svc.style_rules_path, svc.team_rules_path)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        fit_synergy_model(_db(svc), style_path=svc.style_rules_path, team_path=svc.team_rules_path)
+        rows = _rules_payload(svc)["style" if kind == "style" else "team"]
+        return next(r for r in rows if r["id"] == id)
+
+    @app.post("/api/rules/refit")
+    def post_refit(request: Request) -> dict:
+        svc: Services = request.app.state.services
+        try:
+            return fit_synergy_model(_db(svc), style_path=svc.style_rules_path, team_path=svc.team_rules_path)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
 
     # ---------- learning ----------
     @app.post("/api/pools/accept")

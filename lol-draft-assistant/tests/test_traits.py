@@ -200,6 +200,17 @@ def test_cc_percentile_ranks_within_the_role(db):
     assert m[(1, "top")]["cc"] == 1.0 and m[(11, "top")]["cc"] == 0.0
 
 
+def test_team_traits_are_percentiles_across_all_roles(db):
+    # supports CC far more than tops in raw terms: within the role they tie, across roles they rank higher
+    for i in range(30):
+        store(db, match(f"EUW1_{i}", blue_win=i % 2 == 0, per_role={4: dict(cc=500, immob=40)}))
+    aggregate(db, "16.21")
+    m = load_traits(db).measured
+    assert m[(5, "support")]["cc"] == m[(1, "top")]["cc"] == 0.5  # ties within each role
+    assert m[(5, "support")]["cc_all"] > m[(1, "top")]["cc_all"]
+    assert all(0 <= v["cc_all"] <= 1 for v in m.values())
+
+
 def test_power_curve_is_negative_for_an_early_champion():
     # wins short games, loses long ones: (wins, games) in < 25, 25-32, > 32 min
     early = power_curve_slope([(140, 200), (100, 200), (60, 200)])

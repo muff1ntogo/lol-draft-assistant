@@ -1,0 +1,194 @@
+# Pair style rules for the core in-lane pairs (docs/synergy-v2.md, Stage 2a).
+# A rule's strength for two champions = product of their trait intensities (0-1). prior_pp is the written
+# effect at full strength; the fit to crawled pair data moves it (ridge, prior SD 1pp). Terms: tags (engage,
+# disengage, poke, dive, pick, splitpush, enchanter, hypercarry), measured traits (cc, frontline, peel,
+# lane_pressure, ranged, dmg_phys, dmg_magic, dmg_true), derived (ranged_long, power_curve_late,
+# power_curve_early), `not X`, and products (`a * b`). Drafted by Claude; priors are edited on the Rules page.
+
+# ---------- TOP-JG ----------
+- pair: TOP-JG
+  when: {TOP: power_curve_late, JG: power_curve_late}
+  prior_pp: -1.0
+  note: "Two scalers concede the early map on that side"
+- pair: TOP-JG
+  when: {TOP: power_curve_early, JG: power_curve_early}
+  prior_pp: +0.8
+  note: "Early duo snowballs top side"
+- pair: TOP-JG
+  when: {TOP: lane_pressure, JG: dive}
+  prior_pp: +1.0
+  note: "Top priority lets the jungler invade top side"
+- pair: TOP-JG
+  when: {TOP: not lane_pressure, JG: power_curve_late}
+  prior_pp: -0.6
+  note: "Weak-side top and a farming jungler give up top side"
+- pair: TOP-JG
+  when: {TOP: cc, JG: dive}
+  prior_pp: +1.0
+  note: "Top CC makes ganks land"
+- pair: TOP-JG
+  when: {TOP: engage, JG: engage}
+  prior_pp: +0.8
+  note: "Layered engage from top and jungle"
+- pair: TOP-JG
+  when: {TOP: dive, JG: dive}
+  prior_pp: +0.8
+  note: "Dive duo on top side"
+- pair: TOP-JG
+  when: {TOP: pick, JG: pick}
+  prior_pp: +0.5
+  note: "Catch duo on top side"
+- pair: TOP-JG
+  when: {TOP: hypercarry, JG: hypercarry}
+  prior_pp: -0.8
+  note: "Two carries starve each other"
+- pair: TOP-JG
+  when: {TOP: frontline, JG: hypercarry}
+  prior_pp: +0.6
+  note: "Tank top lets a carry jungler farm and fight"
+- pair: TOP-JG
+  when: {TOP: hypercarry, JG: cc}
+  prior_pp: +0.6
+  note: "CC jungler protects a scaling top with ganks"
+- pair: TOP-JG
+  when: {TOP: engage, JG: hypercarry}
+  prior_pp: +0.6
+  note: "Top engage opens fights for a carry jungler"
+- pair: TOP-JG
+  when: {TOP: frontline, JG: frontline}
+  prior_pp: -0.4
+  note: "Two tanks lack damage on top side"
+- pair: TOP-JG
+  when: {TOP: splitpush, JG: splitpush}
+  prior_pp: -0.6
+  note: "Two side-laners leave the team short in fights"
+- pair: TOP-JG
+  when: {TOP: poke, JG: dive}
+  prior_pp: -0.5
+  note: "Poke top can't follow a dive jungler"
+# ---------- JG-MID ----------
+- pair: JG-MID
+  when: {MID: lane_pressure, JG: dive}
+  prior_pp: +1.2
+  note: "Mid priority lets a dive jungler invade and skirmish"
+- pair: JG-MID
+  when: {MID: lane_pressure, JG: power_curve_early}
+  prior_pp: +0.8
+  note: "Mid priority backs an early jungler's tempo"
+- pair: JG-MID
+  when: {MID: pick, JG: pick}
+  prior_pp: +1.0
+  note: "Catch duo: picks around the river"
+- pair: JG-MID
+  when: {MID: pick, JG: dive}
+  prior_pp: +0.6
+  note: "Mid catch, jungler collapses"
+- pair: JG-MID
+  when: {MID: engage, JG: engage}
+  prior_pp: +0.8
+  note: "Layered engage from mid and jungle"
+- pair: JG-MID
+  when: {MID: cc, JG: dive}
+  prior_pp: +1.0
+  note: "Mid CC sets up the jungler's dives"
+- pair: JG-MID
+  when: {MID: dive, JG: dive}
+  prior_pp: +0.8
+  note: "Skirmish duo: both dive the same target"
+- pair: JG-MID
+  when: {MID: hypercarry, JG: hypercarry}
+  prior_pp: -1.0
+  note: "Two resource-hungry carries compete for farm"
+- pair: JG-MID
+  when: {MID: power_curve_late, JG: power_curve_late}
+  prior_pp: -1.0
+  note: "Two scalers concede the early map"
+- pair: JG-MID
+  when: {MID: power_curve_early, JG: power_curve_early}
+  prior_pp: +0.8
+  note: "Early duo snowballs mid and river"
+- pair: JG-MID
+  when: {MID: poke, JG: dive}
+  prior_pp: -0.6
+  note: "Poke mid can't follow a dive jungler in"
+- pair: JG-MID
+  when: {MID: disengage, JG: engage}
+  prior_pp: -0.6
+  note: "Disengage mid works against an engage jungler"
+- pair: JG-MID
+  when: {MID: hypercarry, JG: engage}
+  prior_pp: +0.6
+  note: "Engage jungler starts fights a carry mid finishes"
+- pair: JG-MID
+  when: {MID: hypercarry, JG: frontline}
+  prior_pp: +0.6
+  note: "Tank jungler shields a carry mid"
+- pair: JG-MID
+  when: {MID: cc, JG: hypercarry}
+  prior_pp: +0.5
+  note: "Mid CC sets up a carry jungler"
+# ---------- ADC-SUP ----------
+- pair: ADC-SUP
+  when: {SUP: enchanter, ADC: hypercarry}
+  prior_pp: +2.0
+  note: "Enchanters enable hypercarries"
+- pair: ADC-SUP
+  when: {SUP: engage, ADC: not ranged_long}
+  prior_pp: +1.5
+  note: "Engage support suits short-range all-in ADCs"
+- pair: ADC-SUP
+  when: {SUP: engage, ADC: dive}
+  prior_pp: +1.2
+  note: "Engage support sets up a diving ADC"
+- pair: ADC-SUP
+  when: {SUP: engage, ADC: power_curve_early}
+  prior_pp: +1.0
+  note: "Engage support and an early ADC win lane with kill pressure"
+- pair: ADC-SUP
+  when: {SUP: engage, ADC: poke}
+  prior_pp: -0.8
+  note: "Engage support fights a poke ADC's plan"
+- pair: ADC-SUP
+  when: {SUP: poke, ADC: poke}
+  prior_pp: +1.0
+  note: "Poke lane: both chip from range"
+- pair: ADC-SUP
+  when: {SUP: poke, ADC: ranged_long}
+  prior_pp: +0.8
+  note: "Long-range ADC follows up a poke support's chip"
+- pair: ADC-SUP
+  when: {SUP: poke, ADC: hypercarry}
+  prior_pp: -0.6
+  note: "Poke support leaves a scaling carry unprotected"
+- pair: ADC-SUP
+  when: {SUP: pick, ADC: power_curve_early}
+  prior_pp: +0.8
+  note: "Catch support and an early ADC turn picks into kills"
+- pair: ADC-SUP
+  when: {SUP: disengage, ADC: hypercarry}
+  prior_pp: +1.0
+  note: "Disengage keeps a hypercarry alive"
+- pair: ADC-SUP
+  when: {SUP: disengage, ADC: dive}
+  prior_pp: -0.5
+  note: "Disengage support can't start a diving ADC's fights"
+- pair: ADC-SUP
+  when: {SUP: enchanter, ADC: dive}
+  prior_pp: +0.5
+  note: "Shields and heals carry a diving ADC through"
+- pair: ADC-SUP
+  when: {SUP: enchanter, ADC: lane_pressure}
+  prior_pp: +0.6
+  note: "Enchanter trades amplify a lane-bully ADC"
+- pair: ADC-SUP
+  when: {SUP: enchanter, ADC: power_curve_early}
+  prior_pp: -0.5
+  note: "Passive enchanter wastes an early ADC's window"
+- pair: ADC-SUP
+  when: {SUP: frontline, ADC: hypercarry}
+  prior_pp: +0.6
+  note: "Tank support soaks for the carry"
+- pair: ADC-SUP
+  when: {SUP: power_curve_late, ADC: power_curve_late}
+  prior_pp: -0.5
+  note: "Two scalers concede early lane priority"

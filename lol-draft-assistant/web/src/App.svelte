@@ -8,9 +8,10 @@
   import Settings from './Settings.svelte';
   import Team from './Team.svelte';
   import Tags from './Tags.svelte';
+  import Rules from './Rules.svelte';
 
   const PAGES = { live: 'Live', prep: 'Prep', synergy: 'Synergy', pools: 'Pools', champions: 'Champions', history: 'History', team: 'Team', settings: 'Settings' };
-  const HIDDEN = { tags: 'Tags' }; // reached from the Prep page's header, not the nav
+  const HIDDEN = { tags: 'Tags', rules: 'Rules' }; // reached from the Prep page's header, not the nav
   const pageFromHash = () => {
     const key = location.hash.slice(2);
     return key in PAGES || key in HIDDEN ? key : 'live';
@@ -69,6 +70,8 @@
   <Synergy />
 {:else if page === 'tags'}
   <Tags />
+{:else if page === 'rules'}
+  <Rules />
 {:else if page === 'champions'}
   <Champions />
 {:else if page === 'settings'}

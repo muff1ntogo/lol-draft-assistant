@@ -13,7 +13,7 @@
 </script>
 
 <main class="page">
-  <h1>Prep <a class="synlink" href="#/synergy">Synergy visualiser →</a> <a class="synlink" href="#/tags">Tags →</a></h1>
+  <h1>Prep <a class="synlink" href="#/synergy">Synergy visualiser →</a> <a class="synlink" href="#/tags">Tags →</a> <a class="synlink" href="#/rules">Rules →</a></h1>
   {#if sheet}
     <div class="sheet">
       {#each ['blue', 'red'] as side}
