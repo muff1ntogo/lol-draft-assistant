@@ -1,7 +1,6 @@
 """Phase 3: rate-limited Riot client, crawler, aggregation with shrinkage, OP.GG bootstrap, coverage.
 All offline: Riot and OP.GG are mocked with httpx.MockTransport."""
 import json
-from datetime import datetime, timezone
 
 import httpx
 import pytest

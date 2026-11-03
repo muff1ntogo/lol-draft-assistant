@@ -36,6 +36,60 @@ def _edge_value(p, scope: str, view: str) -> float | None:
     return p.lane if scope == "lane" else p.contribution
 
 
+def _edges(ev: SynergyEvaluator, cols: Mapping[str, list[int]], scope: str, view: str,
+           threshold_pp: float) -> list[dict]:
+    """Pair edges for the scope (core pairs in-lane, every cross-role pair in teamfight), valued by the view and
+    left out under the threshold; every component is kept for the hover."""
+    role_pairs = CORE_PAIRS if scope == "lane" else list(combinations(ROLES, 2))
+    edges = []
+    for ra, rb in role_pairs:
+        for a, b in product(cols[ra], cols[rb]):
+            p = ev.pair(ra, a, rb, b)
+            value = _edge_value(p, scope, view)
+            if value is None or abs(25 * value) < threshold_pp:
+                continue
+            edges.append({"a": {"role": p.role_a, "id": p.a}, "b": {"role": p.role_b, "id": p.b},
+                          "core": p.core, "stat_pp": pp(p.stat), "style_pp": pp(p.style), "lane_pp": pp(p.lane),
+                          "overall_pp": pp(p.contribution), "value_pp": pp(value), "games": p.games,
+                          "low_data": p.low_data, "rules": rules_json(p.rules)})
+    return edges
+
+
+def _pair_rows(ev: SynergyEvaluator, catalog: ChampionCatalog, cols: Mapping[str, list[int]],
+               unavailable: set[int]) -> list[dict]:
+    """The table's core pairs from the columns (unavailable champions left out)."""
+    rows = []
+    for ra, rb in CORE_PAIRS:
+        for a, b in product(cols[ra], cols[rb]):
+            if a in unavailable or b in unavailable:
+                continue
+            p = ev.pair(ra, a, rb, b)
+            rows.append({"a": {**catalog.card(p.a), "role": p.role_a}, "b": {**catalog.card(p.b), "role": p.role_b},
+                         "pair": f"{ROLE_LABELS[p.role_a]}–{ROLE_LABELS[p.role_b]}", "stat_pp": pp(p.stat),
+                         "style_pp": pp(p.style), "lane_pp": pp(p.lane), "overall_pp": pp(p.contribution),
+                         "games": p.games, "low_data": p.low_data,
+                         "why": rules_json(p.rules)[0]["label"] if p.rules else None})
+    return rows
+
+
+def _completions(ev: SynergyEvaluator, catalog: ChampionCatalog, cols: Mapping[str, list[int]],
+                 locks: Mapping[str, int], unavailable: set[int], enemy: list[tuple[int, str]]) -> list[dict]:
+    """The best single champions to add to the plan (any open role), with the full comp's components and the
+    strongest style rule the newcomer brings."""
+    pools = {r: cols[r] for r in ROLES if r not in locks}
+    sugg = ev.suggest(locks, pools, unavailable, enemy, k=COMPLETIONS)
+    best = sorted((s for ss in sugg.values() for s in ss), key=lambda s: (-s.gain, s.champ))[:COMPLETIONS]
+    out = []
+    for s in best:
+        r = s.result
+        added = [p for p in r.pairs if s.champ in (p.a, p.b) and p.rules]
+        why = rules_json(max(added, key=lambda p: abs(p.rules[0][1])).rules)[0]["label"] if added else None
+        out.append({"champ": {**catalog.card(s.champ), "role": s.role}, "role": s.role, "gain_pp": pp(s.gain),
+                    "stat_pp": pp(r.stat_total), "style_pp": pp(r.style_total), "team_pp": pp(r.team),
+                    "overall_pp": pp(r.overall), "why": why})
+    return out
+
+
 def build_prep_view(ev: SynergyEvaluator, catalog: ChampionCatalog, team: OurTeam, scope: str = "teamfight",
                     view: str = "overall", threshold_pp: float = 0.5, locks: Mapping[str, int] | None = None,
                     columns: Mapping[str, list[int]] | None = None, unavailable: Iterable[int] = (),
@@ -69,47 +123,9 @@ def build_prep_view(ev: SynergyEvaluator, catalog: ChampionCatalog, team: OurTea
 
     out_cols = [{"role": r, "label": ROLE_LABELS[r], "player": players.get(r) or None,
                  "nodes": [node(r, c) for c in cols[r]]} for r in ROLES]
-
-    edges = []
-    if view != "team":
-        role_pairs = CORE_PAIRS if scope == "lane" else list(combinations(ROLES, 2))
-        for ra, rb in role_pairs:
-            for a, b in product(cols[ra], cols[rb]):
-                p = ev.pair(ra, a, rb, b)
-                value = _edge_value(p, scope, view)
-                if value is None or abs(25 * value) < threshold_pp:
-                    continue
-                edges.append({"a": {"role": p.role_a, "id": p.a}, "b": {"role": p.role_b, "id": p.b},
-                              "core": p.core, "stat_pp": pp(p.stat), "style_pp": pp(p.style), "lane_pp": pp(p.lane),
-                              "overall_pp": pp(p.contribution), "value_pp": pp(value), "games": p.games,
-                              "low_data": p.low_data, "rules": rules_json(p.rules)})
-
-    rows = []
-    for ra, rb in CORE_PAIRS:
-        for a, b in product(cols[ra], cols[rb]):
-            if a in unavailable or b in unavailable:
-                continue
-            p = ev.pair(ra, a, rb, b)
-            rows.append({"a": {**catalog.card(p.a), "role": p.role_a}, "b": {**catalog.card(p.b), "role": p.role_b},
-                         "pair": f"{ROLE_LABELS[p.role_a]}–{ROLE_LABELS[p.role_b]}", "stat_pp": pp(p.stat),
-                         "style_pp": pp(p.style), "lane_pp": pp(p.lane), "overall_pp": pp(p.contribution),
-                         "games": p.games, "low_data": p.low_data,
-                         "why": rules_json(p.rules)[0]["label"] if p.rules else None})
-    completions = []
-    if len(locks) >= 2:
-        pools = {r: cols[r] for r in ROLES if r not in locks}
-        sugg = ev.suggest(locks, pools, unavailable, enemy, k=COMPLETIONS)
-        flat = sorted((s for ss in sugg.values() for s in ss), key=lambda s: (-s.gain, s.champ))[:COMPLETIONS]
-        for s in flat:
-            r = s.result
-            why = None
-            added = [p for p in r.pairs if s.champ in (p.a, p.b) and p.rules]
-            if added:
-                best = max(added, key=lambda p: abs(p.rules[0][1]))
-                why = rules_json(best.rules)[0]["label"]
-            completions.append({"champ": {**catalog.card(s.champ), "role": s.role}, "role": s.role,
-                                "gain_pp": pp(s.gain), "stat_pp": pp(r.stat_total), "style_pp": pp(r.style_total),
-                                "team_pp": pp(r.team), "overall_pp": pp(r.overall), "why": why})
+    edges = [] if view == "team" else _edges(ev, cols, scope, view, threshold_pp)
+    rows = _pair_rows(ev, catalog, cols, unavailable)
+    completions = _completions(ev, catalog, cols, locks, unavailable, enemy) if len(locks) >= 2 else []
 
     locked = [(r, locks[r]) for r in ROLES if r in locks]
     return {

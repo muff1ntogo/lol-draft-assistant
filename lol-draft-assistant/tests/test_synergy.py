@@ -1,7 +1,6 @@
 """Synergy visualiser, Stage A: role-aware duo data, the normalised synergy score, trios, damage profile.
 See docs/synergy-visualizer.md."""
 import json
-import math
 import random
 
 import pytest

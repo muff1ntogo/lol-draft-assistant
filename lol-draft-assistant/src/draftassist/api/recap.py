@@ -142,64 +142,132 @@ def lane_matchup(db: Engine, patch: str | None, bracket: str, role: str, ours: i
 
 
 # ---------- recap ----------
-def recap(db: Engine, engine: DraftEngine, catalog: ChampionCatalog, draft_id: int) -> dict | None:
+def _load(db: Engine, catalog: ChampionCatalog, engine: DraftEngine,
+          draft_id: int) -> tuple[Draft, list[DraftAction], bool] | None:
+    """The draft and its actions, P(win) per step backfilled and the patch filled in if missing.
+    The bool says whether P(win) had to be backfilled."""
     with Session(db) as s:
         draft = s.get(Draft, draft_id)
         if draft is None:
             return None
-        actions = _actions(s, [draft_id])[draft_id]
-        backfilled = _ensure_win_probs(s, engine, draft, actions)
+        backfilled = _ensure_win_probs(s, engine, draft, _actions(s, [draft_id])[draft_id])
         if not draft.patch and catalog.patch:
             draft.patch, draft.ddragon_version = ".".join(catalog.patch.split(".")[:2]), catalog.patch
             s.add(draft)
             s.commit()
         s.refresh(draft)
-        actions = _actions(s, [draft_id])[draft_id]
+        return draft, _actions(s, [draft_id])[draft_id], backfilled
 
-    fmt = get_format(draft.draft_format or "tournament")
-    version = draft.ddragon_version
-    card = lambda c: art(catalog, c, version)
-    our_side, their_side = draft.side, ("red" if draft.side == "blue" else "blue")
-    players = json.loads(draft.players_json) if draft.players_json else {}
-    if not players:
-        players = {p["role"]: p["riot_id"].split("#")[0] for p in list_players(db) if p["riot_id"]}
 
-    # bans by phase, in the order they were banned; skipped = None ("—")
+def _bans_by_phase(actions: list[DraftAction], steps, card) -> list[dict]:
+    """Bans by phase, in the order they were banned; skipped = None ("—")."""
     phases: dict[int, dict[str, list]] = {}
-    for a, step in zip(actions, fmt.steps):
+    for a, step in zip(actions, steps):
         if step.kind == "ban":
             phases.setdefault(step.phase, {"blue": [], "red": []})[step.side].append(card(a.champ_id))
-    bans = [{"phase": ph, "label": f"Phase {ph}" if len(phases) > 1 else "Bans", **sides}
+    return [{"phase": ph, "label": f"Phase {ph}" if len(phases) > 1 else "Bans", **sides}
             for ph, sides in sorted(phases.items())]
 
-    # picks by role with order tags
-    our_roles, their_roles = _roles(engine, draft, actions)
+
+def _pick_tags(actions: list[DraftAction], steps) -> dict[tuple[str, int], str]:
+    """(side, champ) -> B1..B5 / R1..R5 in pick order."""
     tags, counts = {}, {"blue": 0, "red": 0}
-    for a, step in zip(actions, fmt.steps):
+    for a, step in zip(actions, steps):
         if step.kind == "pick":
             counts[step.side] += 1
             tags[(step.side, a.champ_id)] = f"{step.side[0].upper()}{counts[step.side]}"
-    by_role = {r: {} for r in ROLES}
-    for c, r in our_roles.items():
-        by_role[r][our_side] = c
-    for c, r in their_roles.items():
-        by_role[r][their_side] = c
+    return tags
 
+
+def _lane_matchups(db: Engine, draft: Draft, by_role: dict[str, dict[str, int]], backfilled: bool) -> dict:
+    """The recap cache: lane matchups computed on first view (again after a P(win) backfill)."""
+    our_side = draft.side
+    their_side = "red" if our_side == "blue" else "blue"
     cache = json.loads(draft.recap_cache) if draft.recap_cache else {}
     if backfilled:
         cache["backfilled"] = True
         cache.pop("lane_matchups", None)
-    brackets = {p["role"]: p["bracket"] for p in list_players(db)}
     if "lane_matchups" not in cache:
+        brackets = {p["role"]: p["bracket"] for p in list_players(db)}
         cache["lane_matchups"] = {
             r: lane_matchup(db, draft.patch, brackets.get(r, "gold"), r, sides[our_side], sides[their_side])
             for r, sides in by_role.items() if our_side in sides and their_side in sides}
         with Session(db) as s:
-            d = s.get(Draft, draft_id)
+            d = s.get(Draft, draft.draft_id)
             d.recap_cache = json.dumps(cache)
             s.add(d)
             s.commit()
+    return cache
 
+
+def _timeline(actions: list[DraftAction], steps, tags, card) -> tuple[list[dict], dict | None]:
+    """P(win) after every step, and the step that moved it most."""
+    timeline, prev, swing = [], 0.5, None
+    for a, step in zip(actions, steps):
+        wp = a.win_prob_after
+        label = tags.get((step.side, a.champ_id)) if step.kind == "pick" else "ban"
+        point = {"step": a.seq, "label": label, "side": step.side, "type": step.kind, "champ": card(a.champ_id),
+                 "win_prob": round(wp, 4), "delta": round(wp - prev, 4)}
+        timeline.append(point)
+        if swing is None or abs(point["delta"]) > abs(swing["delta"]):
+            swing = point
+        prev = wp
+    return timeline, swing
+
+
+def _followed(actions: list[DraftAction], steps, our_side: str, card) -> list[dict]:
+    """Our steps: what we did, where it ranked among what the screen suggested."""
+    out = []
+    for a, step in zip(actions, steps):
+        if step.side != our_side:
+            continue
+        shown = json.loads(a.suggestions_json) if a.suggestions_json else None
+        rank = (str(a.our_rank) if a.our_rank else "off-list") if shown and shown["kind"] == "suggested" else "—"
+        out.append({"step": a.seq, "type": step.kind, "champ": card(a.champ_id), "rank": rank,
+                    "suggested": [card(i["champ_id"]) for i in shown["items"]] if shown else []})
+    return out
+
+
+def _plan_detail(draft: Draft, actions: list[DraftAction], card) -> dict | None:
+    plan = plan_adherence(draft, actions)
+    if plan is not None:
+        locks = json.loads(draft.plan_json).get("locks", {})
+        ours = {a.champ_id for a in actions if a.type == "pick" and a.side == draft.side}
+        plan["champs"] = [{**card(int(c)), "role": r, "picked": int(c) in ours} for r, c in locks.items()]
+    return plan
+
+
+def _win_pp(x: float) -> float:
+    """A log-odds term as pp of win chance around 50%."""
+    return round(100 * (sigmoid(x) - 0.5), 1)
+
+
+def recap(db: Engine, engine: DraftEngine, catalog: ChampionCatalog, draft_id: int) -> dict | None:
+    loaded = _load(db, catalog, engine, draft_id)
+    if loaded is None:
+        return None
+    draft, actions, backfilled = loaded
+    fmt = get_format(draft.draft_format or "tournament")
+    steps = fmt.steps
+    version = draft.ddragon_version
+
+    def card(c: int) -> dict | None:
+        return art(catalog, c, version)
+
+    our_side = draft.side
+    their_side = "red" if our_side == "blue" else "blue"
+    players = json.loads(draft.players_json) if draft.players_json else {}
+    if not players:
+        players = {p["role"]: p["riot_id"].split("#")[0] for p in list_players(db) if p["riot_id"]}
+
+    our_roles, their_roles = _roles(engine, draft, actions)
+    tags = _pick_tags(actions, steps)
+    by_role: dict[str, dict[str, int]] = {r: {} for r in ROLES}
+    for c, r in our_roles.items():
+        by_role[r][our_side] = c
+    for c, r in their_roles.items():
+        by_role[r][their_side] = c
+    cache = _lane_matchups(db, draft, by_role, backfilled)
     picks = []
     for r in ROLES:
         row = {"role": r, "role_label": ROLE_LABELS[r], "matchup": cache["lane_matchups"].get(r)}
@@ -209,50 +277,25 @@ def recap(db: Engine, engine: DraftEngine, catalog: ChampionCatalog, draft_id: i
                 "champ": card(c), "tag": tags.get((side, c)), "player": players.get(r) if side == our_side else None}
         picks.append(row)
 
-    # timeline, review
-    timeline, prev, swing = [], 0.5, None
-    for a, step in zip(actions, fmt.steps):
-        wp = a.win_prob_after
-        label = tags.get((step.side, a.champ_id)) if step.kind == "pick" else "ban"
-        point = {"step": a.seq, "label": label, "side": step.side, "type": step.kind, "champ": card(a.champ_id),
-                 "win_prob": round(wp, 4), "delta": round(wp - prev, 4)}
-        timeline.append(point)
-        if swing is None or abs(point["delta"]) > abs(swing["delta"]):
-            swing = point
-        prev = wp
-    followed = []
-    for a, step in zip(actions, fmt.steps):
-        if step.side != our_side:
-            continue
-        shown = json.loads(a.suggestions_json) if a.suggestions_json else None
-        rank = (str(a.our_rank) if a.our_rank else "off-list") if shown and shown["kind"] == "suggested" else "—"
-        followed.append({"step": a.seq, "type": step.kind, "champ": card(a.champ_id), "rank": rank,
-                         "suggested": [card(i["champ_id"]) for i in shown["items"]] if shown else []})
+    timeline, swing = _timeline(actions, steps, tags, card)
     terms = engine.evaluate(_state(draft, actions)).terms
-    to_pp = lambda x: round(100 * (sigmoid(x) - 0.5), 1)
     full = [{"step": a.seq, "side": step.side, "ours": step.side == our_side, "type": step.kind,
              "champ": card(a.champ_id), "rank": a.our_rank, "win_prob": round(a.win_prob_after, 4)}
-            for a, step in zip(actions, fmt.steps)]
-
+            for a, step in zip(actions, steps)]
     played = draft.played_at if isinstance(draft.played_at, datetime) else datetime.fromisoformat(str(draft.played_at))
-    plan = plan_adherence(draft, actions)
-    if plan is not None:
-        locks = json.loads(draft.plan_json).get("locks", {})
-        ours = {a.champ_id for a in actions if a.type == "pick" and a.side == draft.side}
-        plan["champs"] = [{**card(int(c)), "role": r, "picked": int(c) in ours} for r, c in locks.items()]
     return {
-        "plan": plan,
+        "plan": _plan_detail(draft, actions, card),
         "draft_id": draft.draft_id,
         "header": {"result": draft.result, "queue": queue_label(draft), "patch": draft.patch,
                    "played_at": played.isoformat(), "game_length_s": draft.game_length_s, "side": our_side,
                    "pred_win_prob": draft.pred_win_prob, "match_verified": draft.match_verified,
                    "format": fmt.name},
-        "bans": bans,
+        "bans": _bans_by_phase(actions, steps, card),
         "picks": picks,
         "timeline": timeline,
-        "review": {"followed": followed, "biggest_swing": swing,
-                   "synergy": {"ours_pp": to_pp(terms.syn_us), "theirs_pp": to_pp(terms.syn_them),
-                               "net_pp": round(to_pp(terms.syn_us) - to_pp(terms.syn_them), 1)}},
+        "review": {"followed": _followed(actions, steps, our_side, card), "biggest_swing": swing,
+                   "synergy": {"ours_pp": _win_pp(terms.syn_us), "theirs_pp": _win_pp(terms.syn_them),
+                               "net_pp": round(_win_pp(terms.syn_us) - _win_pp(terms.syn_them), 1)}},
         "table": full,
         "note": ("Logged before per-step P(win) was stored: the timeline was computed later, with the model "
                  "and stats of that day") if cache.get("backfilled") else None,
