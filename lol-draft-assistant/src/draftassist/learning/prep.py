@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from draftassist.engine.engine import US, DraftEngine
+from draftassist.engine.engine import DraftEngine
 from draftassist.engine.formats import TOURNAMENT
 from draftassist.engine.model import ROLE_LABELS, ROLES, BanWeights
 from draftassist.engine.state import SKIPPED, DraftState
@@ -38,14 +38,14 @@ def prep_sheet(engine: DraftEngine, card) -> dict:
     best = []
     for role in ROLES:
         pool = engine.team.pools.get(role, {})
-        bracket = engine._our_bracket(role)
-        ranked = sorted(pool, key=lambda c: (-engine._weight(US, c, role), c))
+        bracket = engine.our_stats(role)
+        ranked = sorted(pool, key=lambda c: (-engine.pick_weight(c, role), c))
         rows = []
         for c in ranked[:3]:
             stat = bracket.role_stat(c, role)
             rows.append({"champ": card(c), "tier": pool[c].tier, "comfort": round(pool[c].comfort, 2),
                          "win_rate": round(stat.win_rate, 3) if stat else None,
-                         "score": round(engine._weight(US, c, role), 3)})
+                         "score": round(engine.pick_weight(c, role), 3)})
         best.append({"role": role, "role_label": ROLE_LABELS[role], "bracket": engine.team.brackets[role], "best": rows})
 
     first_pick = DraftState(TOURNAMENT, "blue", (SKIPPED,) * 6)  # blue's first pick: fully exposed

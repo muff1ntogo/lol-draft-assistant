@@ -20,9 +20,8 @@ PARTICIPANT_TRAIT_COLUMNS = ("cc_time", "immobilizations", "dmg_taken_share", "s
 MEASURED_TRAITS = ("cc", "frontline", "peel", "dmg_phys", "dmg_magic", "dmg_true", "power_curve",
                    "lane_pressure", "ranged")
 
-# The same traits ranked across every role (team rules: an ADC in the top tenth of ADC frontline is still
-# not a frontliner). Within-role percentiles stay the default for pair rules, as specified.
-GLOBAL_TRAITS = ("cc_all", "frontline_all", "peel_all")
+# cc, frontline and peel are also ranked across every role (`cc_all`, `frontline_all`, `peel_all`, data/traits.py):
+# team rules need them (an ADC in the top tenth of ADC frontline is still not a frontliner).
 
 # trait -> its sources: (column, per minute?). A trait with several sources is the mean of their
 # percentiles, over the sources that have data.

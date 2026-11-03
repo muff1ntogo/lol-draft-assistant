@@ -1,12 +1,12 @@
 """Engine inputs: stats per bracket, our team, and tunable weights. Pure data, no I/O."""
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
 from draftassist.engine.comp import EMPTY_PROFILES, ChampionProfiles
+from draftassist.engine.mathx import logit, sigmoid  # noqa: F401  (re-exported: engine.model.logit / sigmoid)
 from draftassist.engine.synergy import EMPTY as EMPTY_SYNERGY
 from draftassist.engine.synergy import SynergyTable
 
@@ -16,15 +16,6 @@ ROLE_LABELS = {"top": "Top", "jungle": "Jungle", "mid": "Mid", "adc": "ADC", "su
 TIERS = ("main", "comfortable", "learning")
 # Prior win rate per manual tier (spec, comfort scoring).
 TIER_PRIOR_WR = {"main": 0.53, "comfortable": 0.50, "learning": 0.46}
-
-
-def sigmoid(x: float) -> float:
-    return 1 / (1 + math.exp(-x))
-
-
-def logit(p: float) -> float:
-    p = min(max(p, 1e-4), 1 - 1e-4)
-    return math.log(p / (1 - p))
 
 
 def tier_comfort(tier: str) -> float:

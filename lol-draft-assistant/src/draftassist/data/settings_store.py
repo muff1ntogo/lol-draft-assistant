@@ -62,11 +62,6 @@ def get_engine_settings(db: Engine) -> dict:
             "comp_weight": float(v.get("comp_weight", d.comp_weight))}
 
 
-def get_alpha_beta(db: Engine) -> tuple[float, float]:
-    s = get_engine_settings(db)
-    return s["alpha"], s["beta"]
-
-
 def save_engine_settings(db: Engine, alpha: float | None = None, beta: float | None = None,
                          comfort_games_cap: int | None = None, damage_balance: bool | None = None,
                          damage_penalty: float | None = None, ban_comp_synergy: bool | None = None,
@@ -94,10 +89,6 @@ def save_engine_settings(db: Engine, alpha: float | None = None, beta: float | N
         row.value = json.dumps(merged)
         s.add(row)
         s.commit()
-
-
-def save_alpha_beta(db: Engine, alpha: float, beta: float) -> None:
-    save_engine_settings(db, alpha=alpha, beta=beta)
 
 
 def engine_config(db: Engine) -> EngineConfig:

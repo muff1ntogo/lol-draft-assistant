@@ -12,9 +12,10 @@ team's plan in the synergy v2 team model (engine/team.py).
 """
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+
+from draftassist.engine.mathx import logit
 
 SHORT_S = 25 * 60  # games shorter than this are "short"
 LONG_S = 32 * 60  # longer than this are "long"
@@ -41,16 +42,11 @@ STYLE_LABELS = IDENTITY_LABELS
 TIMING_LABELS = {"early": "Early", "mid": "Mid", "late": "Late"}
 
 
-def _logit(p: float) -> float:
-    p = min(max(p, 1e-4), 1 - 1e-4)
-    return math.log(p / (1 - p))
-
-
 def power_curve(wins_short: float, games_short: float, wins_long: float, games_long: float, p: float,
                 k: float = CURVE_K) -> float:
     short = (wins_short + k * p) / (games_short + k)
     long = (wins_long + k * p) / (games_long + k)
-    return _logit(long) - _logit(short)
+    return logit(long) - logit(short)
 
 
 def timing_label(curve: float | None, threshold: float = TIMING_THRESHOLD) -> str | None:

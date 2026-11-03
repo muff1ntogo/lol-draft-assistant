@@ -12,10 +12,10 @@ It returns None when nothing is known (no tag, no data); the models then treat t
 """
 from __future__ import annotations
 
-import math
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass
 
+from draftassist.engine.mathx import logit
 
 TAGS = ("engage", "disengage", "poke", "dive", "pick", "splitpush", "enchanter", "hypercarry")
 TAG_MAX = 3
@@ -30,11 +30,6 @@ RANGED_LONG = (500, 650)  # ranged_long: 0 at 500 (Lucian, Samira), 1 at 650 (Ca
 DERIVED_TERMS = ("ranged_long", "power_curve_late", "power_curve_early")
 
 
-def _logit(p: float) -> float:
-    p = min(max(p, 1e-4), 1 - 1e-4)
-    return math.log(p / (1 - p))
-
-
 def power_curve_slope(buckets: Sequence[tuple[float, float]], k: float = CURVE_K,
                       min_games: float = CURVE_MIN_GAMES) -> float | None:
     """Slope of logit(win rate) across the (wins, games) buckets short / mid / long, weighted by games.
@@ -44,7 +39,7 @@ def power_curve_slope(buckets: Sequence[tuple[float, float]], k: float = CURVE_K
         return None
     p = sum(w for w, _ in buckets) / games
     xs = [i - (len(buckets) - 1) / 2 for i in range(len(buckets))]
-    ys = [_logit((w + k * p) / (g + k)) for w, g in buckets]
+    ys = [logit((w + k * p) / (g + k)) for w, g in buckets]
     ws = [g for _, g in buckets]
     sw = sum(ws)
     mx = sum(w * x for w, x in zip(ws, xs)) / sw

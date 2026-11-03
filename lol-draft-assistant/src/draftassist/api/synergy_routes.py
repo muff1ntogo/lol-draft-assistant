@@ -313,5 +313,5 @@ def post_synergy_evaluate(request: Request, champions: list[dict] = Body(...), e
             EngineSuggestion(s.champ, svc.catalog.card(s.champ)["name"], "pick", s.gain, "", role) for s in rows])
         keep = {s.champ_id for s in checked}
         suggestions[role] = [s for s in rows if s.champ in keep]
-    tier = lambda c, r: (e.tier if (e := team.entry(c, r)) else None)  # noqa: E731
+    tier = lambda c, r: (e.tier if (e := team.entry(c, r)) else None)
     return {"window": ev.stat.window, **evaluation_json(result, svc.catalog.card, suggestions, tier)}

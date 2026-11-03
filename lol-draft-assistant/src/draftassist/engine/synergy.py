@@ -14,16 +14,7 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-
-def sigmoid(x: float) -> float:
-    return 1 / (1 + math.exp(-x))
-
-
-def logit(p: float) -> float:
-    """Same clamp as engine.model.logit (this module can't import it: model imports this one)."""
-    p = min(max(p, 1e-4), 1 - 1e-4)
-    return math.log(p / (1 - p))
-
+from draftassist.engine.mathx import logit, sigmoid
 
 K = 200  # shrinkage games towards the no-interaction expectation
 ROLE_K = 50  # champion strength p_A shrinks towards 50% (spec: role win rates)
@@ -64,14 +55,13 @@ def pair_score(wins: float, games: float, p_a: float, p_b: float, k: float = K, 
     e = logit(p_a) + logit(p_b)
     p_obs = (wins + k * sigmoid(e)) / (games + k)
     s_raw = _logit(p_obs) - e
-    n = int(round(games)) if raw_games is None else raw_games
+    n = round(games) if raw_games is None else raw_games
     return PairScore(cap * math.tanh(s_raw / cap), s_raw, n, n < LOW_DATA_GAMES)
 
 
 def _logit(p: float) -> float:
-    # unclamped where possible: engine.model.logit clamps at 1e-4, which would bias extreme expectations
-    p = min(max(p, 1e-12), 1 - 1e-12)
-    return math.log(p / (1 - p))
+    # nearly unclamped: the usual 1e-4 clamp would bias extreme expectations
+    return logit(p, eps=1e-12)
 
 
 @dataclass(frozen=True)
@@ -106,9 +96,6 @@ class SynergyTable:
     def pair(self, role_a: str, a: int, role_b: str, b: int) -> PairScore:
         x, y = (role_a, a), (role_b, b)
         return self.pairs.get((x, y) if x < y else (y, x), NO_DATA)
-
-    def trio(self, x: Slot, y: Slot, z: Slot) -> Trio:
-        return trio_score(self.pair(*x, *y).s, self.pair(*x, *z).s, self.pair(*y, *z).s)
 
     def strength(self, champ: int, role: str) -> float:
         return self.strengths.get((role, champ), 0.5)

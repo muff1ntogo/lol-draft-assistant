@@ -10,7 +10,6 @@ import logging
 import time
 
 import httpx
-
 from sqlalchemy import Engine
 from sqlmodel import Session, select
 

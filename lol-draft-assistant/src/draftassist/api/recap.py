@@ -158,7 +158,7 @@ def recap(db: Engine, engine: DraftEngine, catalog: ChampionCatalog, draft_id: i
 
     fmt = get_format(draft.draft_format or "tournament")
     version = draft.ddragon_version
-    card = lambda c: art(catalog, c, version)  # noqa: E731
+    card = lambda c: art(catalog, c, version)
     our_side, their_side = draft.side, ("red" if draft.side == "blue" else "blue")
     players = json.loads(draft.players_json) if draft.players_json else {}
     if not players:
@@ -229,7 +229,7 @@ def recap(db: Engine, engine: DraftEngine, catalog: ChampionCatalog, draft_id: i
         followed.append({"step": a.seq, "type": step.kind, "champ": card(a.champ_id), "rank": rank,
                          "suggested": [card(i["champ_id"]) for i in shown["items"]] if shown else []})
     terms = engine.evaluate(_state(draft, actions)).terms
-    to_pp = lambda x: round(100 * (sigmoid(x) - 0.5), 1)  # noqa: E731
+    to_pp = lambda x: round(100 * (sigmoid(x) - 0.5), 1)
     full = [{"step": a.seq, "side": step.side, "ours": step.side == our_side, "type": step.kind,
              "champ": card(a.champ_id), "rank": a.our_rank, "win_prob": round(a.win_prob_after, 4)}
             for a, step in zip(actions, fmt.steps)]

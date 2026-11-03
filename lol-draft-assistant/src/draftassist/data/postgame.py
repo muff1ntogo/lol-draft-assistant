@@ -60,7 +60,7 @@ def verify_draft(db: Engine, riot: RiotClient, draft_id: int) -> str:
 
 def verify_unverified(db: Engine, riot: RiotClient) -> dict[int, str]:
     with Session(db) as s:
-        ids = [d.draft_id for d in s.exec(select(Draft).where(Draft.match_verified == False)).all()]  # noqa: E712
+        ids = [d.draft_id for d in s.exec(select(Draft).where(Draft.match_verified == False)).all()]
     return {i: verify_draft(db, riot, i) for i in ids}
 
 

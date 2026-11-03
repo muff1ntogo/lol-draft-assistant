@@ -78,7 +78,7 @@ def coverage(db: Engine, patch: str, brackets=None) -> dict[str, BracketCoverage
 def format_report(db: Engine, patch: str, report: dict[str, BracketCoverage], top: int = 10) -> str:
     with Session(db) as s:
         names = {c.champ_id: c.name for c in s.exec(select(Champion)).all()}
-    n = lambda c: names.get(c, f"#{c}")  # noqa: E731
+    n = lambda c: names.get(c, f"#{c}")
     lines = [f"Coverage for patch {patch} (real lane = role share >= {REAL_LANE_ROLE_RATE:.0%}; "
              f"covered = {MIN_GAMES}+ games)"]
     for cov in report.values():

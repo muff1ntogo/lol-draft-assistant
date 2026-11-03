@@ -23,9 +23,9 @@ from sqlmodel import Session
 
 from draftassist.api.deps import db_of
 from draftassist.api.draftlog import DraftLogger
-from draftassist.api.synergy_routes import router as synergy_router
-from draftassist.api.recap import history_filters, history_rows, recap
 from draftassist.api.live import LiveHub, LiveService
+from draftassist.api.recap import history_filters, history_rows, recap
+from draftassist.api.synergy_routes import router as synergy_router
 from draftassist.config import PROJECT_ROOT, Settings, load_settings
 from draftassist.data import ddragon
 from draftassist.data.pools import (
@@ -38,34 +38,34 @@ from draftassist.data.pools import (
     set_players,
     set_pool_entry,
 )
-from draftassist.data.provider import ChampionCatalog, load_catalog, load_engine_inputs, stats_version
 from draftassist.data.profiles import load_profiles
+from draftassist.data.provider import ChampionCatalog, load_catalog, load_engine_inputs, stats_version
 from draftassist.data.rules import STYLE_RULES_FILE, TEAM_RULES_FILE
-from draftassist.data.synergy_model import build_evaluator
-from draftassist.data.tags import TAGS_FILE, sync_tags
 from draftassist.data.settings_store import (
-    load_pinned,
     engine_config,
     get_synergy_bracket,
+    load_pinned,
     save_ban_settings,
     save_engine_settings,
     settings_payload,
 )
-from draftassist.learning.comfort import accept as accept_tiers
-from draftassist.learning.comfort import set_locked
-from draftassist.learning.jobs import LearningResult, run_in_background
-from draftassist.learning.prep import prep_sheet
-from draftassist.learning.report import draft_report, model_check
-from draftassist.learning.style import set_hand_style, team_summary
+from draftassist.data.synergy_model import build_evaluator
+from draftassist.data.tags import TAGS_FILE, sync_tags
 from draftassist.db.session import init_db
-from draftassist.engine.engine import DraftEngine
 from draftassist.engine.comp import badge
+from draftassist.engine.engine import DraftEngine
 from draftassist.engine.formats import TOURNAMENT, get_format
 from draftassist.engine.lane_ban import RoleBanTable
 from draftassist.engine.model import ROLE_LABELS, ROLES, BanWeights
 from draftassist.engine.state import DraftState
 from draftassist.lcu.demo import demo_sessions
 from draftassist.lcu.recorder import SessionRecorder
+from draftassist.learning.comfort import accept as accept_tiers
+from draftassist.learning.comfort import set_locked
+from draftassist.learning.jobs import LearningResult, run_in_background
+from draftassist.learning.prep import prep_sheet
+from draftassist.learning.report import draft_report, model_check
+from draftassist.learning.style import set_hand_style, team_summary
 
 log = logging.getLogger(__name__)
 WEB_DIST = PROJECT_ROOT / "web" / "dist"

@@ -24,7 +24,7 @@ from pathlib import Path
 from sqlalchemy import Engine
 from sqlmodel import Session, delete, select
 
-from draftassist.db.models import Champion, Player, PoolEntry
+from draftassist.db.models import Player, PoolEntry
 from draftassist.engine.model import ROLES, TIERS, OurTeam, PoolChamp, tier_comfort
 
 log = logging.getLogger(__name__)
