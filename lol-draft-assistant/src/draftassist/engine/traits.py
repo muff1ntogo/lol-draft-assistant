@@ -2,7 +2,9 @@
 
 Two sources per champion and role:
 - measured traits (data/traits.py): percentiles within the role, 0-1, or None when the source is missing;
-- judgement tags rated 0-3 (data/champion_tags.yaml), scaled to 0-1. Unreviewed tags count at half weight.
+- judgement tags rated 0-3 (data/champion_tags.yaml), scaled to 0-1. Unreviewed tags count at half weight:
+  they blend halfway towards the role's average for that tag (0.5 * own + 0.5 * role average), so an
+  unreviewed tag is uncertain in both directions and reviewing sharpens it without flipping rankings.
 
 `ChampionTraits.intensity(champ, role, term)` is what every model reads. A term is a trait name, a tag, a
 derived term (`ranged_long`, `power_curve_late`, `power_curve_early`) or `not <term>` (1 - intensity).
@@ -93,8 +95,12 @@ class TagEntry:
     def weight(self) -> float:
         return 1.0 if self.reviewed else UNREVIEWED_WEIGHT
 
-    def scaled(self, tag: str) -> float:
-        return self.weight * self.values.get(tag, 0) / TAG_MAX
+    def raw(self, tag: str) -> float:
+        return self.values.get(tag, 0) / TAG_MAX
+
+    def scaled(self, tag: str, role_average: float) -> float:
+        """Reviewed: its own value. Unreviewed: weight * own + (1 - weight) * the role's average."""
+        return self.weight * self.raw(tag) + (1 - self.weight) * role_average
 
 
 Key = tuple[int, str]  # (champ, role)
@@ -111,6 +117,15 @@ class ChampionTraits:
         for (c, _), entry in sorted(self.tags.items(), key=lambda kv: kv[0][1], reverse=True):
             by_champ[c] = entry  # alphabetically first role wins
         object.__setattr__(self, "_by_champ", by_champ)
+        sums: dict[tuple[str, str], list[float]] = {}
+        for (_, role), entry in self.tags.items():
+            for tag in TAGS:
+                sums.setdefault((role, tag), []).append(entry.raw(tag))
+        object.__setattr__(self, "_role_avg", {k: sum(v) / len(v) for k, v in sums.items()})
+
+    def role_average(self, role: str, tag: str) -> float:
+        """Mean of the tag (0-1, as written, reviewed or not) over the role's tagged champions; 0 if none."""
+        return self._role_avg.get((role, tag), 0.0)
 
     def tag_entry(self, champ: int, role: str) -> TagEntry | None:
         """The champion's tags in this role, else its tags in another role (tags are mostly about the
@@ -137,7 +152,7 @@ class ChampionTraits:
             return None if v is None else 1.0 - v
         if term in TAGS:
             e = self.tag_entry(champ, role)
-            return None if e is None else e.scaled(term)
+            return None if e is None else e.scaled(term, self.role_average(role, term))
         m = self.measured.get((champ, role)) or {}
         if term == "ranged_long":
             return ranged_long(self._range(champ, role))

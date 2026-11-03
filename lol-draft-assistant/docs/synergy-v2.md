@@ -178,12 +178,15 @@ Trio-specific win-rate data; roam pairs (JG–SUP, MID–SUP) as separate in-lan
 1. Dependencies: PyYAML (rule and tag files) and numpy (ridge / logistic fits) added.
 2. Tags drafted for every champion in the roles where it is commonly played (171 champions, 247 champion-roles), which covers our pools and the top 30 per role. New releases Claude doesn't know (Locke, Zaahen) are left untagged on purpose.
 3. Each stage is committed on branch `claude/synergy-v2` and pushed once reviewed.
-4. Live pick scoring keeps the Stat synergy term; Style / Team reach Live only through the Stage 6 plan bonuses. comp-style labels (Dive / Poke / Front to back) are unchanged.
+4. "Half weight" for unreviewed tags = blend halfway towards the role's average for that tag:
+   `0.5 × own + 0.5 × role average` (all 0–1). Halving the value was rejected: it only pulled high tags down,
+   made `not X` read unreviewed carries as half non-carries, flipped rankings on review and biased the fits.
+5. Live pick scoring keeps the Stat synergy term; Style / Team reach Live only through the Stage 6 plan bonuses. comp-style labels (Dive / Poke / Front to back) are unchanged.
 
 ## Built
 
 ### Stage 1 (3 Nov 2026)
 - **Field mapping:** `data/traits_map.py` (`parse_traits`, `TRAIT_SOURCES`). Checked against a live EUW match: every key present. Share of damage taken comes from `challenges.damageTakenOnTeamPercentage`, else `totalDamageTaken` over the team's. Six new nullable `match_participants` columns, filled by the crawler; `data.backfill` fills older matches from the Riot cache (no API calls). `champions.attack_range` from Data Dragon (re-run `data.ddragon` once).
 - **Traits:** `data/traits.py` → `champion_traits` (window, bracket incl. "all"), rebuilt by `aggregate()` with the synergy window. Champion-roles with < 20 games get no percentile traits. Multi-source traits are the mean of their sources' percentiles. Damage shares stay real shares; `ranged` is 0/1. `power_curve` is the percentile of the slope (`power_curve_slope`, logit win rate per bucket, each bucket shrunk towards the champion's own win rate, k = 50, ≥ 50 games).
-- **Reading traits:** `engine/traits.py` `ChampionTraits.intensity(champ, role, term)`: tags (scaled /3, × 0.5 when unreviewed), measured traits, derived `ranged_long` (0 at range 500, 1 at 650), `power_curve_late` / `power_curve_early`, and `not X`. A champion's tags in another role are used when its role has none. Unknown = None.
+- **Reading traits:** `engine/traits.py` `ChampionTraits.intensity(champ, role, term)`: tags (scaled /3; unreviewed blended halfway towards the role average), measured traits, derived `ranged_long` (0 at range 500, 1 at 650), `power_curve_late` / `power_curve_early`, and `not X`. A champion's tags in another role are used when its role has none. Unknown = None.
 - **Tags:** `data/champion_tags.yaml` (project root `data/`, next to the database; one line per champion-role, written deterministically) ↔ `champion_tags` table, synced at app start. Tags page (`#/tags`, linked from Prep): filters To review / Reviewed / Untagged, 0–3 per tag, "Looks right", measured traits for context; edits write the YAML.

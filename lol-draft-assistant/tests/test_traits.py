@@ -272,14 +272,30 @@ def test_tags_load_from_yaml(tmp_path, tag_db):
         assert len(s.exec(select(ChampionTag)).all()) == 3
 
 
-def test_unreviewed_tags_count_at_half_weight():
-    reviewed = TagEntry({**dict.fromkeys(TAGS, 0), "engage": 3}, reviewed=True)
-    unreviewed = TagEntry({**dict.fromkeys(TAGS, 0), "engage": 3}, reviewed=False)
-    t = ChampionTraits({}, {(1, "support"): reviewed, (2, "support"): unreviewed}, {})
-    assert t.intensity(1, "support", "engage") == pytest.approx(1.0)
-    assert t.intensity(2, "support", "engage") == pytest.approx(0.5)
-    assert t.intensity(1, "support", "not engage") == pytest.approx(0.0)
-    assert t.intensity(2, "support", "pick") == 0.0
+def test_unreviewed_tags_blend_halfway_towards_the_role_average():
+    def entry(reviewed, **v):
+        return TagEntry({**dict.fromkeys(TAGS, 0), **v}, reviewed=reviewed)
+
+    # support engage: 3, 3, 0, 0 -> role average 1.5 / 3 = 0.5
+    t = ChampionTraits({}, {(1, "support"): entry(True, engage=3), (2, "support"): entry(False, engage=3),
+                            (3, "support"): entry(False), (4, "support"): entry(True, pick=3)}, {})
+    assert t.role_average("support", "engage") == pytest.approx(0.5)
+    assert t.intensity(1, "support", "engage") == pytest.approx(1.0)  # reviewed: its own value
+    assert t.intensity(2, "support", "engage") == pytest.approx(0.75)  # 0.5 * 1 + 0.5 * 0.5
+    assert t.intensity(3, "support", "engage") == pytest.approx(0.25)  # 0.5 * 0 + 0.5 * 0.5: uncertain both ways
+    assert t.intensity(2, "support", "not engage") == pytest.approx(0.25)
+    assert t.intensity(4, "support", "engage") == pytest.approx(0.0)
+    # reviewing sharpens without flipping the order
+    assert t.intensity(1, "support", "engage") > t.intensity(2, "support", "engage") > t.intensity(3, "support", "engage")
+
+
+def test_role_average_uses_only_that_role():
+    e = TagEntry({**dict.fromkeys(TAGS, 0), "hypercarry": 3}, reviewed=False)
+    z = TagEntry(dict.fromkeys(TAGS, 0), reviewed=False)
+    t = ChampionTraits({}, {(1, "adc"): e, (2, "adc"): e, (3, "support"): z}, {})
+    assert t.role_average("adc", "hypercarry") == pytest.approx(1.0)
+    assert t.intensity(1, "adc", "hypercarry") == pytest.approx(1.0)
+    assert t.role_average("top", "hypercarry") == 0.0  # no tagged champions in the role
 
 
 def test_untagged_champions_fall_back_to_measured_traits():
@@ -295,7 +311,7 @@ def test_untagged_champions_fall_back_to_measured_traits():
 def test_tags_fall_back_to_another_role_of_the_same_champion():
     e = TagEntry({**dict.fromkeys(TAGS, 0), "poke": 3}, reviewed=True)
     t = ChampionTraits({}, {(99, "mid"): e}, {})
-    assert t.intensity(99, "support", "poke") == pytest.approx(1.0)
+    assert t.intensity(99, "support", "poke") == pytest.approx(1.0)  # reviewed: no blend
     assert not t.untagged(99)
 
 
