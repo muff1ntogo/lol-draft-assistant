@@ -7,9 +7,14 @@
   import Champions from './Champions.svelte';
   import Settings from './Settings.svelte';
   import Team from './Team.svelte';
+  import Tags from './Tags.svelte';
 
   const PAGES = { live: 'Live', prep: 'Prep', synergy: 'Synergy', pools: 'Pools', champions: 'Champions', history: 'History', team: 'Team', settings: 'Settings' };
-  const pageFromHash = () => (location.hash.slice(2) in PAGES ? location.hash.slice(2) : 'live');
+  const HIDDEN = { tags: 'Tags' }; // reached from the Prep page's header, not the nav
+  const pageFromHash = () => {
+    const key = location.hash.slice(2);
+    return key in PAGES || key in HIDDEN ? key : 'live';
+  };
   let page = $state(pageFromHash());
   window.addEventListener('hashchange', () => (page = pageFromHash()));
 
@@ -62,6 +67,8 @@
   <Prep />
 {:else if page === 'synergy'}
   <Synergy />
+{:else if page === 'tags'}
+  <Tags />
 {:else if page === 'champions'}
   <Champions />
 {:else if page === 'settings'}

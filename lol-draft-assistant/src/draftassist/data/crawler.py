@@ -23,6 +23,7 @@ from sqlalchemy import Engine
 from sqlmodel import Session, col, select
 
 from draftassist.data.riot import RiotClient
+from draftassist.data.traits_map import parse_match_traits
 from draftassist.db.models import Champion, CrawledMatch, MatchBan, MatchParticipant, SeedPlayer
 
 log = logging.getLogger(__name__)
@@ -70,6 +71,7 @@ class ParsedMatch:
     bans: tuple[tuple[int, int, int], ...]  # team, pick_turn, champ
     damage: tuple[tuple[int | None, int | None, int | None], ...] = ()  # physical, magic, true; same order
     duration_s: int | None = None
+    traits: tuple[dict, ...] = ()  # trait source values per participant (data/traits_map.py); same order
 
 
 DAMAGE_FIELDS = ("physicalDamageDealtToChampions", "magicDamageDealtToChampions", "trueDamageDealtToChampions")
@@ -97,7 +99,7 @@ def parse_match(match: dict) -> ParsedMatch | None:
     bans = tuple((t["teamId"], b["pickTurn"], b["championId"]) for t in info["teams"] for b in t.get("bans", []))
     return ParsedMatch(match["metadata"]["matchId"], patch_of(info["gameVersion"]), info["queueId"],
                        info.get("gameStartTimestamp", 0), tuple(participants), bans, tuple(damage),
-                       info.get("gameDuration"))
+                       info.get("gameDuration"), parse_match_traits(info["participants"]))
 
 
 @dataclass
@@ -216,9 +218,10 @@ class Crawler:
                                game_start_ms=m.game_start_ms, game_duration_s=m.duration_s))
             s.flush()
             damage = m.damage or ((None, None, None),) * len(m.participants)
-            for (champ, team, role, win), (phys, magic, true) in zip(m.participants, damage):
+            traits = m.traits or ({},) * len(m.participants)
+            for (champ, team, role, win), (phys, magic, true), t in zip(m.participants, damage, traits):
                 s.add(MatchParticipant(match_id=m.match_id, champ_id=champ, team_id=team, role=role, win=win,
-                                       dmg_phys=phys, dmg_magic=magic, dmg_true=true))
+                                       dmg_phys=phys, dmg_magic=magic, dmg_true=true, **t))
             for team, turn, champ in m.bans:
                 s.add(MatchBan(match_id=m.match_id, team_id=team, pick_turn=turn, champ_id=champ))
             s.commit()

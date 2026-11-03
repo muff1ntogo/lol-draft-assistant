@@ -1,3 +1,5 @@
+> **Superseded by `docs/synergy-v2.md`** (3 Nov 2026): Stage A's pair data and score remain as the **Stat** component; the Synergy page and engine integration are replaced.
+
 # Task: synergy visualiser (inspired by Machine LoLing's Synergy Visualizer)
 
 Read `CLAUDE.md`, `docs/SPEC.md` (Data sources, Data model, Draft engine, UI) and `docs/prompts/ban-value-matchups.md` first. Build it in the three stages below, stopping after each for my review. Plan first, show me the plan, then build. Write the tests for each stage first.

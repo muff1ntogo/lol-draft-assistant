@@ -31,7 +31,7 @@ Personal, local pick/ban assistant for one 5-stack on EUW. Read `docs/SPEC.md` b
 | Confirm logged games via match-v5 | `uv run python -m draftassist.data.postgame` |
 | Import pools from a file | `uv run python -m draftassist.data.pools import pools.txt` |
 | Ban value breakdown (audit) | `uv run python scripts/ban_audit.py [--real]` |
-| Damage and game length for already-crawled matches (from the Riot cache, no API calls) | `uv run python -m draftassist.data.backfill` |
+| Damage, game length and trait sources for already-crawled matches (from the Riot cache, no API calls) | `uv run python -m draftassist.data.backfill` |
 | App without the client | `draftassist --demo` or `draftassist --replay fixtures/lcu/flex-ranked-sample` |
 
 Env vars: `DRAFTASSIST_LCU` (client | demo | replay | off), `DRAFTASSIST_REPLAY`, `DRAFTASSIST_DB` (use a scratch copy for experiments), `DRAFTASSIST_RECORD`, `DRAFTASSIST_DEMO_LOG`, `DRAFTASSIST_STATS_REFRESH_S`, `DRAFT_FORMAT` (auto | tournament | ranked).
@@ -53,15 +53,17 @@ Env vars: `DRAFTASSIST_LCU` (client | demo | replay | off), `DRAFTASSIST_REPLAY`
 
 Extra task docs done: `ban-score.md`, `ban-guardrails.md`, `flex-simultaneous-bans.md`, `ban-value-matchups.md` (audit in `ban-value-audit.md`), `history-broadcast-ui.md`. `synergy-visualizer.md` built (Stages A–C, awaiting review): role-aware `synergy_pairs` + damage profile, Synergy page, engine synergy term from `EngineData.synergy`, damage balance, "Next 2 picks". Current patch only; older-patch history postponed. `comp-style.md`: Stages A–B done (game length, power curves, style seed `data/champion_styles.json` + Champions review page, Early/Late threshold ±0.15; comp panel for both teams, badges on Live / Synergy / Pools, 5 / 3 suggestion cards). Stage C built, awaiting review: comp coherence in pick value (not P(win)), damped 0 / 0.1 / 0.25 / 1 / 1 by our pick number, target from the Team page else our comp; Team page on the same labels; varied Next 2 picks (`pair_repeat_margin`). The old role-less `synergy` table is gone (`db/session.DROPPED_TABLES` drops it from older databases).
 
+`synergy-v2.md` (supersedes the visualiser's page and engine term; keeps its Stage A pair score as **Stat**), branch `claude/synergy-v2`: Stage 1 built, awaiting review: measured traits (`champion_traits`, percentiles per role over the synergy window; field mapping in `data/traits_map.py`), judgement tags in `data/champion_tags.yaml` (drafted by Claude, unreviewed = half weight) with a Tags page (`#/tags`). After pulling: run `data.ddragon` (attack range), then `data.backfill` (trait sources; it re-aggregates).
+
 Open points:
 - `flex-simultaneous-bans.md` test 2 assumes greedy recomputation spreads bans across lanes; under the lane ban score it concentrates (banning both bad top matchups is worth more). Implemented as specified; a per-lane diminishing-returns rule would need a decision.
 - Ranked 5s queue id and what `theirTeam` shows in Ranked 5s: unknown until the first recorded Ranked 5s champ select (recordings land in `fixtures/lcu/recorded/`).
 
 ## Code map (`src/draftassist/`)
-- `engine/`: pure scoring. `engine.py` (scores, picks, bans = rel × discount × (a·Threat + b·Matchup + c·Comp) − d·OwnLoss, Flex group bans), `lane_ban.py`, `guards.py` (Rules 1–3, last step before any list leaves the engine), `formats.py`, `state.py` (`DraftState.unavailable()` is the only availability source).
+- `engine/`: pure scoring. `engine.py` (scores, picks, bans = rel × discount × (a·Threat + b·Matchup + c·Comp) − d·OwnLoss, Flex group bans), `lane_ban.py`, `traits.py` (synergy v2 trait intensities), `guards.py` (Rules 1–3, last step before any list leaves the engine), `formats.py`, `state.py` (`DraftState.unavailable()` is the only availability source).
 - `lcu/`: `connector.py` (ReadOnlyLcu, GET only), `parser.py` (all LCU field names), `recorder.py`, `demo.py`.
 - `api/`: `main.py` (app, routes, Services, live stats refresh), `live.py` (Live view + WebSocket hub), `draftlog.py`, `recap.py` (History).
-- `data/`: Riot client/crawler/aggregate, OP.GG bootstrap, provider (OP.GG blended with crawl per champion), pools/players, settings store, postgame.
+- `data/`: Riot client/crawler/aggregate, traits (`traits_map.py`, `traits.py`, `tags.py`), OP.GG bootstrap, provider (OP.GG blended with crawl per champion), pools/players, settings store, postgame.
 - `learning/`: comfort, history, jobs, report, style, prep.
 
 ## Lessons learned (don't relearn these)

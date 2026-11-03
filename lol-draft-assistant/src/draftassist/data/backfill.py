@@ -1,5 +1,5 @@
 """Fill in data the crawler didn't record when older matches were stored (damage to champions, game
-length), from the on-disk Riot cache (no API calls, no key needed), then re-aggregate the current patch.
+length, trait sources), from the on-disk Riot cache (no API calls, no key needed), then re-aggregate the current patch.
 Safe to re-run.
 
     uv run python -m draftassist.data.backfill
@@ -14,6 +14,7 @@ from sqlmodel import Session
 
 from draftassist.data.crawler import parse_damage
 from draftassist.data.riot import REGION, cache_path, match_path
+from draftassist.data.traits_map import PARTICIPANT_TRAIT_COLUMNS, parse_match_traits
 
 
 def _cached_match(cache_dir: Path, match_id: str) -> dict | None:
@@ -67,6 +68,31 @@ def backfill_durations(db: Engine, cache_dir: Path) -> dict[str, int]:
     return {"updated": updated, "missing": missing}
 
 
+def backfill_traits(db: Engine, cache_dir: Path) -> dict[str, int]:
+    """Matches stored before trait sources were recorded (every trait column NULL): updated from the
+    cache, or counted as missing. A match whose JSON lacks a field keeps NULL there (and stays a
+    candidate only while all of its columns are NULL)."""
+    updated = missing = 0
+    null = " AND ".join(f"{c} IS NULL" for c in PARTICIPANT_TRAIT_COLUMNS)
+    sets = ", ".join(f"{c} = :{c}" for c in PARTICIPANT_TRAIT_COLUMNS)
+    with Session(db) as s:
+        conn = s.connection()
+        ids = [r[0] for r in conn.execute(text(
+            f"SELECT DISTINCT match_id FROM match_participants WHERE {null} ORDER BY match_id"))]
+        for match_id in ids:
+            body = _cached_match(cache_dir, match_id)
+            if not body:
+                missing += 1
+                continue
+            participants = body["info"]["participants"]
+            for p, t in zip(participants, parse_match_traits(participants)):
+                conn.execute(text(f"UPDATE match_participants SET {sets} WHERE match_id = :match_id AND champ_id = :champ"),
+                             {**t, "match_id": match_id, "champ": p["championId"]})
+            updated += 1
+        s.commit()
+    return {"updated": updated, "missing": missing}
+
+
 def main() -> int:
     from draftassist.config import load_settings
     from draftassist.data.aggregate import aggregate
@@ -79,6 +105,8 @@ def main() -> int:
     print(f"Damage backfilled for {result['updated']} matches; {result['missing']} not in the cache")
     result = backfill_durations(db, settings.cache_dir)
     print(f"Game length backfilled for {result['updated']} matches; {result['missing']} not in the cache")
+    result = backfill_traits(db, settings.cache_dir)
+    print(f"Trait sources backfilled for {result['updated']} matches; {result['missing']} not in the cache")
     patch = current_patch(db)
     totals = aggregate(db, patch)
     print(f"Re-aggregated {patch}: {totals}")

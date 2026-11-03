@@ -44,6 +44,9 @@ from draftassist.data.pools import (
 )
 from draftassist.data.provider import ChampionCatalog, load_catalog, load_engine_inputs, stats_version
 from draftassist.data.profiles import load_profiles, reset_style, save_style
+from draftassist.data.tags import TAGS_FILE, remove_tag, sync_tags, update_tag
+from draftassist.data.traits import load_traits
+from draftassist.engine.traits import TAGS
 from draftassist.data.settings_store import (
     engine_config,
     get_synergy_bracket,
@@ -86,6 +89,7 @@ class Services:
     loaded_version: tuple | None = None  # stats_version() the engine was built from
     learning: dict | None = None  # last learning run: {"running", "finished_at", "summary"}
     synergy_override: SynergySource | None = None  # tests: a fixed table instead of the engine's
+    tags_path: Path = TAGS_FILE  # judgement tags (docs/synergy-v2.md); tests point it at a scratch copy
 
     def synergy_source(self) -> SynergySource:
         """The engine's scored synergy pairs and damage profiles (reloaded with the stats)."""
@@ -193,6 +197,10 @@ def build_services(settings: Settings) -> Services:
                 ddragon.refresh(client, session, settings.cache_dir, settings.ddragon_locale)
         except httpx.HTTPError:
             log.warning("could not load Data Dragon; champion names will be ids")
+    try:
+        sync_tags(db, TAGS_FILE)  # the YAML file is the source of truth for judgement tags
+    except (OSError, ValueError) as e:
+        log.warning("could not load %s: %s", TAGS_FILE, e)
     inputs = load_engine_inputs(db)
     engine = DraftEngine(inputs.data, inputs.team, engine_config(db))
     hub = LiveHub()
@@ -594,6 +602,54 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         reset_style(_db(svc), champ_id)
         svc.refresh_profiles()
         return _one(svc, champ_id)
+
+    # ---------- judgement tags (docs/synergy-v2.md, Stage 1b) ----------
+    def _tag_row(svc: Services, champ: Champion, traits) -> dict:
+        entries = {role: {"values": dict(e.values), "reviewed": e.reviewed}
+                   for (c, role), e in traits.tags.items() if c == champ.champ_id}
+        measured = {role: {k: (None if v is None else round(v, 3)) for k, v in m.items()}
+                    for (c, role), m in traits.measured.items() if c == champ.champ_id}
+        return {"champ_id": champ.champ_id, "champ": svc.catalog.card(champ.champ_id), "key": champ.key, "name": champ.name, "roles": champ.roles or [],
+                "attack_range": champ.attack_range, "entries": entries, "measured": measured,
+                "untagged": not entries}
+
+    def _tag_one(svc: Services, champ_id: int) -> dict:
+        with Session(_db(svc)) as s:
+            champ = s.get(Champion, champ_id)
+        if champ is None:
+            raise HTTPException(404, "unknown champion")
+        return _tag_row(svc, champ, load_traits(_db(svc)))
+
+    @app.get("/api/tags")
+    def get_tags(request: Request) -> dict:
+        svc: Services = request.app.state.services
+        traits = load_traits(_db(svc))
+        with Session(_db(svc)) as s:
+            champs = sorted(s.exec(select(Champion)).all(), key=lambda c: c.name)
+        rows = [_tag_row(svc, c, traits) for c in champs]
+        entries = [e for r in rows for e in r["entries"].values()]
+        return {"tags": list(TAGS), "roles": list(ROLES), "role_labels": ROLE_LABELS,
+                "version": svc.catalog.patch, "champions": rows,
+                "counts": {"champions": len(rows), "entries": len(entries),
+                           "reviewed": sum(e["reviewed"] for e in entries),
+                           "untagged": sum(r["untagged"] for r in rows)}}
+
+    @app.put("/api/tags/{champ_id}/{role}")
+    def put_tag(request: Request, champ_id: int, role: str, values: dict[str, int] = Body(...),
+                reviewed: bool = Body(...)) -> dict:
+        svc: Services = request.app.state.services
+        _tag_one(svc, champ_id)
+        try:
+            update_tag(_db(svc), svc.tags_path, champ_id, role, values, reviewed)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        return _tag_one(svc, champ_id)
+
+    @app.delete("/api/tags/{champ_id}/{role}")
+    def delete_tag(request: Request, champ_id: int, role: str) -> dict:
+        svc: Services = request.app.state.services
+        remove_tag(_db(svc), svc.tags_path, champ_id, role)
+        return _tag_one(svc, champ_id)
 
     # ---------- learning ----------
     @app.post("/api/pools/accept")

@@ -1,0 +1,423 @@
+# Judgement traits per champion and role, 0-3 (docs/synergy-v2.md, Stage 1b). Missing tags are 0.
+# reviewed: false = drafted by Claude, not checked yet: counts at half weight in every model.
+# Edit here or on the Tags page (it writes this file). Keys are Data Dragon champion keys.
+# Tags: engage, disengage, poke, dive, pick, splitpush, enchanter, hypercarry
+
+Aatrox:
+  top: {engage: 1, dive: 2, splitpush: 1, reviewed: false}
+Ahri:
+  mid: {engage: 1, poke: 1, dive: 1, pick: 3, reviewed: false}
+Akali:
+  top: {dive: 3, pick: 2, splitpush: 1, reviewed: false}
+  mid: {dive: 3, pick: 2, splitpush: 1, reviewed: false}
+Akshan:
+  top: {poke: 1, pick: 2, splitpush: 2, reviewed: false}
+  mid: {poke: 1, pick: 2, splitpush: 2, reviewed: false}
+Alistar:
+  support: {engage: 3, disengage: 2, pick: 1, reviewed: false}
+Ambessa:
+  top: {engage: 1, dive: 3, splitpush: 1, reviewed: false}
+  jungle: {engage: 1, dive: 3, splitpush: 1, reviewed: false}
+Amumu:
+  jungle: {engage: 3, dive: 1, reviewed: false}
+  support: {engage: 3, dive: 1, reviewed: false}
+Anivia:
+  mid: {disengage: 2, poke: 1, pick: 1, reviewed: false}
+Annie:
+  mid: {engage: 2, pick: 2, reviewed: false}
+  support: {engage: 2, pick: 2, reviewed: false}
+Aphelios:
+  adc: {hypercarry: 3, reviewed: false}
+Ashe:
+  adc: {engage: 2, poke: 1, pick: 2, reviewed: false}
+  support: {engage: 2, poke: 1, pick: 2, reviewed: false}
+AurelionSol:
+  mid: {engage: 1, poke: 1, hypercarry: 2, reviewed: false}
+Aurora:
+  top: {disengage: 1, pick: 2, splitpush: 1, reviewed: false}
+  mid: {disengage: 1, pick: 2, splitpush: 1, reviewed: false}
+Azir:
+  mid: {engage: 1, disengage: 2, poke: 1, hypercarry: 2, reviewed: false}
+Bard:
+  support: {engage: 1, disengage: 2, pick: 3, reviewed: false}
+Belveth:
+  jungle: {dive: 2, splitpush: 2, hypercarry: 1, reviewed: false}
+Blitzcrank:
+  support: {engage: 2, pick: 3, reviewed: false}
+Brand:
+  jungle: {poke: 2, reviewed: false}
+  mid: {poke: 2, reviewed: false}
+  support: {poke: 2, reviewed: false}
+Braum:
+  support: {engage: 1, disengage: 3, reviewed: false}
+Briar:
+  jungle: {engage: 1, dive: 3, reviewed: false}
+Caitlyn:
+  adc: {poke: 3, pick: 1, reviewed: false}
+Camille:
+  top: {dive: 3, pick: 2, splitpush: 3, reviewed: false}
+Cassiopeia:
+  top: {hypercarry: 2, reviewed: false}
+  mid: {hypercarry: 2, reviewed: false}
+Chogath:
+  top: {engage: 2, disengage: 1, pick: 1, reviewed: false}
+  mid: {engage: 2, disengage: 1, pick: 1, reviewed: false}
+Corki:
+  mid: {poke: 2, hypercarry: 1, reviewed: false}
+Darius:
+  top: {dive: 1, splitpush: 1, reviewed: false}
+Diana:
+  jungle: {engage: 2, dive: 3, reviewed: false}
+  mid: {engage: 2, dive: 3, reviewed: false}
+Draven:
+  adc: {hypercarry: 1, reviewed: false}
+DrMundo:
+  top: {splitpush: 1, reviewed: false}
+  jungle: {splitpush: 1, reviewed: false}
+Ekko:
+  jungle: {dive: 2, pick: 2, splitpush: 1, reviewed: false}
+  mid: {dive: 2, pick: 2, splitpush: 1, reviewed: false}
+Elise:
+  jungle: {dive: 2, pick: 3, reviewed: false}
+Evelynn:
+  jungle: {dive: 2, pick: 3, reviewed: false}
+Ezreal:
+  adc: {poke: 3, reviewed: false}
+Fiddlesticks:
+  jungle: {engage: 3, reviewed: false}
+Fiora:
+  top: {dive: 1, splitpush: 3, reviewed: false}
+Fizz:
+  mid: {dive: 3, pick: 2, reviewed: false}
+Galio:
+  mid: {engage: 3, disengage: 2, reviewed: false}
+  support: {engage: 3, disengage: 2, reviewed: false}
+Gangplank:
+  top: {poke: 2, splitpush: 2, hypercarry: 1, reviewed: false}
+Garen:
+  top: {dive: 1, splitpush: 1, reviewed: false}
+Gnar:
+  top: {engage: 2, disengage: 1, poke: 1, reviewed: false}
+Gragas:
+  top: {engage: 3, disengage: 2, pick: 1, reviewed: false}
+  jungle: {engage: 3, disengage: 2, pick: 1, reviewed: false}
+  support: {engage: 3, disengage: 2, pick: 1, reviewed: false}
+Graves:
+  jungle: {dive: 1, splitpush: 1, hypercarry: 1, reviewed: false}
+Gwen:
+  top: {dive: 2, splitpush: 2, hypercarry: 1, reviewed: false}
+Hecarim:
+  jungle: {engage: 3, dive: 3, reviewed: false}
+Heimerdinger:
+  mid: {disengage: 2, poke: 2, reviewed: false}
+  support: {disengage: 2, poke: 2, reviewed: false}
+Hwei:
+  mid: {disengage: 1, poke: 3, pick: 2, reviewed: false}
+  support: {disengage: 1, poke: 3, pick: 2, reviewed: false}
+Illaoi:
+  top: {disengage: 1, splitpush: 2, reviewed: false}
+Irelia:
+  top: {dive: 3, splitpush: 2, reviewed: false}
+  mid: {dive: 3, splitpush: 2, reviewed: false}
+Ivern:
+  jungle: {disengage: 1, enchanter: 2, reviewed: false}
+Janna:
+  support: {disengage: 3, enchanter: 3, reviewed: false}
+JarvanIV:
+  jungle: {engage: 3, dive: 3, pick: 1, reviewed: false}
+Jax:
+  top: {dive: 2, splitpush: 3, reviewed: false}
+  jungle: {dive: 2, splitpush: 3, reviewed: false}
+Jayce:
+  top: {poke: 3, splitpush: 1, reviewed: false}
+  mid: {poke: 3, splitpush: 1, reviewed: false}
+Jhin:
+  adc: {poke: 2, pick: 2, reviewed: false}
+Jinx:
+  adc: {hypercarry: 3, reviewed: false}
+Kaisa:
+  adc: {dive: 2, hypercarry: 2, reviewed: false}
+Kalista:
+  adc: {engage: 1, hypercarry: 1, reviewed: false}
+Karma:
+  mid: {disengage: 1, poke: 2, enchanter: 2, reviewed: false}
+  support: {disengage: 1, poke: 2, enchanter: 2, reviewed: false}
+Karthus:
+  jungle: {hypercarry: 2, reviewed: false}
+  mid: {hypercarry: 2, reviewed: false}
+Kassadin:
+  mid: {dive: 2, hypercarry: 3, reviewed: false}
+Katarina:
+  mid: {dive: 3, reviewed: false}
+Kayle:
+  top: {splitpush: 1, hypercarry: 3, reviewed: false}
+Kayn:
+  jungle: {dive: 3, pick: 2, reviewed: false}
+Kennen:
+  top: {engage: 3, reviewed: false}
+  mid: {engage: 3, reviewed: false}
+Khazix:
+  jungle: {dive: 2, pick: 3, reviewed: false}
+Kindred:
+  jungle: {disengage: 1, hypercarry: 2, reviewed: false}
+Kled:
+  top: {engage: 3, dive: 3, reviewed: false}
+KogMaw:
+  adc: {hypercarry: 3, reviewed: false}
+KSante:
+  top: {engage: 2, disengage: 1, dive: 2, reviewed: false}
+Leblanc:
+  mid: {dive: 2, pick: 3, reviewed: false}
+LeeSin:
+  jungle: {engage: 2, dive: 2, pick: 2, reviewed: false}
+Leona:
+  support: {engage: 3, dive: 1, pick: 2, reviewed: false}
+Lillia:
+  jungle: {engage: 2, poke: 1, reviewed: false}
+Lissandra:
+  mid: {engage: 3, disengage: 2, pick: 2, reviewed: false}
+Lucian:
+  mid: {dive: 1, reviewed: false}
+  adc: {dive: 1, reviewed: false}
+Lulu:
+  support: {disengage: 2, enchanter: 3, reviewed: false}
+Lux:
+  mid: {disengage: 1, poke: 2, pick: 2, reviewed: false}
+  support: {disengage: 1, poke: 2, pick: 2, reviewed: false}
+Malphite:
+  top: {engage: 3, reviewed: false}
+  mid: {engage: 3, reviewed: false}
+  support: {engage: 3, reviewed: false}
+Malzahar:
+  mid: {disengage: 1, pick: 2, reviewed: false}
+Maokai:
+  top: {engage: 2, disengage: 2, reviewed: false}
+  jungle: {engage: 2, disengage: 2, reviewed: false}
+  support: {engage: 2, disengage: 2, reviewed: false}
+MasterYi:
+  jungle: {dive: 1, hypercarry: 2, reviewed: false}
+Mel:
+  mid: {disengage: 2, poke: 2, pick: 1, reviewed: false}
+  support: {disengage: 2, poke: 2, pick: 1, reviewed: false}
+Milio:
+  support: {disengage: 2, enchanter: 3, reviewed: false}
+MissFortune:
+  adc: {poke: 1, reviewed: false}
+MonkeyKing:
+  top: {engage: 2, dive: 2, reviewed: false}
+  jungle: {engage: 2, dive: 2, reviewed: false}
+Mordekaiser:
+  top: {pick: 2, splitpush: 1, reviewed: false}
+Morgana:
+  mid: {disengage: 2, pick: 3, reviewed: false}
+  support: {disengage: 2, pick: 3, reviewed: false}
+Naafiri:
+  mid: {dive: 3, pick: 2, reviewed: false}
+Nami:
+  support: {engage: 1, disengage: 2, enchanter: 2, reviewed: false}
+Nasus:
+  top: {splitpush: 3, hypercarry: 1, reviewed: false}
+Nautilus:
+  support: {engage: 3, pick: 3, reviewed: false}
+Neeko:
+  mid: {engage: 2, pick: 2, reviewed: false}
+  support: {engage: 2, pick: 2, reviewed: false}
+Nidalee:
+  jungle: {poke: 2, pick: 1, reviewed: false}
+Nilah:
+  adc: {engage: 1, dive: 2, hypercarry: 1, reviewed: false}
+Nocturne:
+  jungle: {engage: 2, dive: 3, pick: 2, reviewed: false}
+Nunu:
+  jungle: {engage: 2, pick: 2, reviewed: false}
+Olaf:
+  top: {dive: 3, reviewed: false}
+  jungle: {dive: 3, reviewed: false}
+Orianna:
+  mid: {engage: 2, disengage: 2, poke: 1, reviewed: false}
+Ornn:
+  top: {engage: 3, disengage: 1, reviewed: false}
+Pantheon:
+  top: {engage: 2, dive: 2, pick: 1, reviewed: false}
+  jungle: {engage: 2, dive: 2, pick: 1, reviewed: false}
+  mid: {engage: 2, dive: 2, pick: 1, reviewed: false}
+  support: {engage: 2, dive: 2, pick: 1, reviewed: false}
+Poppy:
+  top: {engage: 2, disengage: 3, reviewed: false}
+  jungle: {engage: 2, disengage: 3, reviewed: false}
+  support: {engage: 2, disengage: 3, reviewed: false}
+Pyke:
+  support: {engage: 2, pick: 3, reviewed: false}
+Qiyana:
+  jungle: {engage: 2, dive: 2, pick: 2, reviewed: false}
+  mid: {engage: 2, dive: 2, pick: 2, reviewed: false}
+Quinn:
+  top: {poke: 1, pick: 1, splitpush: 2, reviewed: false}
+Rakan:
+  support: {engage: 3, disengage: 2, reviewed: false}
+Rammus:
+  jungle: {engage: 2, dive: 2, reviewed: false}
+RekSai:
+  jungle: {engage: 1, dive: 2, pick: 2, reviewed: false}
+Rell:
+  support: {engage: 3, dive: 1, reviewed: false}
+Renata:
+  support: {disengage: 3, enchanter: 1, reviewed: false}
+Renekton:
+  top: {dive: 2, reviewed: false}
+Rengar:
+  top: {dive: 2, pick: 3, reviewed: false}
+  jungle: {dive: 2, pick: 3, reviewed: false}
+Riven:
+  top: {dive: 2, splitpush: 2, reviewed: false}
+Rumble:
+  top: {engage: 2, reviewed: false}
+  jungle: {engage: 2, reviewed: false}
+  mid: {engage: 2, reviewed: false}
+Ryze:
+  mid: {splitpush: 1, hypercarry: 2, reviewed: false}
+Samira:
+  adc: {dive: 3, hypercarry: 1, reviewed: false}
+Sejuani:
+  jungle: {engage: 3, reviewed: false}
+Senna:
+  adc: {poke: 2, enchanter: 1, hypercarry: 1, reviewed: false}
+  support: {poke: 2, enchanter: 1, hypercarry: 1, reviewed: false}
+Seraphine:
+  mid: {engage: 1, poke: 2, enchanter: 2, reviewed: false}
+  adc: {engage: 1, poke: 2, enchanter: 2, reviewed: false}
+  support: {engage: 1, poke: 2, enchanter: 2, reviewed: false}
+Sett:
+  top: {engage: 2, dive: 1, reviewed: false}
+  support: {engage: 2, dive: 1, reviewed: false}
+Shaco:
+  jungle: {pick: 3, reviewed: false}
+  support: {pick: 3, reviewed: false}
+Shen:
+  top: {engage: 2, dive: 1, splitpush: 2, reviewed: false}
+Shyvana:
+  jungle: {dive: 1, hypercarry: 1, reviewed: false}
+Singed:
+  top: {disengage: 1, splitpush: 2, reviewed: false}
+Sion:
+  top: {engage: 3, splitpush: 1, reviewed: false}
+Sivir:
+  adc: {engage: 1, disengage: 1, poke: 1, hypercarry: 1, reviewed: false}
+Skarner:
+  top: {engage: 2, pick: 3, reviewed: false}
+  jungle: {engage: 2, pick: 3, reviewed: false}
+Smolder:
+  mid: {poke: 1, hypercarry: 3, reviewed: false}
+  adc: {poke: 1, hypercarry: 3, reviewed: false}
+Sona:
+  support: {engage: 1, poke: 1, enchanter: 3, reviewed: false}
+Soraka:
+  support: {disengage: 1, enchanter: 3, reviewed: false}
+Swain:
+  mid: {engage: 2, disengage: 1, reviewed: false}
+  adc: {engage: 2, disengage: 1, reviewed: false}
+  support: {engage: 2, disengage: 1, reviewed: false}
+Sylas:
+  jungle: {engage: 1, dive: 2, pick: 1, reviewed: false}
+  mid: {engage: 1, dive: 2, pick: 1, reviewed: false}
+Syndra:
+  mid: {poke: 2, pick: 3, reviewed: false}
+TahmKench:
+  top: {engage: 1, disengage: 3, reviewed: false}
+  support: {engage: 1, disengage: 3, reviewed: false}
+Taliyah:
+  jungle: {engage: 1, poke: 1, pick: 2, reviewed: false}
+  mid: {engage: 1, poke: 1, pick: 2, reviewed: false}
+Talon:
+  jungle: {dive: 2, pick: 3, reviewed: false}
+  mid: {dive: 2, pick: 3, reviewed: false}
+Taric:
+  support: {engage: 2, disengage: 2, enchanter: 1, reviewed: false}
+Teemo:
+  top: {poke: 2, splitpush: 1, reviewed: false}
+Thresh:
+  support: {engage: 2, disengage: 2, pick: 3, reviewed: false}
+Tristana:
+  mid: {disengage: 1, dive: 2, hypercarry: 2, reviewed: false}
+  adc: {disengage: 1, dive: 2, hypercarry: 2, reviewed: false}
+Trundle:
+  top: {dive: 1, splitpush: 2, reviewed: false}
+  jungle: {dive: 1, splitpush: 2, reviewed: false}
+Tryndamere:
+  top: {splitpush: 3, hypercarry: 1, reviewed: false}
+TwistedFate:
+  mid: {pick: 3, splitpush: 1, reviewed: false}
+Twitch:
+  adc: {pick: 1, hypercarry: 3, reviewed: false}
+Udyr:
+  top: {engage: 1, dive: 2, reviewed: false}
+  jungle: {engage: 1, dive: 2, reviewed: false}
+Urgot:
+  top: {pick: 1, splitpush: 1, reviewed: false}
+Varus:
+  adc: {engage: 1, poke: 2, pick: 2, reviewed: false}
+Vayne:
+  top: {splitpush: 1, hypercarry: 3, reviewed: false}
+  adc: {splitpush: 1, hypercarry: 3, reviewed: false}
+Veigar:
+  mid: {disengage: 2, pick: 1, hypercarry: 2, reviewed: false}
+  support: {disengage: 2, pick: 1, hypercarry: 2, reviewed: false}
+Velkoz:
+  mid: {poke: 3, reviewed: false}
+  support: {poke: 3, reviewed: false}
+Vex:
+  mid: {engage: 2, disengage: 2, pick: 2, reviewed: false}
+Vi:
+  jungle: {engage: 2, dive: 3, pick: 2, reviewed: false}
+Viego:
+  jungle: {dive: 2, hypercarry: 1, reviewed: false}
+Viktor:
+  mid: {disengage: 1, poke: 2, hypercarry: 2, reviewed: false}
+Vladimir:
+  top: {dive: 1, hypercarry: 2, reviewed: false}
+  mid: {dive: 1, hypercarry: 2, reviewed: false}
+Volibear:
+  top: {engage: 2, dive: 3, reviewed: false}
+  jungle: {engage: 2, dive: 3, reviewed: false}
+Warwick:
+  top: {engage: 2, dive: 2, pick: 2, reviewed: false}
+  jungle: {engage: 2, dive: 2, pick: 2, reviewed: false}
+Xayah:
+  adc: {disengage: 2, hypercarry: 1, reviewed: false}
+Xerath:
+  mid: {poke: 3, pick: 1, reviewed: false}
+  support: {poke: 3, pick: 1, reviewed: false}
+XinZhao:
+  jungle: {engage: 2, dive: 3, reviewed: false}
+Yasuo:
+  top: {dive: 2, hypercarry: 2, reviewed: false}
+  mid: {dive: 2, hypercarry: 2, reviewed: false}
+Yone:
+  top: {engage: 2, dive: 3, hypercarry: 2, reviewed: false}
+  mid: {engage: 2, dive: 3, hypercarry: 2, reviewed: false}
+Yorick:
+  top: {splitpush: 3, reviewed: false}
+Yunara:
+  adc: {hypercarry: 2, reviewed: false}
+Yuumi:
+  support: {enchanter: 3, reviewed: false}
+Zac:
+  top: {engage: 3, dive: 2, reviewed: false}
+  jungle: {engage: 3, dive: 2, reviewed: false}
+  support: {engage: 3, dive: 2, reviewed: false}
+Zed:
+  jungle: {dive: 2, pick: 3, splitpush: 1, reviewed: false}
+  mid: {dive: 2, pick: 3, splitpush: 1, reviewed: false}
+Zeri:
+  adc: {dive: 1, hypercarry: 3, reviewed: false}
+Ziggs:
+  mid: {poke: 3, reviewed: false}
+  adc: {poke: 3, reviewed: false}
+Zilean:
+  mid: {disengage: 2, poke: 1, enchanter: 2, reviewed: false}
+  support: {disengage: 2, poke: 1, enchanter: 2, reviewed: false}
+Zoe:
+  mid: {poke: 3, pick: 3, reviewed: false}
+Zyra:
+  mid: {disengage: 1, poke: 2, reviewed: false}
+  support: {disengage: 1, poke: 2, reviewed: false}

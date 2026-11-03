@@ -13,6 +13,7 @@ from sqlalchemy import Engine, text
 from sqlmodel import Session
 
 from draftassist.data.synergy import aggregate_synergy
+from draftassist.data.traits import aggregate_traits
 from draftassist.engine.comp import LONG_S, SHORT_S
 
 ROLE_K = 50
@@ -73,6 +74,7 @@ def aggregate(db: Engine, patch: str) -> dict[str, int]:
                 GROUP BY a.role, a.champ_id, b.champ_id"""), p)
 
         aggregate_synergy(conn, patch)
+        aggregate_traits(conn, patch)  # same window as synergy (docs/synergy-v2.md, Stage 1)
 
         # champions.roles: roles with a meaningful share of the champion's games, all brackets pooled
         rows = conn.execute(text(

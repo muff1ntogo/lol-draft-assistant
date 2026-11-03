@@ -19,6 +19,7 @@ class Champion(SQLModel, table=True):
     roles: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     patch: str = Field(index=True)  # Data Dragon version this row was loaded from
     tags: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))  # classes: Tank, Mage, ...
+    attack_range: float | None = None  # Data Dragon stats.attackrange (ranged / ranged_long traits)
 
 
 class ChampRoleStats(SQLModel, table=True):
@@ -187,6 +188,14 @@ class MatchParticipant(SQLModel, table=True):
     dmg_phys: int | None = None  # physical / magic / true damage dealt to champions
     dmg_magic: int | None = None
     dmg_true: int | None = None
+    # Trait sources (docs/synergy-v2.md, Stage 1; field mapping in data/traits_map.py). None = not in the
+    # match JSON (challenges keys vary by patch) or stored before they were recorded (data.backfill).
+    cc_time: float | None = None  # timeCCingOthers, seconds
+    immobilizations: float | None = None  # challenges.enemyChampionImmobilizations
+    dmg_taken_share: float | None = None  # share of the team's damage taken
+    self_mitigated: float | None = None  # damageSelfMitigated
+    heal_shield: float | None = None  # heals + shields on teammates
+    lane_adv: float | None = None  # challenges.laningPhaseGoldExpAdvantage (or the early-laning key)
 
 
 class MatchBan(SQLModel, table=True):
@@ -256,3 +265,45 @@ class PlayerGame(SQLModel, table=True):
     queue_id: int | None = None
     game_start_ms: int  # epoch ms
     source: str  # match-v5 | logged
+
+
+class ChampionTraitRow(SQLModel, table=True):
+    """Measured traits per champion and role over the synergy window (docs/synergy-v2.md, Stage 1).
+    Percentiles within the role (0-1), except the damage shares (real shares) and ranged (0/1).
+    None = the source field is missing or the champion has too few games."""
+    __tablename__ = "champion_traits"
+
+    window: str = Field(primary_key=True)
+    bracket: str = Field(primary_key=True)
+    champ_id: int = Field(primary_key=True)
+    role: str = Field(primary_key=True)
+    games: int = 0
+    games_w: float = 0.0
+    cc: float | None = None
+    frontline: float | None = None
+    peel: float | None = None
+    dmg_phys: float | None = None
+    dmg_magic: float | None = None
+    dmg_true: float | None = None
+    power_curve: float | None = None  # percentile of the slope (high = scaling)
+    power_curve_slope: float | None = None  # log-odds per game-length bucket: negative = early
+    lane_pressure: float | None = None
+    ranged: float | None = None
+
+
+class ChampionTag(SQLModel, table=True):
+    """Judgement traits rated 0-3 per champion and role, loaded from data/champion_tags.yaml (the source
+    of truth, edited on the Tags page). Unreviewed tags count at half weight."""
+    __tablename__ = "champion_tags"
+
+    champ_id: int = Field(primary_key=True)
+    role: str = Field(primary_key=True)
+    engage: int = 0
+    disengage: int = 0
+    poke: int = 0
+    dive: int = 0
+    pick: int = 0
+    splitpush: int = 0
+    enchanter: int = 0
+    hypercarry: int = 0
+    reviewed: bool = False

@@ -39,7 +39,8 @@ def fetch_champions(client: httpx.Client, version: str, cache_dir: Path, locale:
 
 def parse_champions(payload: dict, version: str) -> list[Champion]:
     return [
-        Champion(champ_id=int(c["key"]), key=c["id"], name=c["name"], patch=version, tags=list(c.get("tags", [])))
+        Champion(champ_id=int(c["key"]), key=c["id"], name=c["name"], patch=version, tags=list(c.get("tags", [])),
+                 attack_range=(c.get("stats") or {}).get("attackrange"))
         for c in payload["data"].values()
     ]
 
@@ -53,6 +54,7 @@ def load_champions(session: Session, champions: list[Champion]) -> int:
             session.add(champ)
         else:
             row.key, row.name, row.patch, row.tags = champ.key, champ.name, champ.patch, champ.tags
+            row.attack_range = champ.attack_range
             session.add(row)
     session.commit()
     return len(champions)
