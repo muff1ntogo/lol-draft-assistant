@@ -138,6 +138,7 @@ class Draft(SQLModel, table=True):
     ddragon_version: str | None = None  # champion art version for that patch, e.g. 16.21.1
     players_json: str | None = None  # our role -> in-game name
     recap_cache: str | None = None  # JSON: lane matchups computed on first view
+    plan_json: str | None = None  # JSON: the plan pinned for this game (docs/synergy-v2.md, Stage 6)
 
 
 class DraftAction(SQLModel, table=True):

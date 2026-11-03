@@ -8,7 +8,23 @@
   const center = $derived(view.center);
   const pct = (p) => (p < 0.005 ? '<1%' : `${Math.round(p * 100)}%`);
   const pp = (x) => `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(x).toFixed(1)}pp`;
+  let unpinned = $state(false);
+  async function unpin() {
+    await fetch('/api/plan/pin', { method: 'DELETE' });
+    unpinned = true; // the banner goes with the next champ select event
+  }
 </script>
+
+{#if view.plan && !unpinned}
+  <div class="planbar {view.plan.state}">
+    <span class="ptext">{view.plan.text}</span>
+    {#if view.plan.state === 'at_risk'}<span>· enemy hovering {view.plan.at_risk.map((c) => c.name).join(', ')}</span>{/if}
+    {#each view.plan.gone as g}
+      <span>· {g.champ.name} gone → backup {g.backup ? g.backup.name : 'none'} ({g.role_label})</span>
+    {/each}
+    <button class="unpin" onclick={unpin} title="Stop using this plan">Unpin</button>
+  </div>
+{/if}
 
 <header class="top {view.side}">
   <span class="side">{view.side.toUpperCase()} SIDE</span>
@@ -57,7 +73,7 @@
               <div class="gname">{card.status_champ.name}</div>
             {:else if card.suggestion}
               <Champ champ={card.suggestion.champ} size={72} />
-              <div class="gname">{card.suggestion.champ.name}</div>
+              <div class="gname">{card.suggestion.champ.name}{#if card.suggestion.plan} <span class="plantag">plan</span>{/if}</div>
               {#if card.suggestion.badge?.text}<span class="badge">{card.suggestion.badge.text}</span>{/if}
               <div class="greason">{card.suggestion.reason}</div>
               <ComponentBar components={card.suggestion.components} />
@@ -81,6 +97,7 @@
           <Champ champ={card.champ} size={center.cards.length > 3 ? 60 : 88} />
           <div>
             <div class="title">{card.champ.name}{#if card.role_label} <small>{card.role_label}</small>{/if}
+              {#if card.plan}<span class="plantag">plan</span>{/if}
               {#if card.badge?.text}<span class="badge">{card.badge.text}</span>{/if}</div>
             <div class="reason">{card.reason}{#if card.effect?.length}<span class="effect">{` → ${card.effect.join(', ')}`}</span>{/if}</div>
             {#if card.components}<ComponentBar components={card.components} />{/if}
@@ -173,6 +190,14 @@
 </main>
 
 <style>
+  .planbar { display: flex; align-items: center; gap: 10px; padding: 3px 20px; font-size: 15px; background: #12304d; color: #cfe6ff; }
+  .planbar.at_risk { background: #3d2e0a; color: #f0c674; }
+  .planbar.broken { background: #4a1f1c; color: #ffb4ad; }
+  .planbar .ptext { font-weight: 600; }
+  .planbar .unpin { margin-left: auto; font: inherit; font-size: 13px; background: none; color: inherit;
+                    border: 1px solid currentColor; border-radius: 5px; padding: 0 8px; cursor: pointer; }
+  .plantag { font-size: 13px; font-weight: 600; color: #8ec5ff; border: 1px solid #2f6fb7; border-radius: 4px;
+             padding: 0 5px; margin-left: 6px; vertical-align: middle; }
   .top { display: grid; grid-template-columns: 1fr auto 1fr auto; align-items: center; gap: 24px;
          padding: 14px 28px; font-size: 26px; font-weight: 700; border-bottom: 4px solid var(--line); }
   .top.blue { border-color: var(--blue); }

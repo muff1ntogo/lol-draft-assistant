@@ -46,6 +46,8 @@ from draftassist.data.tags import TAGS_FILE, remove_tag, sync_tags, update_tag
 from draftassist.data.traits import load_traits
 from draftassist.engine.traits import TAGS
 from draftassist.data.settings_store import (
+    load_pinned,
+    save_pinned,
     engine_config,
     get_synergy_bracket,
     save_ban_settings,
@@ -90,6 +92,14 @@ class Services:
     style_rules_path: Path = STYLE_RULES_FILE
     team_rules_path: Path = TEAM_RULES_FILE
     synergy_v2_override: object | None = None  # tests: a fixed SynergyEvaluator
+    pinned: dict | None = None  # the plan pinned for the next game (docs/synergy-v2.md, Stage 6)
+
+    def __post_init__(self) -> None:
+        if self.db is not None and self.pinned is None:
+            self.pinned = load_pinned(self.db)
+        self.live.pin_provider = lambda: self.pinned  # read on every champ select event
+        if self.live.logger is not None:
+            self.live.logger.pin_provider = lambda: self.pinned
     _synergy_v2: object | None = None  # built lazily, dropped on reload and after tag / rule edits
 
     def synergy_v2(self):
@@ -595,6 +605,41 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         d = get_synergy_v2_settings(svc.db)["ban_teamfight_d"] if svc.db is not None else 1.0
         ctx = PlanContext(svc.engine, svc.synergy_v2(), dict(locks), state)
         return {**plan_json(ctx, svc.catalog.card, d), "live": bool(use_draft and live is not None)}
+
+    # ---------- pinned plan (docs/synergy-v2.md, Stage 6) ----------
+    @app.get("/api/plan/pin")
+    def get_pin(request: Request) -> dict:
+        return {"pinned": request.app.state.services.pinned}
+
+    @app.post("/api/plan/pin")
+    def post_pin(request: Request, locks: dict[str, int] = Body(..., embed=True)) -> dict:
+        """"Pin for next game": the plan with its pick order and Combined bans for both sides and formats.
+        Live then shows the plan banner and gives the plan's bans and due picks a bonus."""
+        from datetime import datetime, timezone
+
+        from draftassist.data.settings_store import get_synergy_v2_settings
+        from draftassist.engine.plan import build_pin
+
+        svc: Services = request.app.state.services
+        if not locks or any(r not in ROLES for r in locks) or len(set(locks.values())) != len(locks):
+            raise HTTPException(422, f"locks: one champion per role (at least one), roles from {', '.join(ROLES)}")
+        v = get_synergy_v2_settings(svc.db) if svc.db is not None else {}
+        pin = build_pin(svc.engine, svc.synergy_v2(), locks, v.get("plan_ban_bonus", 0.3),
+                        v.get("plan_pick_bonus", 0.3), v.get("ban_teamfight_d", 1.0))
+        pin["pinned_at"] = datetime.now(timezone.utc).isoformat()
+        svc.pinned = pin
+        if svc.db is not None:
+            save_pinned(svc.db, pin)
+        return {"pinned": pin}
+
+    @app.delete("/api/plan/pin")
+    def delete_pin(request: Request) -> dict:
+        """Unpin (one click on the Live screen). Takes effect from the next champ select event."""
+        svc: Services = request.app.state.services
+        svc.pinned = None
+        if svc.db is not None:
+            save_pinned(svc.db, None)
+        return {"pinned": None}
 
     @app.put("/api/synergy/bracket")
     def put_synergy_bracket(request: Request, bracket: str = Body(..., embed=True)) -> dict:

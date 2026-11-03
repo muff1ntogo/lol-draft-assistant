@@ -460,6 +460,74 @@ def plan_risks(c: PlanContext, k: int = 3) -> dict:
     return {"champions": out_champs, "identities": identities}
 
 
-__all__ = ["Backup", "PlanBan", "PlanContext", "PlannedPick", "Slot", "Teamfight", "backups", "combined_bans",
+# ---------- Stage 6: a pinned plan in the live draft ----------
+PLAN_BAN_BONUS = 0.3  # log-odds on the plan's Combined bans at our ban turns
+PLAN_PICK_BONUS = 0.3  # log-odds on plan champions due at our current pick slot
+
+
+def build_pin(engine: DraftEngine, ev: SynergyEvaluator, locks: Mapping[str, int], ban_bonus: float = PLAN_BAN_BONUS,
+              pick_bonus: float = PLAN_PICK_BONUS, d_weight: float = 1.0) -> dict:
+    """What "Pin for next game" stores (JSON): the plan, its pick order and Combined bans for both sides and
+    both formats (the side and format are only known in champ select), the backups and the bonuses."""
+    from draftassist.engine.formats import STANDARD_RANKED, TOURNAMENT
+
+    locks = {r: int(c) for r, c in locks.items()}
+    orders: dict[str, dict] = {}
+    bans: dict[str, dict] = {}
+    backup_map: dict[str, int | None] = {}
+    for fmt in (TOURNAMENT, STANDARD_RANKED):
+        orders[fmt.name], bans[fmt.name] = {}, {}
+        for side in ("blue", "red"):
+            ctx = PlanContext(engine, ev, locks, DraftState(fmt, side))
+            orders[fmt.name][side] = [{"champ": o.champ, "role": o.role, "slot": o.label, "group": o.group,
+                                       "n": o.slot_index, "line": o.line} for o in pick_order(ctx)]
+            bans[fmt.name][side] = [b.champ_id for b in combined_bans(ctx, d_weight)]
+            if not backup_map:
+                backup_map = {r: (b.champ if b else None) for r, b in backups(ctx).items()}
+    return {"locks": locks, "orders": orders, "bans": bans, "backups": backup_map,
+            "ban_bonus": ban_bonus, "pick_bonus": pick_bonus}
+
+
+@dataclass(frozen=True)
+class PinEffects:
+    ban_bonus: dict[int, float]
+    pick_bonus: dict[int, float]
+    banner: dict  # state (intact | at_risk | broken), champs, at_risk, gone (with backups)
+
+
+def pin_effects(pin: Mapping, state: DraftState, enemy_hovers: frozenset[int] = frozenset(),
+                filled_roles: frozenset[str] = frozenset()) -> PinEffects:
+    """The pinned plan against the live draft:
+    - banner: broken once a plan champion is gone (banned by anyone or picked by the enemy), at risk while an
+      enemy action hovers one, else intact;
+    - ban bonus: the plan's Combined bans for this format and side (the engine applies it on our ban turns);
+    - pick bonus: plan champions due by our current pick slot group (e.g. B2-B3), not yet picked, whose role
+      we haven't filled with someone else. Availability is left to the engine's guardrails."""
+    locks = {r: int(c) for r, c in pin["locks"].items()}
+    fmt, side = state.format.name, state.our_side
+    unavailable, ours = state.unavailable(), set(state.our_picks)
+    gone = [{"champ": c, "role": r, "backup": pin.get("backups", {}).get(r)}
+            for r, c in locks.items() if c in unavailable and c not in ours]
+    at_risk = [c for c in locks.values() if c in enemy_hovers and c not in unavailable]
+    status = "broken" if gone else "at_risk" if at_risk else "intact"
+    banner = {"state": status, "champs": locks, "at_risk": at_risk, "gone": gone,
+              "picked": [c for c in locks.values() if c in ours]}
+
+    ban_bonus = {c: float(pin["ban_bonus"]) for c in pin["bans"].get(fmt, {}).get(side, []) if c not in unavailable}
+    pick_bonus: dict[int, float] = {}
+    step = state.step
+    if step is not None and step.kind == "pick" and step.side == side:
+        slots = our_slots(state.format, side)
+        n = len(state.our_picks)
+        if n < len(slots):
+            last_due = max(s.n for s in slots if s.group == slots[n].group)
+            for o in pin["orders"].get(fmt, {}).get(side, []):
+                c = int(o["champ"])
+                if o["n"] <= last_due and c not in ours and o["role"] not in filled_roles:
+                    pick_bonus[c] = float(pin["pick_bonus"])
+    return PinEffects(ban_bonus, pick_bonus, banner)
+
+
+__all__ = ["PinEffects", "build_pin", "pin_effects", "Backup", "PlanBan", "PlanContext", "PlannedPick", "Slot", "Teamfight", "backups", "combined_bans",
            "enemy_presence", "fills", "our_slots", "pick_order", "plan_risks", "win_lane_bans",
            "win_teamfight_bans"]

@@ -149,9 +149,10 @@ def save_synergy_bracket(db: Engine, bracket: str) -> None:
 
 SYNERGY_V2_KEY = "synergy_v2"
 SYNERGY_V2_DEFAULTS = {"prior_sd_pp": 1.0, "w_stat": 0.50, "w_style": 0.25, "w_team": 0.25, "conf_k": 200.0,
-                       "ban_teamfight_d": 1.0}
+                       "ban_teamfight_d": 1.0, "plan_ban_bonus": 0.3, "plan_pick_bonus": 0.3}
 _SYNERGY_V2_RANGES = {"prior_sd_pp": (0.1, 10), "w_stat": (0, 5), "w_style": (0, 5), "w_team": (0, 5),
-                      "conf_k": (1, 5000), "ban_teamfight_d": (0, 10)}
+                      "conf_k": (1, 5000), "ban_teamfight_d": (0, 10), "plan_ban_bonus": (0, 2),
+                      "plan_pick_bonus": (0, 2)}
 
 
 def get_synergy_v2_settings(db: Engine) -> dict:
@@ -186,3 +187,31 @@ def synergy_weights(db: Engine):
 
     v = get_synergy_v2_settings(db)
     return SynergyWeights(v["w_stat"], v["w_style"], v["w_team"], v["conf_k"])
+
+
+PIN_KEY = "pinned_plan"
+
+
+def load_pinned(db: Engine) -> dict | None:
+    """The plan pinned for the next game (docs/synergy-v2.md, Stage 6), or None."""
+    with Session(db) as s:
+        row = s.get(AppSetting, PIN_KEY)
+    if row is None:
+        return None
+    pin = json.loads(row.value)
+    if pin:
+        pin["locks"] = {r: int(c) for r, c in pin["locks"].items()}
+    return pin or None
+
+
+def save_pinned(db: Engine, pin: dict | None) -> None:
+    with Session(db) as s:
+        row = s.get(AppSetting, PIN_KEY)
+        if pin is None:
+            if row is not None:
+                s.delete(row)
+        else:
+            row = row or AppSetting(key=PIN_KEY, value="")
+            row.value = json.dumps(pin)
+            s.add(row)
+        s.commit()

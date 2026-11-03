@@ -76,6 +76,7 @@ class LiveDraft:
     ally_action: str | None = None  # "ban" | "pick" while one of our actions is in progress
     ally_ban_hovers: frozenset[int] = frozenset()  # champions teammates are about to ban
     ally_bans: tuple[AllyBan, ...] = ()  # our ban actions in a simultaneous ban phase
+    enemy_hovers: frozenset[int] = frozenset()  # champions an enemy in-progress action shows (ban or pick)
 
 
 def detect_format(session: dict) -> DraftFormat:
@@ -116,6 +117,7 @@ def parse_session(session: dict, format_name: str = "auto",
     locked: dict[int, int] = {}  # actor cell -> locked champion (completed pick action)
     ally_cell = enemy_cell = ally_action = None
     ally_ban_hovers: set[int] = set()
+    enemy_hovers: set[int] = set()
     ally_ban_actions: list[tuple[int, str, int]] = []  # (actor cell, status, champion)
     for a in actions:
         ally = _req(a, "isAllyAction", "actions[]")
@@ -140,6 +142,8 @@ def parse_session(session: dict, format_name: str = "auto",
                     enemy_cell = cell
                 if ally and a["type"] == "ban" and champ > 0:
                     ally_ban_hovers.add(champ)
+                if not ally and champ > 0:
+                    enemy_hovers.add(champ)
             if a["type"] == "pick" and side == our_side and champ > 0:
                 pending_picks[_req(a, "actorCellId", "actions[]")] = champ
     actor_cell = ally_cell if ally_cell is not None else enemy_cell
@@ -196,4 +200,5 @@ def parse_session(session: dict, format_name: str = "auto",
         ally_action=ally_action,
         ally_ban_hovers=frozenset(ally_ban_hovers - taken),
         ally_bans=ally_bans,
+        enemy_hovers=frozenset(enemy_hovers - taken),
     )

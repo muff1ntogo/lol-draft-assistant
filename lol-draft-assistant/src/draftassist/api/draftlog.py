@@ -40,6 +40,7 @@ class _Pending:
     draft_id: int | None = None
     players: dict[str, str] = field(default_factory=dict)  # our role -> in-game name
     pick_roles: dict[int, str] = field(default_factory=dict)  # our locked champion -> role
+    plan: str | None = None  # JSON of the plan pinned when this champ select started
 
 
 def _snapshot(center: dict) -> dict | None:
@@ -97,6 +98,7 @@ class DraftLogger:
         self._clock = clock
         self.context = context
         self.pending: _Pending | None = None
+        self.pin_provider = None  # () -> the pinned plan (dict) or None; snapshotted per draft
 
     # ---------- champ select ----------
     def observe(self, live: LiveDraft, payload: dict) -> None:
@@ -109,6 +111,10 @@ class DraftLogger:
                      or not {c for c in p.actions if c != SKIPPED} <= set(st.actions))
         if new_draft:
             p = self.pending = _Pending(live.game_id, st.our_side, st.format.name, self._clock())
+            pin = self.pin_provider() if self.pin_provider else None
+            if pin:
+                p.plan = json.dumps({"locks": pin["locks"], "backups": pin.get("backups", {}),
+                                     "orders": pin.get("orders", {}), "bans": pin.get("bans", {})})
         if live.game_id and not p.game_id:
             p.game_id = live.game_id
         center = payload.get("center") or {}
@@ -190,6 +196,8 @@ class DraftLogger:
             draft.pred_win_prob = p.pred_win_prob if p.pred_win_prob is not None else draft.pred_win_prob
             if p.players:
                 draft.players_json = json.dumps(p.players)
+            if p.plan:
+                draft.plan_json = p.plan
             win_probs: list[float | None] = [None] * len(p.actions)
             if self.context is not None:
                 engine, catalog = self.context()

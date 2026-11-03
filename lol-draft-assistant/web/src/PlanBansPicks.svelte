@@ -13,6 +13,25 @@
   let data = $state(null);
   let error = $state(null);
   let loading = $state(false);
+  let pinned = $state(null);
+  let pinMsg = $state('');
+  fetch('/api/plan/pin').then((r) => r.json()).then((d) => (pinned = d.pinned));
+  const sameAsPinned = $derived(pinned && JSON.stringify(Object.entries(pinned.locks).sort())
+                                         === JSON.stringify(Object.entries(locks).map(([r, c]) => [r, c]).sort()));
+  async function pin() {
+    pinMsg = '';
+    const r = await fetch('/api/plan/pin', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                              body: JSON.stringify({ locks }) });
+    const body = await r.json();
+    if (!r.ok) { pinMsg = typeof body.detail === 'string' ? body.detail : 'Could not pin'; return; }
+    pinned = body.pinned;
+    pinMsg = 'Pinned: the Live screen follows this plan in the next champ select.';
+  }
+  async function unpin() {
+    await fetch('/api/plan/pin', { method: 'DELETE' });
+    pinned = null;
+    pinMsg = '';
+  }
 
   $effect(() => {
     try { localStorage.setItem('prep-bans', JSON.stringify({ side, format })); } catch { /* not remembered */ }
@@ -56,7 +75,14 @@
       <button class:on={format === 'flex'} onclick={() => (format = 'flex')}>Flex</button>
     </div>
     {#if loading}<span class="muted small">updating…</span>{/if}
+    <span class="pin">
+      {#if pinned && sameAsPinned}<span class="pinned">📌 Pinned for next game</span>
+      {:else}<button class="pinbtn" disabled={!Object.keys(locks).length} onclick={pin}>
+        📌 {pinned ? 'Pin this plan instead' : 'Pin for next game'}</button>{/if}
+      {#if pinned}<button onclick={unpin}>Unpin</button>{/if}
+    </span>
   </div>
+  {#if pinMsg}<p class="muted small">{pinMsg}</p>{/if}
   {#if error}<p class="error">{typeof error === 'string' ? error : JSON.stringify(error)}</p>{/if}
   {#if data}
     {#if data.empty}<p class="muted">Lock champions above to build a plan. Until then the lists use each player's whole pool.</p>{/if}
@@ -146,6 +172,10 @@
   h3 small { color: var(--muted); font-weight: 400; font-size: 13px; }
   h4 { font-size: 13px; margin: 10px 0 4px; color: #c9d1d9; }
   .group { display: inline-flex; gap: 4px; }
+  .pin { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }
+  .pinbtn { background: var(--blue); border-color: var(--blue); color: white; }
+  .pinbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .pinned { color: #8ec5ff; font-size: 13px; }
   button { font: inherit; font-size: 13px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
   button.on { background: #3d3214; border-color: var(--gold); color: var(--gold); }
   button.blue.on { background: #12304d; border-color: #2f6fb7; color: #8ec5ff; }

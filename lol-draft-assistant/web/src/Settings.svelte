@@ -11,7 +11,8 @@
   let compCoherence = $state(true);
   let compWeight = $state(0.15);
   let message = $state('');
-  let syn = $state({ w_stat: 0.5, w_style: 0.25, w_team: 0.25, conf_k: 200, prior_sd_pp: 1, ban_teamfight_d: 1 });
+  let syn = $state({ w_stat: 0.5, w_style: 0.25, w_team: 0.25, conf_k: 200, prior_sd_pp: 1, ban_teamfight_d: 1,
+                     plan_ban_bonus: 0.3, plan_pick_bonus: 0.3 });
   let synMessage = $state('');
 
   fetch('/api/settings').then((r) => r.json()).then((s) => {
@@ -166,6 +167,14 @@
     <p class="muted">
       Prior SD: how far crawled data may move a written rule (smaller = trust the rules more); changing it refits
       every rule.
+    </p>
+    <div class="advanced">
+      <label>Pinned plan: ban bonus <input type="number" min="0" max="2" step="0.05" bind:value={syn.plan_ban_bonus} /></label>
+      <label>Pinned plan: pick bonus <input type="number" min="0" max="2" step="0.05" bind:value={syn.plan_pick_bonus} /></label>
+    </div>
+    <p class="muted">
+      Log-odds added on the Live screen to a pinned plan's bans (our ban turns) and to plan champions due at our
+      current pick (0.3 ≈ 7.5pp). Applied when a plan is pinned; plan suggestions still pass every guardrail.
     </p>
     <button onclick={saveSynergy}>Save synergy settings</button>
     {#if synMessage}<p class="msg">{synMessage}</p>{/if}

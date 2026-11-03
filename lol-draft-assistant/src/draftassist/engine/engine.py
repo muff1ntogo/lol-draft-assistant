@@ -86,6 +86,7 @@ class Suggestion:
     own_loss: float | None = None  # ban: what banning our own pool champion costs us (log-odds)
     discount: float | None = None  # ban: 1 - P(enemy team bans it too) in blind bans, else 1
     comp_fit: float = 0.0  # pick: comp coherence term (log-odds, damped), included in value but not win_prob
+    plan: bool = False  # a pinned plan's bonus applied (docs/synergy-v2.md, Stage 6)
 
 
 @dataclass(frozen=True)
@@ -547,17 +548,32 @@ class DraftEngine:
             return frozenset(c for c, _ in state.hovers)
         return frozenset()
 
-    def suggest_bans(self, state: DraftState, k: int = 3) -> list[Suggestion]:
-        """Top-k bans with value > 0 (ban-guardrails.md Rule 3)."""
+    @staticmethod
+    def _with_bonus(cands: list[BanCandidate], bonus: dict[int, float] | None) -> list[BanCandidate]:
+        """A pinned plan's ban bonus (log-odds) on its bans, only where the ban already has value > 0: a ban
+        that hurts us doesn't become a suggestion because a plan listed it."""
+        if not bonus:
+            return cands
+        from dataclasses import replace as _replace
+
+        out = [_replace(b, value=b.value + bonus[b.champ_id]) if b.champ_id in bonus and b.value > 0 else b
+               for b in cands]
+        out.sort(key=lambda b: (-b.value, b.champ_id))
+        return out
+
+    def suggest_bans(self, state: DraftState, k: int = 3, bonus: dict[int, float] | None = None) -> list[Suggestion]:
+        """Top-k bans with value > 0 (ban-guardrails.md Rule 3). `bonus`: a pinned plan's ban bonus."""
         declared = self._declared_intents(state)
-        cands = [b for b in self._ban_candidates(state) if b.value > 0 and b.champ_id not in declared]
-        out = [self._ban_suggestion(state, b, self._last_tables) for b in cands[:k]]
+        cands = [b for b in self._with_bonus(self._ban_candidates(state), bonus)
+                 if b.value > 0 and b.champ_id not in declared]
+        out = [self._ban_suggestion(state, b, self._last_tables, plan=b.champ_id in (bonus or {}))
+               for b in cands[:k]]
         return validate_suggestions(state, "ban", out, self.cfg.min_ban_relevance,
                                     forbidden=declared)
 
     def ban_group(self, state: DraftState, owners: list[str | None], plan: dict[str, int] | None = None,
-                  extra: dict[int, float] | None = None,
-                  exclude: frozenset[int] = frozenset()) -> list[tuple[str | None, Suggestion | None]]:
+                  extra: dict[int, float] | None = None, exclude: frozenset[int] = frozenset(),
+                  bonus: dict[int, float] | None = None) -> list[tuple[str | None, Suggestion | None]]:
         """Simultaneous bans (Flex): one coordinated ban per owner (docs/flex-simultaneous-bans.md).
 
         Chosen greedily with recomputation: take the best, treat it as banned, re-score (the enemy
@@ -568,11 +584,12 @@ class DraftEngine:
         chosen: list[tuple[Suggestion, dict[str, float]]] = []
         current = state
         for _ in range(len(owners)):
-            best = next((b for b in self._ban_candidates(current, plan, extra)
+            best = next((b for b in self._with_bonus(self._ban_candidates(current, plan, extra), bonus)
                          if b.value > 0 and b.champ_id not in declared), None)
             if best is None:
                 break
-            chosen.append((self._ban_suggestion(current, best, self._last_tables), best.lanes))
+            chosen.append((self._ban_suggestion(current, best, self._last_tables,
+                                                plan=best.champ_id in (bonus or {})), best.lanes))
             current = current.with_provisional([best.champ_id])
         suggestions = validate_suggestions(state, "ban", [s for s, _ in chosen], self.cfg.min_ban_relevance,
                                            forbidden=declared)
@@ -587,14 +604,16 @@ class DraftEngine:
         assigned: dict[int, Suggestion] = {slot: s for (s, _), slot in zip(kept, best_perm or ())}
         return [(owners[i], assigned.get(i)) for i in slots]
 
-    def _ban_suggestion(self, state: DraftState, b: BanCandidate, tables: dict[str, RoleBanTable]) -> Suggestion:
+    def _ban_suggestion(self, state: DraftState, b: BanCandidate, tables: dict[str, RoleBanTable],
+                        plan: bool = False) -> Suggestion:
         hover = state.hovered_by(b.champ_id)
         warnings = (f"⚠ hovered by {ROLE_LABELS.get(hover, 'a teammate')}",) if hover is not None else ()
         if b.own_loss > 0 and b.own_role:
             warnings += (f"⚠ our {_role_noun(b.own_role, possessive=True)} best pick",)
         return Suggestion(b.champ_id, self.data.name(b.champ_id), "ban", b.value, self._ban_reason(b, tables),
                           role=b.likely_role, enemy_prob=b.enemy_prob, relevance=b.relevance, warnings=warnings,
-                          threat=b.threat, matchup=b.matchup, comp=b.comp, discount=b.discount, own_loss=b.own_loss)
+                          threat=b.threat, matchup=b.matchup, comp=b.comp, discount=b.discount, own_loss=b.own_loss,
+                          plan=plan)
 
     def _ban_reason(self, b: BanCandidate, tables: dict[str, RoleBanTable]) -> str:
         """One line from the largest positive weighted component."""
@@ -626,8 +645,11 @@ class DraftEngine:
         rates = sorted(((s.pick_rate, c) for c in self._champs if (s := enemy.role_stat(c, role))), reverse=True)
         return next((i + 1 for i, (_, c) in enumerate(rates) if c == champ), len(rates) + 1)
 
-    def suggest_picks(self, state: DraftState, k: int = 3, role: str | None = None) -> list[Suggestion]:
-        """Pick value = P(win) after the pick - risk_weight * counter risk + flex bonus."""
+    def suggest_picks(self, state: DraftState, k: int = 3, role: str | None = None,
+                      bonus: dict[int, float] | None = None) -> list[Suggestion]:
+        """Pick value = P(win) after the pick - risk_weight * counter risk + flex bonus.
+        `bonus`: a pinned plan's pick bonus (log-odds, converted like comp coherence) for the plan champions
+        due at this slot; they still pass every guardrail."""
         self._assign_cache.clear()
         cfg = self.cfg
         ours, theirs = state.our_picks, state.their_picks
@@ -670,10 +692,13 @@ class DraftEngine:
             flex = cfg.flex_bonus * max(len(flex_roles) - 1, 0)
             fit = self.coherence(locked, c, r_c, target)
             value = win - cfg.risk_weight * risk + flex + _LO_TO_PROB * fit
+            in_plan = bool(bonus) and c in bonus
+            if in_plan:
+                value += _LO_TO_PROB * bonus[c]
             reason = self._pick_reason(c, r_c, our_roles, ev.their_roles, flex_roles, flex, cfg.risk_weight * risk, counter,
                                        (_LO_TO_PROB * fit, target))
             out.append(Suggestion(c, self.data.name(c), "pick", value, reason, role=r_c, win_prob=win,
-                                  counter_id=counter, counter_risk=risk, comp_fit=fit))
+                                  counter_id=counter, counter_risk=risk, comp_fit=fit, plan=in_plan))
         out.sort(key=lambda s: (-s.value, s.champ_id))
         return validate_suggestions(state, "pick", out[:k])
 

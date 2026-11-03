@@ -216,7 +216,13 @@ Trio-specific win-rate data; roam pairs (JG–SUP, MID–SUP) as separate in-lan
 - `POST /api/prep/plan` (locks, side, format tournament | flex, use_draft) → bans (lane / teamfight / combined, each with reason, value, owner in Flex, components), picks (order with one line each, fills, risks, backups). `web/src/PlanBansPicks.svelte` under the top half, on the same plan.
 - Measured on the scratch database (4 locks): 0.37 s cold, ~0.08 s warm, tournament and Flex. Live suggestion budgets are untouched (the Live path calls the engine with no plan).
 
-## Decision log (Stages 3–5, built without review: please check these)
+### Stage 6 (3 Nov 2026)
+- `engine/plan.py`: `build_pin` (the plan, its pick order and Combined bans for both sides and both formats, backups, bonuses) and `pin_effects` (banner state, ban bonus, pick bonus for a DraftState). `engine.py`: `suggest_bans` / `ban_group` / `suggest_picks` take an optional `bonus`; `Suggestion.plan` marks a bonus. Parser: `LiveDraft.enemy_hovers` (champions in the enemy's in-progress ban or pick action).
+- API: `GET / POST / DELETE /api/plan/pin`; the pin is kept in `app_settings` (`pinned_plan`), so it survives a restart. Live payload: `plan` (banner text, state, at-risk and gone champions with backups); cards carry `plan`. `drafts.plan_json` stores the plan pinned when the champ select started; History rows and recaps show "plan followed? yes / partly / no".
+- UI: "Pin for next game" / "Unpin" on Prep (bottom half header); the Live banner (blue intact, amber at risk, red broken, with the backup) and an Unpin button; `plan` tags on cards; History chip and recap line. Settings: plan ban / pick bonus.
+- Budgets with a pinned plan (full-size synthetic data, tested): single ban turn < 200 ms, Flex group turn < 300 ms, pick turn < 200 ms.
+
+## Decision log (Stages 3–6, built without review: please check these)
 
 Each entry: the question, the options, what I chose and why.
 
@@ -272,3 +278,15 @@ The assignment of plan champions to our open slots is chosen by brute force (≤
 **S5-9. Backups.** The player's pool champion that keeps Overall highest (Stat + Style + Team), never banned, picked or another plan champion; shown as the Overall change (it can be positive: then the backup scores better than the plan champion on synergy alone).
 
 **S5-10. Format default and side.** Tournament (Ranked 5s) by default, with a Flex toggle; side toggle blue / red; both remembered per browser. The bottom half follows the top half's plan, including champions locked in a live draft when "use current draft" is on.
+
+**S6-1. Banner states.** broken = a plan champion is gone (banned by either team, or picked by the enemy); the banner shows that role's backup (stored with the pin). at risk = an enemy in-progress ban or pick action shows a plan champion (the parser now reads it). Our own pick of a plan champion keeps the plan intact. Alternative considered: "at risk" also when a plan champion's contest risk is high (left out: it would be amber before every game).
+
+**S6-2. "Due at this slot".** A plan champion gets the pick bonus at every pick of the slot group it was assigned to, and later (if we haven't picked it yet), because the two picks of a double turn lock in either order. It gets none before its group, none once its role is filled by someone else, and the guardrails still drop it when it is gone.
+
+**S6-3. Ban bonus only for useful bans.** The bonus applies only to plan bans whose own value is already > 0: a ban that hurts us isn't turned into a suggestion because the plan listed it (Rule 3 of the guardrails stays meaningful). Units: ban values are log-odds, so +0.3 is added as is; pick values are in win-probability units, so the 0.3 log-odds is converted with the slope at 50% (× 0.25 = +7.5pp of value). Observation from the demo: on synthetic data 0.3 is large next to ban values (~0.05–0.3), so plan bans filled 4 of 5 cards at our first ban turn; lower it in Settings if that's too strong on real data.
+
+**S6-4. What a pin stores.** The pin is computed when you press it, for both sides and both formats (side and format are only known in champ select): pick orders, Combined bans, backups, and the bonuses then set in Settings. A draft keeps its own copy (`plan_json`), so unpinning or re-pinning later doesn't change History. One pin at a time; it stays pinned until unpinned (a game doesn't use it up). Alternative: auto-unpin after a logged game (left out: a team often plays the same plan twice).
+
+**S6-5. Plan adherence.** yes = every plan champion was picked by us (any role), partly = some, no = none, with "n of m". Bans aren't scored: a ban list is a menu, not a plan.
+
+**S6-6. Unpin from Live** is one click (a DELETE); the banner disappears at once on that screen and from the next champ-select event everywhere.

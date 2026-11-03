@@ -90,6 +90,7 @@
           <span class="meta">
             <span>{pct(g.pred_win_prob)} predicted</span>
             <span class="muted">{g.queue} · <span class="side {g.side}">{g.side}</span> · {g.patch ?? '—'} · {day(g.played_at)}</span>
+            {#if g.plan}<span class="plan {g.plan.followed}" title="Plan picks made: {g.plan.picked} of {g.plan.total}">plan {g.plan.followed === 'yes' ? 'followed' : g.plan.followed === 'partly' ? 'partly followed' : 'not followed'}</span>{/if}
           </span>
         </button>
       {/each}
@@ -108,6 +109,10 @@
           <span class="side {ours}">{ours} side</span>
         </div>
         <div class="pred">Predicted {pct(h.pred_win_prob)} → {h.result === 'win' ? 'Won' : h.result === 'loss' ? 'Lost' : '—'}</div>
+        {#if recap.plan}
+          <div class="planline">Plan followed? <strong>{recap.plan.followed}</strong> ({recap.plan.picked} of {recap.plan.total}):
+            {#each recap.plan.champs as c}<span class="pc" class:miss={!c.picked}><Champ champ={c} size={22} />{c.name}</span>{/each}</div>
+        {/if}
       </header>
       {#if recap.note}<p class="note">{recap.note}</p>{/if}
       {#if recap.report}
@@ -227,6 +232,13 @@
 </main>
 
 <style>
+  .plan { font-size: 11px; border-radius: 4px; padding: 0 5px; width: fit-content; }
+  .plan.yes { background: #0f3d2e; color: #4fd1a1; }
+  .plan.partly { background: #3d2e0a; color: #e0a640; }
+  .plan.no { background: #2d3540; color: #c9d1d9; }
+  .planline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; margin-top: 6px; }
+  .pc { display: inline-flex; align-items: center; gap: 4px; }
+  .pc.miss { opacity: 0.5; text-decoration: line-through; }
   .history { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 20px; padding: 16px 24px 40px; }
   .muted { color: #8b96a3; }
   /* list */

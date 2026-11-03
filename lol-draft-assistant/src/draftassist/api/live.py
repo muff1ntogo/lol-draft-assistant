@@ -87,7 +87,7 @@ def _ban_card(catalog: ChampionCatalog, s: Suggestion, hovered: set[int], weight
     card = {"champ": catalog.card(s.champ_id), "reason": s.reason, "value": round(s.value, 4),
             "relevance": None if s.relevance is None else round(s.relevance, 3),
             "discount": None if s.discount is None else round(s.discount, 3),
-            "warnings": list(s.warnings), "highlighted": s.champ_id in hovered}
+            "warnings": list(s.warnings), "highlighted": s.champ_id in hovered, "plan": s.plan}
     if s.threat is not None and weights is not None:
         # Each component in log-odds, unweighted and as it enters the ban value (weighted).
         card["components"] = {
@@ -102,12 +102,13 @@ def _ban_card(catalog: ChampionCatalog, s: Suggestion, hovered: set[int], weight
 NO_USEFUL_BAN = "no useful ban \u2014 free choice"
 
 
-def _ban_group(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDraft, hovered: set[int]) -> dict:
+def _ban_group(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDraft, hovered: set[int],
+               bonus: dict[int, float] | None = None) -> dict:
     """Simultaneous bans: one card per teammate with our coordinated suggestion and their status."""
     st = live.state
     open_bans = [b for b in live.ally_bans if b.status in ("pending", "hovering")]
     teammates_hovering = {b.champ_id for b in open_bans if b.status == "hovering"}
-    chosen = engine.ban_group(st.with_provisional(teammates_hovering), [b.role for b in open_bans])
+    chosen = engine.ban_group(st.with_provisional(teammates_hovering), [b.role for b in open_bans], bonus=bonus)
     suggestion_for = {id(b): s for b, (_, s) in zip(open_bans, chosen)}
     order = {r: i for i, r in enumerate(ROLES)}
     cards = []
@@ -131,7 +132,7 @@ def _pick_card(catalog: ChampionCatalog, s: Suggestion, hovered: set[int], profi
         warnings.append(f"⚠ easy to counter: {catalog.card(s.counter_id)['name']}")
     return {"champ": catalog.card(s.champ_id), "reason": s.reason, "role": s.role,
             "role_label": ROLE_LABELS.get(s.role or "", ""), "win_prob": round(s.win_prob, 4),
-            "warnings": warnings, "highlighted": s.champ_id in hovered,
+            "warnings": warnings, "highlighted": s.champ_id in hovered, "plan": s.plan,
             "badge": badge(profiles, s.champ_id, s.role).as_dict(),
             "effect": comp_effect(profiles, ours, s.champ_id, s.role)}
 
@@ -149,10 +150,29 @@ def _score_hover(engine: DraftEngine, state: DraftState, open_roles: list[str], 
     return next((s for s in ranked if s.champ_id == champ), None)
 
 
+def _plan_banner(catalog: ChampionCatalog, banner: dict) -> dict:
+    """The thin banner on top of the Live screen: `Plan: A · B · C — intact` (docs/synergy-v2.md, Stage 6)."""
+    card = catalog.card
+    champs = [(r, c) for r in ROLES if (c := banner["champs"].get(r))]
+    label = {"intact": "intact", "at_risk": "at risk", "broken": "broken"}[banner["state"]]
+    text = f"Plan: {' · '.join(card(c)['name'] for _, c in champs)} — {label}"
+    return {"state": banner["state"], "text": text, "champs": [{**card(c), "role": r} for r, c in champs],
+            "at_risk": [card(c) for c in banner["at_risk"]], "picked": banner["picked"],
+            "gone": [{"champ": card(g["champ"]), "role": g["role"], "role_label": ROLE_LABELS[g["role"]],
+                      "backup": card(g["backup"]) if g["backup"] else None} for g in banner["gone"]]}
+
+
 def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDraft,
-                    data_source: str, note: str | None) -> dict:
+                    data_source: str, note: str | None, pin: dict | None = None) -> dict:
     st = live.state
     ev = engine.evaluate(st)
+    effects = None
+    if pin:
+        from draftassist.engine.plan import pin_effects
+
+        effects = pin_effects(pin, st, live.enemy_hovers, frozenset(ev.our_roles.values()))
+    ban_bonus = effects.ban_bonus if effects else None
+    pick_bonus = effects.pick_bonus if effects else None
     card = catalog.card
     step = st.step
     finished = step is None or live.timer_phase in ("FINALIZATION", "GAME_STARTING")
@@ -197,18 +217,19 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
         center = {"mode": "locked", "win_prob": round(ev.win_prob, 4),
                   "threats": [{"champ": card(t.champ_id), "reason": t.reason} for t in engine.threats(st, k=2)]}
     elif st.format.simultaneous_bans and any(b.status in ("pending", "hovering") for b in live.ally_bans):
-        center = _ban_group(engine, catalog, live, hovered)
+        center = _ban_group(engine, catalog, live, hovered, ban_bonus)
     elif live.ally_action == "ban" or (st.is_our_turn and step.kind == "ban"):
         # Ranked bans are simultaneous: show ours while any teammate is still banning, minus the
         # champions teammates are already about to ban.
         about_to_ban = live.ally_ban_hovers
         n = NARROW_CARDS if st.format.simultaneous_bans else n_cards  # Flex bans: unchanged
-        bans = [s for s in engine.suggest_bans(st, k=n + len(about_to_ban)) if s.champ_id not in about_to_ban][:n]
+        bans = [s for s in engine.suggest_bans(st, k=n + len(about_to_ban), bonus=ban_bonus)
+                if s.champ_id not in about_to_ban][:n]
         center = {"mode": "our_ban", "title": "BAN",
                   "cards": [_ban_card(catalog, s, hovered, engine.cfg.ban_weights, profiles) for s in bans]}
     elif st.is_our_turn:
         role = live.actor_role if live.actor_role in open_roles else None
-        picks = engine.suggest_picks(st, k=n_cards, role=role)
+        picks = engine.suggest_picks(st, k=n_cards, role=role, bonus=pick_bonus)
         cards = [_pick_card(catalog, s, hovered, profiles, ours) for s in picks]
         center = {"mode": "our_pick", "title": f"PICK — {ROLE_LABELS[role]}" if role else "PICK", "cards": cards,
                   "hover_card": None}
@@ -250,6 +271,7 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
         "comp": {"ours": {**team_comp(profiles, ours).as_dict(), "target": _target(engine, ours)},
                  "theirs": team_comp(profiles, theirs).as_dict()},
         "center": center,
+        "plan": _plan_banner(catalog, effects.banner) if effects else None,
     }
 
 
@@ -268,7 +290,8 @@ class LiveService:
         self.gameflow_phase: str | None = None
         self.queue_id: int | None = None
         self._resolved_for: int | None = None  # game id whose teammates were already matched to players
-        self.current: LiveDraft | None = None  # latest parsed champ select (Synergy page: "Use current draft")
+        self.current: LiveDraft | None = None  # latest parsed champ select (Prep page: "Use current draft")
+        self.pin_provider: Callable[[], dict | None] | None = None  # the pinned plan (docs/synergy-v2.md, Stage 6)
 
     def _waiting(self) -> dict:
         return {"status": "waiting", "message": "Waiting for champ select", "client": self.client_status,
@@ -282,7 +305,8 @@ class LiveService:
             roles = self.players.roles_by_puuid() if self.players else None
             live = parse_session(session, self.draft_format, roles)
             self.current = live
-            return build_live_view(self.engine, self.catalog, live, self.data_source, self.note), live
+            pin = self.pin_provider() if self.pin_provider else None
+            return build_live_view(self.engine, self.catalog, live, self.data_source, self.note, pin), live
         except SessionParseError as e:
             log.error("could not parse champ select session: %s", e)
             return {"status": "error", "message": str(e)}, None

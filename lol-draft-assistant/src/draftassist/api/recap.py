@@ -79,6 +79,19 @@ def _roles(engine: DraftEngine, draft: Draft, actions: list[DraftAction]) -> tup
 
 
 # ---------- list ----------
+def plan_adherence(draft: Draft, actions: list[DraftAction]) -> dict | None:
+    """Was the plan pinned for this game followed? yes = every plan champion picked by us, partly = some,
+    no = none (docs/synergy-v2.md, Stage 6). None when no plan was pinned."""
+    if not draft.plan_json:
+        return None
+    plan = json.loads(draft.plan_json)
+    champs = [int(c) for c in plan.get("locks", {}).values()]
+    ours = {a.champ_id for a in actions if a.type == "pick" and a.side == draft.side}
+    picked = sum(c in ours for c in champs)
+    followed = "yes" if champs and picked == len(champs) else "partly" if picked else "no"
+    return {"followed": followed, "picked": picked, "total": len(champs)}
+
+
 def history_rows(db: Engine, catalog: ChampionCatalog, queue: str | None = None, side: str | None = None,
                  result: str | None = None, patch: str | None = None, limit: int = 200) -> list[dict]:
     with Session(db) as s:
@@ -102,6 +115,7 @@ def history_rows(db: Engine, catalog: ChampionCatalog, queue: str | None = None,
             "their_champs": [art(catalog, a.champ_id, d.ddragon_version) for a in picks if a.side != d.side],
             "followed_top": sum(1 for a in followed if a.our_rank == 1), "our_turns": len(followed),
             "match_verified": d.match_verified, "result_source": d.result_source,
+            "plan": plan_adherence(d, acts[d.draft_id]),
         })
     return rows
 
@@ -221,7 +235,13 @@ def recap(db: Engine, engine: DraftEngine, catalog: ChampionCatalog, draft_id: i
             for a, step in zip(actions, fmt.steps)]
 
     played = draft.played_at if isinstance(draft.played_at, datetime) else datetime.fromisoformat(str(draft.played_at))
+    plan = plan_adherence(draft, actions)
+    if plan is not None:
+        locks = json.loads(draft.plan_json).get("locks", {})
+        ours = {a.champ_id for a in actions if a.type == "pick" and a.side == draft.side}
+        plan["champs"] = [{**card(int(c)), "role": r, "picked": int(c) in ours} for r, c in locks.items()]
     return {
+        "plan": plan,
         "draft_id": draft.draft_id,
         "header": {"result": draft.result, "queue": queue_label(draft), "patch": draft.patch,
                    "played_at": played.isoformat(), "game_length_s": draft.game_length_s, "side": our_side,
