@@ -101,27 +101,47 @@ class Services:
         if self.live.logger is not None:
             self.live.logger.pin_provider = lambda: self.pinned
     _synergy_v2: object | None = None  # built lazily, dropped on reload and after tag / rule edits
+    _synergy_pending: object | None = None  # a rebuilt evaluator waiting for the draft to end
 
     def synergy_v2(self):
-        """The synergy v2 evaluator (Stat / Style / Team), warmed for our pools."""
+        """The synergy v2 evaluator (Stat / Style / Team), warmed for our pools: the one the engine scores
+        Live with when it has one, else built on demand."""
         if self.synergy_v2_override is not None:
             return self.synergy_v2_override
+        if self.engine.data.synergy_v2 is not None:
+            return self.engine.data.synergy_v2
         if self._synergy_v2 is None:
-            from draftassist.engine.style import StyleModel
-            from draftassist.engine.synergy_v2 import SynergyEvaluator
-            from draftassist.engine.team import TeamModel
-            from draftassist.engine.traits import EMPTY_TRAITS
-
-            stat = self.engine.data.synergy
-            if self.db is None:
-                self._synergy_v2 = SynergyEvaluator(stat, EMPTY_TRAITS, StyleModel([], {}), TeamModel([], EMPTY_TRAITS))
-            else:
-                self._synergy_v2 = build_evaluator(self.db, stat, get_synergy_bracket(self.db), self.style_rules_path,
-                                                   self.team_rules_path, self.engine.team.pools)
+            self._synergy_v2 = self._build_synergy_v2(self.engine.data.synergy, self.engine.team.pools)
         return self._synergy_v2
 
+    def _build_synergy_v2(self, stat, pools):
+        from draftassist.engine.style import StyleModel
+        from draftassist.engine.synergy_v2 import SynergyEvaluator
+        from draftassist.engine.team import TeamModel
+        from draftassist.engine.traits import EMPTY_TRAITS
+
+        if self.db is None:
+            return SynergyEvaluator(stat, EMPTY_TRAITS, StyleModel([], {}), TeamModel([], EMPTY_TRAITS))
+        return build_evaluator(self.db, stat, get_synergy_bracket(self.db), self.style_rules_path,
+                               self.team_rules_path, pools)
+
     def invalidate_synergy(self) -> None:
+        """After a tag, rule or weight edit: rebuild the evaluator. The engine's copy (Live scoring) is
+        swapped at once between drafts, else at the next stats refresh after the draft."""
         self._synergy_v2 = None
+        if self.engine.data.synergy_v2 is None or self.db is None:
+            return
+        fresh = self._build_synergy_v2(self.engine.data.synergy, self.engine.team.pools)
+        if self.in_draft():
+            self._synergy_pending = fresh
+        else:
+            self._swap_synergy(fresh)
+
+    def _swap_synergy(self, ev) -> None:
+        from dataclasses import replace as _replace
+
+        self.engine.data = _replace(self.engine.data, synergy_v2=ev)
+        self._synergy_pending = None
 
     def refresh_profiles(self) -> bool:
         """After a style review: give the engine the new champion profiles, but not mid-draft."""
@@ -156,7 +176,8 @@ class Services:
         version = stats_version(self.db)
         inputs = load_engine_inputs(self.db)
         live = self.live
-        live.engine, live.catalog = DraftEngine(inputs.data, inputs.team, engine_config(self.db)), inputs.catalog
+        data = with_synergy_v2(self.db, inputs, self.style_rules_path, self.team_rules_path)
+        live.engine, live.catalog = DraftEngine(data, inputs.team, engine_config(self.db)), inputs.catalog
         live.data_source, live.note = inputs.data_source, inputs.note
         self._synergy_v2 = None
         if self.players is not None:
@@ -201,6 +222,8 @@ class Services:
     def refresh_stats(self) -> str:
         """Reload stats if the crawl (or anything else) changed them, but only between drafts.
         Returns 'unchanged', 'deferred' (in a draft; retried next time) or 'reloaded'."""
+        if self._synergy_pending is not None and not self.in_draft():
+            self._swap_synergy(self._synergy_pending)
         if self.db is None or stats_version(self.db) == self.loaded_version:
             return "unchanged"
         if self.in_draft():
@@ -210,6 +233,22 @@ class Services:
         if self.hub.latest.get("status") != "champ_select":
             self.hub.publish_threadsafe(self.live._waiting())  # banner shows the new sources
         return "reloaded"
+
+
+def with_synergy_v2(db: Engine, inputs, style_path: Path = STYLE_RULES_FILE, team_path: Path = TEAM_RULES_FILE):
+    """The engine's data with the synergy v2 evaluator attached, so Live scores Stat + Style + Team
+    (docs/synergy-v2.md). Synthetic fixture stats keep the v1 term."""
+    from dataclasses import replace as _replace
+
+    if inputs.data_source == "fixture":
+        return inputs.data
+    try:
+        ev = build_evaluator(db, inputs.data.synergy, get_synergy_bracket(db), style_path, team_path,
+                             inputs.team.pools)
+    except (OSError, ValueError) as e:  # a broken rule file must not stop the app: v1 synergy until fixed
+        log.warning("synergy v2 unavailable, Live uses the v1 synergy term: %s", e)
+        return inputs.data
+    return _replace(inputs.data, synergy_v2=ev)
 
 
 def build_services(settings: Settings) -> Services:
@@ -229,7 +268,7 @@ def build_services(settings: Settings) -> Services:
     except (OSError, ValueError) as e:
         log.warning("could not load %s: %s", TAGS_FILE, e)
     inputs = load_engine_inputs(db)
-    engine = DraftEngine(inputs.data, inputs.team, engine_config(db))
+    engine = DraftEngine(with_synergy_v2(db, inputs), inputs.team, engine_config(db))
     hub = LiveHub()
     players = PlayerDirectoryDb(db)
     client = settings.lcu_mode == "client"

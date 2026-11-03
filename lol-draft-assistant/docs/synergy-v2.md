@@ -228,6 +228,32 @@ Trio-specific win-rate data; roam pairs (JG–SUP, MID–SUP) as separate in-lan
   - It fits the Live screen at 1920×1080 at its fullest (5 cards + Next 2 picks), with no scroll.
 - Budgets with a pinned plan (full-size synthetic data, tested): single ban turn < 200 ms, Flex group turn < 300 ms, pick turn < 200 ms.
 
+### After Stage 6 review (3 Nov 2026): one fight-style vocabulary, and synergy v2 in Live
+Decided by the user: (1) bring the new synergy into Live, replacing the v1 Stat-only term; (2) merge the comp-style
+fight styles with the tag identities, using the five identities everywhere and keeping the hand-set coherence
+pull on the new labels.
+
+- **One vocabulary:** `engine/comp.py` `STYLES` = the five identities (Engage / Poke / Pick / Protect / Split) with
+  `IDENTITY_TERMS` (shared with the team model). Per champion and role, shares come from its tags as written
+  (`data/profiles.py`): engage = engage + ½ dive, poke, pick = pick + ½ dive, protect = enchanter + ½ disengage
+  + ½ hypercarry, split. Front-line = measured frontline ≥ 70th percentile across roles, else the Tank class.
+  Untagged champions use their Data Dragon classes. Badges, comp panels, `team_comp`, comp coherence, the Team
+  page and the plan bar all read these. On the drafted tags: Engage 61, Engage / Pick 36, Pick 32, Protect 32,
+  Poke 25, Split 21, mixes for the rest, "Spread" for 7 of 247 champion-roles.
+- Retired: the comp-style seed (`champion_styles.json`), its review page and `/api/champions/styles`; the
+  `champion_styles` table stays in the database, unread. The **Champions** tab now opens the Tags page, which shows
+  each role's style and timing next to the tags. Colours: dataviz categorical slots 4–8 in the documented order
+  (Engage `#c98500`, Poke `#d55181`, Pick `#008300`, Protect `#9085e9`, Split `#e66767`), validated as an adjacent
+  stack on `#161b22` (all checks pass); the legend lists only the identities present.
+- **Live scoring:** `EngineData.synergy_v2` (attached by `api/main.with_synergy_v2` on start and reload; synthetic
+  fixture stats keep v1). The synergy part of L becomes our pairs' Stat + Style parts − theirs, plus
+  w_team × Team vs enemy (missing roles = average champions); the 85% damage penalty is dropped (the team model's
+  `damage_imbalance` rule replaces it; its Settings checkbox is gone). Picks and Next 2 picks score every
+  candidate's Team in one numpy batch (`TeamModel.many_vs`); reasons ("+1.2pp with your locked X"), Next 2 picks'
+  "together" and threats use the v2 pair synergy. Tag, rule and weight edits rebuild the evaluator and swap it
+  into the engine between drafts (never mid-draft). Budgets with v2 on full-size data (tested): pick turn with
+  Next 2 picks < 200 ms, ban turn < 200 ms, Flex group bans < 300 ms.
+
 ## Decision log (Stages 3–6, built without review: please check these)
 
 Each entry: the question, the options, what I chose and why.
@@ -298,3 +324,24 @@ The assignment of plan champions to our open slots is chosen by brute force (≤
 **S6-6. Unpin from Live** is one click (a DELETE); the banner disappears at once on that screen and from the next champ-select event everywhere.
 
 **S6-7. Plan bar contents.** Timing and fight style use the comp-style labels (`engine/comp.py`: power curves, reviewed Dive / Poke / Front to back weights) so the bar matches the comp panels and badges on the same screen; the synergy v2 identity (engage / poke / pick / protect / split, from tags) stays on Prep. "Now" fills roles we haven't picked with the plan champion while it's available, else its backup, so it shows where the plan is heading, not only what is locked. Damage uses the per-champion damage profile from the crawl (no data → "no damage data").
+
+**S7-1. Identity labels read tags as written.** The half weight of unreviewed tags stays in the fitted models
+(Style, Team); labels use the tags as you wrote them, so a draft tag shows its intended identity rather than a
+blur towards the role average.
+
+**S7-2. Identity terms.** Dive counts half to Engage and half to Pick (divers start fights or pick targets);
+Protect includes half of Hypercarry (the carry a protect comp is built around); measured peel is left out of the
+labels (a percentile across roles gave every champion some Protect). The team model's identity coherence uses the
+same terms. Changing a term changes both, in one place (`engine/comp.py`).
+
+**S7-3. Thresholds for five identities.** A champion "is" an identity from a 40% share (was 50% for three
+styles), a team's identity is named from 35% of the comp with two contributors (was 45%), and the coherence pull
+is share − 1/5 (was − 1/3). The old rule that Front to back needs a front-liner is gone (Protect doesn't).
+
+**S7-4. Old saved styles.** A Team-page style saved before the merge is read as Front to back → Protect,
+Dive → Engage, Poke → Poke (and the pre-Stage-C "engage" → Protect); new saves carry a version, so "engage" now
+means Engage. Logged drafts are re-classified on every Team page view, so labels follow tag edits.
+
+**S7-5. Live synergy term.** P(win) now includes Style and Team (fitted models), unlike comp coherence, which
+stays a preference added to pick value only. With no fits stored (before the first aggregation) the rules' priors
+are used; with a broken rule file the app logs it and Live falls back to the v1 term.

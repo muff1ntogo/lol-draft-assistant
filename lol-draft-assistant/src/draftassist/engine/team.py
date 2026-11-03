@@ -346,6 +346,18 @@ class TeamModel:
         parts = np.hstack([own, cross])
         return parts.sum(axis=1), parts
 
+    def many_vs(self, ours: Sequence[Comp], theirs: Comp, fill: bool = True) -> np.ndarray:
+        """Team vs enemy totals for many comps of ours against one enemy comp (N,), in log-odds."""
+        n = len(ours)
+        if n == 0:
+            return np.zeros(0)
+        many = [theirs] * n
+        own = (self.features(ours, fill) - self.features([theirs], fill)) @ self.beta()
+        if not self.cross_rules:
+            return own
+        cross = (self.cross(ours, many, fill) - self.cross(many, ours, fill)) @ self.gamma()
+        return own + cross
+
     def identity_parts(self, champ: int, role: str) -> dict[str, float]:
         """One champion's contribution to each comp identity."""
         parts = self._identity_parts(self._arrays([[(champ, role)]]))[0, ROLE_INDEX[role]]

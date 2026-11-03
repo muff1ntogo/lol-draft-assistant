@@ -4,7 +4,8 @@
   bracket on the patch pooled).
 - Style: shares over the five comp identities (engage, poke, pick, protect, split) from the champion's
   judgement tags (data/champion_tags.yaml, reviewed on the Tags page) and its measured peel, per role:
-      engage = engage + 1/2 dive, poke, pick, protect = enchanter + 1/2 disengage + 1/2 peel, split
+      engage = engage + 1/2 dive, poke, pick = pick + 1/2 dive, protect = enchanter + 1/2 disengage
+      + 1/2 hypercarry, split
   Tags are read as written (0-3 -> 0-1), reviewed or not: the half weight of unreviewed tags is for the fitted
   models, not for labels. Untagged champions (e.g. a new release) fall back to their Data Dragon classes.
 - Front-line: measured frontline (percentile across every role) >= FRONTLINE_PCT, else the Tank class.

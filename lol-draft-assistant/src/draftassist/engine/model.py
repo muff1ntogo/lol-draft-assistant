@@ -66,6 +66,9 @@ class EngineData:
     synergy: SynergyTable = EMPTY_SYNERGY  # role-aware duo synergy, pooled window (engine/synergy.py)
     damage: Mapping[tuple[int, str], tuple[float, float, float]] = field(default_factory=dict)  # (champ, role) -> phys/magic/true share
     profiles: ChampionProfiles = EMPTY_PROFILES  # comp type and fight style per champion (engine/comp.py)
+    # Synergy v2 (docs/synergy-v2.md): when set, the synergy term is Stat + Style + Team (engine/synergy_v2.py)
+    # instead of `synergy` alone, and the team model's damage rule replaces the damage-balance penalty.
+    synergy_v2: object | None = None
 
     def champions(self) -> frozenset[int]:
         ids = set(self.names)

@@ -48,11 +48,13 @@ class Terms:
     syn_us: float = 0.0
     syn_them: float = 0.0  # subtracted
     lane: float = 0.0
-    damage: float = 0.0  # damage balance penalty on our comp (<= 0)
+    damage: float = 0.0  # damage balance penalty on our comp (<= 0); 0 with synergy v2 (Team covers it)
+    team: float = 0.0  # synergy v2: w_team x Team vs enemy (docs/synergy-v2.md), 0 without it
 
     @property
     def total(self) -> float:
-        return self.meta_us + self.comfort - self.meta_them + self.syn_us - self.syn_them + self.lane + self.damage
+        return (self.meta_us + self.comfort - self.meta_them + self.syn_us - self.syn_them + self.lane + self.damage
+                + self.team)
 
 
 @dataclass(frozen=True)
@@ -236,19 +238,58 @@ class DraftEngine:
                 best, best_map = s, {**m, champ: r}
         return best_map
 
-    def _terms(self, ours: list[int], our_roles: dict[int, str], theirs: list[int], their_roles: dict[int, str]) -> Terms:
+    def _terms(self, ours: list[int], our_roles: dict[int, str], theirs: list[int], their_roles: dict[int, str],
+               syn: tuple[float, float, float] | None = None) -> Terms:
+        """`syn` = (syn_us, syn_them, team) already computed (batched candidates), else computed here."""
         cfg, enemy = self.cfg, self._enemy()
         meta_us = sum(cfg.alpha * self._m(c, our_roles[c], self._our_bracket(our_roles[c])) for c in ours)
         comfort = sum(cfg.beta * self._comfort(c, our_roles[c]) for c in ours)
         meta_them = sum(self._m(c, their_roles[c], enemy) for c in theirs)
-        syn_us = self._syn(ours, our_roles)
-        syn_them = self._syn(theirs, their_roles)
         their_by_role = {r: c for c, r in their_roles.items()}
         lane = 0.0
         for c, r in our_roles.items():
             if (opp := their_by_role.get(r)) is not None:
                 lane += logit(self._our_bracket(r).matchup_wr(r, c, opp))
+        if self.data.synergy_v2 is not None:
+            syn_us, syn_them, team = syn if syn is not None else self._syn_v2(ours, our_roles, theirs, their_roles)
+            return Terms(meta_us, comfort, meta_them, syn_us, syn_them, lane, 0.0, team)
+        syn_us = self._syn(ours, our_roles)
+        syn_them = self._syn(theirs, their_roles)
         return Terms(meta_us, comfort, meta_them, syn_us, syn_them, lane, self._damage_term(ours, our_roles))
+
+    # ---------- synergy v2 (docs/synergy-v2.md): Stat + Style per pair, Team vs enemy ----------
+    def _v2_pairs(self, champs: list[int], roles: dict[int, str]) -> float:
+        """Sum of each pair's part of Overall (Stat, and Style for the core in-lane pairs)."""
+        ev = self.data.synergy_v2
+        return sum(ev.pair(roles[a], a, roles[b], b).contribution for a, b in combinations(champs, 2))
+
+    def _syn_v2(self, ours: list[int], our_roles: dict[int, str], theirs: list[int],
+                their_roles: dict[int, str]) -> tuple[float, float, float]:
+        ev = self.data.synergy_v2
+        team = 0.0
+        if ours or theirs:
+            team = ev.weights.team * ev.team.team_vs([(c, our_roles[c]) for c in ours],
+                                                     [(c, their_roles[c]) for c in theirs], fill=True).total
+        return self._v2_pairs(ours, our_roles), self._v2_pairs(theirs, their_roles), team
+
+    def _syn_v2_batch(self, comps: list[tuple[list[int], dict[int, str]]], theirs: list[int],
+                      their_roles: dict[int, str]) -> list[tuple[float, float, float]]:
+        """Many candidate comps of ours against one enemy comp: Team vs enemy in one numpy batch."""
+        ev = self.data.synergy_v2
+        syn_them = self._v2_pairs(theirs, their_roles)
+        enemy = [(c, their_roles[c]) for c in theirs]
+        teams = ev.team.many_vs([[(c, roles[c]) for c in champs] for champs, roles in comps], enemy, fill=True)
+        return [(self._v2_pairs(champs, roles), syn_them, ev.weights.team * float(t))
+                for (champs, roles), t in zip(comps, teams)]
+
+    def pair_synergy(self, role_a: str, a: int, role_b: str, b: int) -> tuple[float, bool]:
+        """A pair's synergy in log-odds for reasons and pick pairs: its part of Overall with synergy v2, else
+        the v1 Stat score; and whether it is low data."""
+        if self.data.synergy_v2 is not None:
+            p = self.data.synergy_v2.pair(role_a, a, role_b, b)
+            return p.contribution, p.low_data
+        p = self.data.synergy.pair(role_a, a, role_b, b)
+        return p.s, p.low_data
 
     def _syn(self, champs: list[int], roles: dict[int, str]) -> float:
         """Sum of role-aware pair synergy over every pair, each champion in its assigned role."""
@@ -666,16 +707,21 @@ class DraftEngine:
         locked = [(c, ev.our_roles.get(c)) for c in ours]
         target, _ = self.target_for(locked)
 
-        out = []
+        cands = []
         for c in self._champs:
             if c in unavailable:
                 continue
             cand_roles = [r for r in roles if self.team.entry(c, r) or self._our_bracket(r).role_stat(c, r)]
-            if not cand_roles:
-                continue
-            our_roles = self._assign_plus(US, tuple(ours), c, cand_roles)
+            if cand_roles:
+                cands.append((c, self._assign_plus(US, tuple(ours), c, cand_roles)))
+        syns: list = [None] * len(cands)
+        if self.data.synergy_v2 is not None and cands:  # Team vs enemy for every candidate in one batch
+            syns = self._syn_v2_batch([(ours + [c], roles_) for c, roles_ in cands], theirs, ev.their_roles)
+
+        out = []
+        for (c, our_roles), syn in zip(cands, syns):
             r_c = our_roles[c]
-            win = sigmoid(self._terms(ours + [c], our_roles, theirs, ev.their_roles).total)
+            win = sigmoid(self._terms(ours + [c], our_roles, theirs, ev.their_roles, syn).total)
 
             risk, counter = 0.0, None
             if enemy_left and r_c in enemy_open:
@@ -731,16 +777,18 @@ class DraftEngine:
         locked = [(c, ev.our_roles.get(c)) for c in ours]
         target, _ = self.target_for(locked)
 
+        combos = [((a, r1), (b, r2)) for r1, r2 in combinations(open_roles, 2)
+                  for a in cands[r1] for b in cands[r2] if a != b]
+        roles_of = [{**ev.our_roles, a: r1, b: r2} for (a, r1), (b, r2) in combos]
+        syns: list = [None] * len(combos)
+        if self.data.synergy_v2 is not None and combos:  # Team vs enemy for every pair in one batch
+            syns = self._syn_v2_batch([(ours + [a, b], roles) for ((a, _), (b, _)), roles in zip(combos, roles_of)],
+                                      theirs, ev.their_roles)
         scored = []
-        for r1, r2 in combinations(open_roles, 2):
-            for a in cands[r1]:
-                for b in cands[r2]:
-                    if a == b:
-                        continue
-                    roles = {**ev.our_roles, a: r1, b: r2}
-                    total = self._terms(ours + [a, b], roles, theirs, ev.their_roles).total
-                    fit = self.coherence(locked, a, r1, target) + self.coherence([*locked, (a, r1)], b, r2, target)
-                    scored.append((total + fit, total, (a, r1), (b, r2)))
+        for ((a, r1), (b, r2)), roles, syn in zip(combos, roles_of, syns):
+            total = self._terms(ours + [a, b], roles, theirs, ev.their_roles, syn).total
+            fit = self.coherence(locked, a, r1, target) + self.coherence([*locked, (a, r1)], b, r2, target)
+            scored.append((total + fit, total, (a, r1), (b, r2)))
         scored.sort(key=lambda x: (-x[0], x[2][0], x[3][0]))
 
         valid, seen = [], set()  # (rank score, pair), best first, guardrails checked, each champion pair once
@@ -753,8 +801,8 @@ class DraftEngine:
             if len(validate_suggestions(state, "pick", [first, second])) < 2:
                 continue
             seen.add(key)
-            pair = self.data.synergy.pair(r1, a, r2, b)
-            valid.append((score, PickPair(first, second, win, to_pp(pair.s), pair.low_data)))
+            syn, low = self.pair_synergy(r1, a, r2, b)
+            valid.append((score, PickPair(first, second, win, to_pp(syn), low)))
 
         out: list[tuple[float, PickPair]] = []
         shown: dict[int, int] = {}  # champion -> pairs it is already in
@@ -796,7 +844,7 @@ class DraftEngine:
             opp = our_by_role.get(r)
             lane_wr = 1 - self._our_bracket(r).matchup_wr(r, opp, c) if opp is not None else 0.5
             lane = logit(lane_wr)
-            partners = [(self.data.synergy.pair(r, c, ro, o).s, o) for o, ro in ev.their_roles.items() if o != c]
+            partners = [(self.pair_synergy(r, c, ro, o)[0], o) for o, ro in ev.their_roles.items() if o != c]
             best_syn = max(partners, default=(0.0, None))
             syn = sum(s for s, _ in partners) / 2
             if opp is not None and lane > max(meta, best_syn[0], 0):
@@ -841,7 +889,7 @@ class DraftEngine:
             terms.append((_LO_TO_PROB * logit(bracket.matchup_wr(role, c, opp)), f"counters their {self.data.name(opp)}"))
         for o, r_o in our_roles.items():
             if o != c:
-                syn = self.data.synergy.pair(role, c, r_o, o).s
+                syn = self.pair_synergy(role, c, r_o, o)[0]
                 terms.append((_LO_TO_PROB * syn, f"{_pp(to_pp(syn))} with your locked {self.data.name(o)}"))
         if flex > 0:
             terms.append((flex, "flex " + "/".join(ROLE_LABELS[r] for r in flex_roles)))

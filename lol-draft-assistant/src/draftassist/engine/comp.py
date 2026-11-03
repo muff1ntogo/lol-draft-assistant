@@ -26,12 +26,14 @@ TIMING_THRESHOLD = 0.15
 
 IDENTITIES = ("engage", "poke", "pick", "protect", "split")
 IDENTITY_LABELS = {"engage": "Engage", "poke": "Poke", "pick": "Pick", "protect": "Protect", "split": "Split"}
-# identity -> (trait term, weight): a champion's contribution to an identity (tags 0-1, measured percentiles)
+# identity -> (tag, weight): a champion's contribution to an identity, from its reviewed tags only (0-1).
+# Dive feeds both engage (diving in to start fights) and pick (diving a target); a hypercarry is what a
+# protect comp protects. Measured peel is left out: a percentile across roles labels every champion a bit Protect.
 IDENTITY_TERMS: dict[str, tuple[tuple[str, float], ...]] = {
     "engage": (("engage", 1.0), ("dive", 0.5)),
     "poke": (("poke", 1.0),),
-    "pick": (("pick", 1.0),),
-    "protect": (("enchanter", 1.0), ("disengage", 0.5), ("peel_all", 0.5)),
+    "pick": (("pick", 1.0), ("dive", 0.5)),
+    "protect": (("enchanter", 1.0), ("disengage", 0.5), ("hypercarry", 0.5)),
     "split": (("splitpush", 1.0),),
 }
 STYLES = IDENTITIES  # the fight-style vocabulary everywhere (badges, comp panels, coherence, Team page)

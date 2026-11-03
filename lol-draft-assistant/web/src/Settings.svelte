@@ -36,7 +36,7 @@
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values: syn }),
     });
     const body = await res.json();
-    synMessage = res.ok ? 'Saved. The Prep page uses the new weights at once.' : `Not saved: ${body.detail}`;
+    synMessage = res.ok ? 'Saved. Prep uses the new weights at once; Live from the next draft.' : `Not saved: ${body.detail}`;
     if (res.ok) syn = { ...body.synergy_v2 };
   }
 
@@ -110,19 +110,14 @@
       Tiers still count every game.
     </p>
 
-    <label class="check">
-      <input type="checkbox" bind:checked={damageBalance} />
-      Damage balance: penalise a comp that is more than 85% one damage type
-    </label>
-    {#if damageBalance}
-      <label class="row">Penalty (log-odds)
-        <input type="number" min="-1" max="0" step="0.01" bind:value={damagePenalty} /></label>
-      <p class="muted">Applies once three or more of our picks have damage data; −0.05 is about −1.25pp win chance.</p>
-    {/if}
+    <p class="muted">
+      Synergy and damage balance are scored by the synergy model (Stat + Style + Team, weights below): the team model's
+      damage rule replaces the old "more than 85% one damage type" penalty.
+    </p>
 
     <label class="check">
       <input type="checkbox" bind:checked={compCoherence} />
-      Comp style: pull picks towards our style (the Team page's, else the one our comp is heading for)
+      Comp style: pull picks towards our identity (the Team page's, else the one our comp is heading for)
     </label>
     {#if compCoherence}
       <label class="row">Strength (log-odds)
@@ -149,7 +144,7 @@
   </section>
 
   <section class="gap">
-    <h2>Synergy (Prep page)</h2>
+    <h2>Synergy (Live and Prep)</h2>
     <div class="advanced">
       <label>Stat weight <input type="number" min="0" max="5" step="0.05" bind:value={syn.w_stat} /></label>
       <label>Style weight <input type="number" min="0" max="5" step="0.05" bind:value={syn.w_style} /></label>
