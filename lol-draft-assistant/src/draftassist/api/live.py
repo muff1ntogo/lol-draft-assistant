@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -23,7 +24,7 @@ from draftassist.engine.comp import (
     comp_effect,
     team_comp,
 )
-from draftassist.engine.engine import DraftEngine, Suggestion
+from draftassist.engine.engine import DraftEngine, Evaluation, Suggestion
 from draftassist.engine.guards import strict_mode
 from draftassist.engine.model import ROLE_LABELS, ROLES
 from draftassist.engine.state import DraftState
@@ -161,6 +162,30 @@ def _comp_summary(engine: DraftEngine, comp: list[tuple[int, str]]) -> dict:
     return {**team_comp(engine.data.profiles, list(comp)).as_dict(), "damage": damage}
 
 
+def _plan_slot_status(st: DraftState, champ: int, role: str, by_role: dict[str, int],
+                      at_risk: list[int]) -> tuple[str, int | None]:
+    """A planned champion against the draft: (status, the champion we picked in its role instead, if any)."""
+    if champ in st.our_picks:
+        return "picked", None
+    if role in by_role:
+        return "replaced", by_role[role]
+    if champ in st.bans():
+        return "banned", None
+    if champ in st.their_picks:
+        return "taken", None
+    return ("at_risk" if champ in at_risk else "planned"), None
+
+
+def _plan_ban_status(st: DraftState, champ: int) -> str:
+    if champ in st.bans(st.our_side):
+        return "ours"
+    if champ in st.bans(st.their_side):
+        return "theirs"
+    if champ in st.our_picks or champ in st.their_picks:
+        return "picked"
+    return "open"
+
+
 def _plan_bar(engine: DraftEngine, catalog: ChampionCatalog, pin: dict, banner: dict | None = None,
               st: DraftState | None = None, our_roles: dict[int, str] | None = None) -> dict:
     """The pinned plan's bar at the bottom of the Live screen (docs/synergy-v2.md, Stage 6): each planned
@@ -170,75 +195,177 @@ def _plan_bar(engine: DraftEngine, catalog: ChampionCatalog, pin: dict, banner: 
     card = catalog.card
     locks = {r: int(c) for r, c in pin["locks"].items()}
     backups = {r: (int(b) if b else None) for r, b in (pin.get("backups") or {}).items()}
-    order = [r for r in ROLES if r in locks]
-    plan_comp = [(locks[r], r) for r in order]
+    plan_comp = [(locks[r], r) for r in ROLES if r in locks]
     banner = banner or {"state": "intact", "champs": locks, "at_risk": [], "gone": [], "picked": []}
     label = {"intact": "intact", "at_risk": "at risk", "broken": "broken"}[banner["state"]]
-    text = f"Plan: {' · '.join(card(c)['name'] for c, _ in plan_comp)} — {label}"
-    out = {"state": banner["state"], "label": label, "text": text,
+    out = {"state": banner["state"], "label": label,
+           "text": f"Plan: {' · '.join(card(c)['name'] for c, _ in plan_comp)} — {label}",
            "champs": [{**card(c), "role": r} for c, r in plan_comp],
            "at_risk": [card(c) for c in banner["at_risk"]], "picked": banner["picked"],
            "gone": [{"champ": card(g["champ"]), "role": g["role"], "role_label": ROLE_LABELS[g["role"]],
                      "backup": card(g["backup"]) if g["backup"] else None} for g in banner["gone"]]}
 
-    profiles = engine.data.profiles
-    slots = []
+    def slot(c: int, r: str, status: str, actual: int | None) -> dict:
+        return {"role": r, "role_label": ROLE_LABELS[r], "planned": card(c), "status": status,
+                "actual": card(actual) if actual else None,
+                "backup": card(backups[r]) if backups.get(r) else None,
+                "badge": badge(engine.data.profiles, c, r).as_dict()}
+
     if st is None:
-        for c, r in plan_comp:
-            slots.append({"role": r, "role_label": ROLE_LABELS[r], "planned": card(c), "status": "planned",
-                          "actual": None, "backup": card(backups.get(r)) if backups.get(r) else None,
-                          "badge": badge(profiles, c, r).as_dict()})
-        out |= {"slots": slots, "bans": None,
-                "summary": {"plan": _comp_summary(engine, plan_comp), "now": None}}
-        return out
+        return out | {"slots": [slot(c, r, "planned", None) for c, r in plan_comp], "bans": None,
+                      "summary": {"plan": _comp_summary(engine, plan_comp), "now": None}}
 
     our_roles = our_roles or {}
-    ours = set(st.our_picks)
-    theirs = set(st.their_picks)
-    banned = set(st.bans())
     by_role = {r: c for c, r in our_roles.items()}
     unavailable = st.unavailable()
-    now_comp = [(c, r) for c, r in our_roles.items()]
+    slots, now_comp = [], list(our_roles.items())
     for c, r in plan_comp:
-        actual = None
-        if c in ours:
-            status = "picked"
-        elif r in by_role:
-            status, actual = "replaced", by_role[r]
-        elif c in banned:
-            status = "banned"
-        elif c in theirs:
-            status = "taken"
-        elif c in banner["at_risk"]:
-            status = "at_risk"
-        else:
-            status = "planned"
-        if r not in by_role and c not in ours:
+        status, actual = _plan_slot_status(st, c, r, by_role, banner["at_risk"])
+        slots.append(slot(c, r, status, actual))
+        if r not in by_role and status != "picked":  # still to come: the plan champion, or its backup once gone
             fill = c if c not in unavailable else backups.get(r)
             if fill and fill not in unavailable:
                 now_comp.append((fill, r))
-        slots.append({"role": r, "role_label": ROLE_LABELS[r], "planned": card(c), "status": status,
-                      "actual": card(actual) if actual else None,
-                      "backup": card(backups.get(r)) if backups.get(r) else None,
-                      "badge": badge(profiles, c, r).as_dict()})
     plan_bans = [int(c) for c in pin.get("bans", {}).get(st.format.name, {}).get(st.our_side, [])]
-    our_bans = st.bans(st.our_side)
-    their_bans = set(st.bans(st.their_side))
+    return out | {
+        "slots": slots,
+        "bans": {"plan": [{"champ": card(c), "status": _plan_ban_status(st, c)} for c in plan_bans],
+                 "off_plan": [card(c) for c in st.bans(st.our_side) if c not in plan_bans]},
+        "summary": {"plan": _comp_summary(engine, plan_comp), "now": _comp_summary(engine, now_comp)}}
 
-    def ban_status(c: int) -> str:
-        if c in our_bans:
-            return "ours"
-        if c in their_bans:
-            return "theirs"
-        if c in ours or c in theirs:
-            return "picked"
-        return "open"
 
-    out |= {"slots": slots,
-            "bans": {"plan": [{"champ": card(c), "status": ban_status(c)} for c in plan_bans],
-                     "off_plan": [card(c) for c in our_bans if c not in plan_bans]},
-            "summary": {"plan": _comp_summary(engine, plan_comp), "now": _comp_summary(engine, now_comp)}}
+@dataclass
+class _View:
+    """What every part of one Live screen payload is built from."""
+    engine: DraftEngine
+    catalog: ChampionCatalog
+    live: LiveDraft
+    ev: Evaluation
+    ban_bonus: dict[int, float] | None
+    pick_bonus: dict[int, float] | None
+
+    @property
+    def st(self) -> DraftState:
+        return self.live.state
+
+    @property
+    def profiles(self) -> ChampionProfiles:
+        return self.engine.data.profiles
+
+    @property
+    def hovered(self) -> set[int]:
+        return {c for c, _ in self.st.hovers}
+
+    @property
+    def ours(self) -> list[tuple[int, str | None]]:
+        return [(c, self.ev.our_roles.get(c)) for c in self.st.our_picks]
+
+    @property
+    def open_roles(self) -> list[str]:
+        return [r for r in ROLES if r not in self.ev.our_roles.values()]
+
+    def card(self, champ: int | None) -> dict | None:
+        return self.catalog.card(champ)
+
+    def badge_of(self, champ: int, role: str | None) -> dict | None:
+        return badge(self.profiles, champ, role).as_dict() if champ else None
+
+
+def _phase_label(live: LiveDraft, finished: bool) -> str:
+    if live.timer_phase == "PLANNING":
+        return "Planning"
+    return "Locked in" if finished else live.state.step.label
+
+
+def _our_slots(v: _View, finished: bool) -> list[dict]:
+    """Our five slots in role order, with a score for a teammate's hover while the draft is open."""
+    st, ev, card = v.st, v.ev, v.card
+    role_order = {r: i for i, r in enumerate(ROLES)}
+    out = []
+    for s in sorted(v.live.our_slots, key=lambda s: (role_order.get(s.role or ev.our_roles.get(s.champ_id, ""), 9),
+                                                      s.cell_id)):
+        role = s.role or ev.our_roles.get(s.champ_id)
+        slot = {"role": role, "role_label": ROLE_LABELS.get(role or "", "?"), "champ": card(s.champ_id),
+                "hover": card(s.hover_id), "is_local": s.is_local, "hover_score": None,
+                "badge": v.badge_of(s.champ_id, role)}
+        if s.hover_id and s.hover_id not in st.unavailable() and not finished:
+            scored = _score_hover(v.engine, st, v.open_roles, s.hover_id, s.role)
+            if scored is not None:
+                flag = (f"⚠ easy to counter: {card(scored.counter_id)['name']}"
+                        if scored.counter_risk >= HOVER_FLAG_RISK and scored.counter_id else None)
+                slot["hover_score"] = {"win_prob": round(scored.win_prob, 4), "reason": scored.reason, "warning": flag}
+        out.append(slot)
     return out
+
+
+def _their_slots(v: _View) -> list[dict]:
+    roles = v.ev.their_roles
+    return [{"champ": v.card(s.champ_id), "role": roles.get(s.champ_id),
+             "role_label": ROLE_LABELS.get(roles.get(s.champ_id, ""), ""),
+             "badge": v.badge_of(s.champ_id, roles.get(s.champ_id))}
+            for s in v.live.their_slots]
+
+
+def _center_locked(v: _View) -> dict:
+    return {"mode": "locked", "win_prob": round(v.ev.win_prob, 4),
+            "threats": [{"champ": v.card(t.champ_id), "reason": t.reason} for t in v.engine.threats(v.st, k=2)]}
+
+
+def _center_our_ban(v: _View, n_cards: int) -> dict:
+    """Ranked bans are simultaneous: show ours while any teammate is still banning, minus the champions
+    teammates are already about to ban."""
+    st, about_to_ban = v.st, v.live.ally_ban_hovers
+    n = NARROW_CARDS if st.format.simultaneous_bans else n_cards  # Flex bans: unchanged
+    bans = [s for s in v.engine.suggest_bans(st, k=n + len(about_to_ban), bonus=v.ban_bonus)
+            if s.champ_id not in about_to_ban][:n]
+    return {"mode": "our_ban", "title": "BAN",
+            "cards": [_ban_card(v.catalog, s, v.hovered, v.engine.cfg.ban_weights, v.profiles) for s in bans]}
+
+
+def _next_two(v: _View) -> list[dict]:
+    """Two picks in a row: the best pairs, each pick with its meta and our player's record."""
+    eng, card = v.engine, v.card
+    return [
+        {"picks": [{"champ": card(s.champ_id), "role": s.role, "role_label": ROLE_LABELS[s.role], "reason": s.reason,
+                    "badge": v.badge_of(s.champ_id, s.role),
+                    **{k: round(x, 4) if isinstance(x, float) else x
+                       for k, x in eng.pick_record(s.champ_id, s.role).items()}}
+                   for s in (pair.first, pair.second)],
+         "win_prob": round(pair.win_prob, 4), "synergy_pp": round(pair.synergy_pp, 1), "low_data": pair.low_data}
+        for pair in eng.suggest_pick_pairs(v.st, k=3)]
+
+
+def _center_our_pick(v: _View, n_cards: int) -> dict:
+    st, live, eng = v.st, v.live, v.engine
+    role = live.actor_role if live.actor_role in v.open_roles else None
+    picks = eng.suggest_picks(st, k=n_cards, role=role, bonus=v.pick_bonus)
+    center = {"mode": "our_pick", "title": f"PICK — {ROLE_LABELS[role]}" if role else "PICK",
+              "cards": [_pick_card(v.catalog, s, v.hovered, v.profiles, v.ours) for s in picks], "hover_card": None}
+    if eng.back_to_back(st):
+        center["next_two"] = _next_two(v)
+    actor_hover = next((sl.hover_id for sl in live.our_slots if sl.cell_id == live.actor_cell_id), 0)
+    if actor_hover and actor_hover not in {s.champ_id for s in picks}:
+        scored = _score_hover(eng, st, v.open_roles, actor_hover, live.actor_role)
+        if scored is not None:
+            center["hover_card"] = _pick_card(v.catalog, scored, v.hovered, v.profiles, v.ours)
+    return center
+
+
+def _center_enemy_turn(v: _View) -> dict:
+    """Their likely picks, each with our pool's best lane answer."""
+    st, card = v.st, v.card
+    tables = v.engine.lane_ban_tables(st)
+    cards = []
+    for s in v.engine.likely_enemy_picks(st, k=3):
+        row = tables[s.role].row(s.champ_id) if s.role else None
+        answer = None
+        if row is not None and row.via is not None:
+            answer = {"champ": card(row.via), "resp_pp": round(row.resp, 1)}
+        cards.append({"champ": card(s.champ_id), "prob": round(s.enemy_prob, 4), "role": s.role,
+                      "role_label": ROLE_LABELS.get(s.role or "", ""), "answer": answer,
+                      "badge": v.badge_of(s.champ_id, s.role),
+                      "answer_note": None if answer else (row.via_note if row else "no answer in our pool")})
+    return {"mode": "enemy_turn", "title": f"THEIR {'BAN' if st.step.kind == 'ban' else 'PICK'}", "cards": cards}
 
 
 def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDraft,
@@ -250,105 +377,37 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
         from draftassist.engine.plan import pin_effects
 
         effects = pin_effects(pin, st, live.enemy_hovers, frozenset(ev.our_roles.values()))
-    ban_bonus = effects.ban_bonus if effects else None
-    pick_bonus = effects.pick_bonus if effects else None
-    card = catalog.card
+    v = _View(engine, catalog, live, ev, effects.ban_bonus if effects else None,
+              effects.pick_bonus if effects else None)
     step = st.step
     finished = step is None or live.timer_phase in ("FINALIZATION", "GAME_STARTING")
-    if live.timer_phase == "PLANNING":
-        phase = "Planning"
-    elif finished:
-        phase = "Locked in"
-    else:
-        phase = step.label
-    turn = None if finished else ("us" if st.is_our_turn else "them")
-    open_roles = [r for r in ROLES if r not in ev.our_roles.values()]
-    hovered = {c for c, _ in st.hovers}
-    profiles = engine.data.profiles
-    ours = [(c, ev.our_roles.get(c)) for c in st.our_picks]
+    ours = v.ours
     theirs = [(c, ev.their_roles.get(c)) for c in st.their_picks]
     n_cards = card_count(step.kind if step else None, step.phase if step else None, len(ours))
 
-    def badge_of(champ: int, role: str | None) -> dict | None:
-        return badge(profiles, champ, role).as_dict() if champ else None
-
-    our_slots = []
-    role_order = {r: i for i, r in enumerate(ROLES)}
-    for s in sorted(live.our_slots, key=lambda s: (role_order.get(s.role or ev.our_roles.get(s.champ_id, ""), 9), s.cell_id)):
-        role = s.role or ev.our_roles.get(s.champ_id)
-        slot = {"role": role, "role_label": ROLE_LABELS.get(role or "", "?"), "champ": card(s.champ_id),
-                "hover": card(s.hover_id), "is_local": s.is_local, "hover_score": None,
-                "badge": badge_of(s.champ_id, role)}
-        if s.hover_id and s.hover_id not in st.unavailable() and not finished:
-            scored = _score_hover(engine, st, open_roles, s.hover_id, s.role)
-            if scored is not None:
-                flag = (f"⚠ easy to counter: {card(scored.counter_id)['name']}"
-                        if scored.counter_risk >= HOVER_FLAG_RISK and scored.counter_id else None)
-                slot["hover_score"] = {"win_prob": round(scored.win_prob, 4), "reason": scored.reason, "warning": flag}
-        our_slots.append(slot)
-    their_slots = [{"champ": card(s.champ_id), "role": ev.their_roles.get(s.champ_id),
-                    "role_label": ROLE_LABELS.get(ev.their_roles.get(s.champ_id, ""), ""),
-                    "badge": badge_of(s.champ_id, ev.their_roles.get(s.champ_id))}
-                   for s in live.their_slots]
-
     center: dict[str, Any]
     if finished:
-        center = {"mode": "locked", "win_prob": round(ev.win_prob, 4),
-                  "threats": [{"champ": card(t.champ_id), "reason": t.reason} for t in engine.threats(st, k=2)]}
+        center = _center_locked(v)
     elif st.format.simultaneous_bans and any(b.status in ("pending", "hovering") for b in live.ally_bans):
-        center = _ban_group(engine, catalog, live, hovered, ban_bonus)
+        center = _ban_group(engine, catalog, live, v.hovered, v.ban_bonus)
     elif live.ally_action == "ban" or (st.is_our_turn and step.kind == "ban"):
-        # Ranked bans are simultaneous: show ours while any teammate is still banning, minus the
-        # champions teammates are already about to ban.
-        about_to_ban = live.ally_ban_hovers
-        n = NARROW_CARDS if st.format.simultaneous_bans else n_cards  # Flex bans: unchanged
-        bans = [s for s in engine.suggest_bans(st, k=n + len(about_to_ban), bonus=ban_bonus)
-                if s.champ_id not in about_to_ban][:n]
-        center = {"mode": "our_ban", "title": "BAN",
-                  "cards": [_ban_card(catalog, s, hovered, engine.cfg.ban_weights, profiles) for s in bans]}
+        center = _center_our_ban(v, n_cards)
     elif st.is_our_turn:
-        role = live.actor_role if live.actor_role in open_roles else None
-        picks = engine.suggest_picks(st, k=n_cards, role=role, bonus=pick_bonus)
-        cards = [_pick_card(catalog, s, hovered, profiles, ours) for s in picks]
-        center = {"mode": "our_pick", "title": f"PICK — {ROLE_LABELS[role]}" if role else "PICK", "cards": cards,
-                  "hover_card": None}
-        if engine.back_to_back(st):
-            center["next_two"] = [
-                {"picks": [{"champ": card(s.champ_id), "role": s.role, "role_label": ROLE_LABELS[s.role], "reason": s.reason,
-                            "badge": badge_of(s.champ_id, s.role),
-                            **{k: round(v, 4) if isinstance(v, float) else v
-                               for k, v in engine.pick_record(s.champ_id, s.role).items()}}
-                           for s in (pair.first, pair.second)],
-                 "win_prob": round(pair.win_prob, 4), "synergy_pp": round(pair.synergy_pp, 1), "low_data": pair.low_data}
-                for pair in engine.suggest_pick_pairs(st, k=3)]
-        actor_hover = next((sl.hover_id for sl in live.our_slots if sl.cell_id == live.actor_cell_id), 0)
-        if actor_hover and actor_hover not in {s.champ_id for s in picks}:
-            scored = _score_hover(engine, st, open_roles, actor_hover, live.actor_role)
-            if scored is not None:
-                center["hover_card"] = _pick_card(catalog, scored, hovered, profiles, ours)
+        center = _center_our_pick(v, n_cards)
     else:
-        tables = engine.lane_ban_tables(st)
-        cards = []
-        for s in engine.likely_enemy_picks(st, k=3):
-            row = tables[s.role].row(s.champ_id) if s.role else None
-            answer = None
-            if row is not None and row.via is not None:
-                answer = {"champ": card(row.via), "resp_pp": round(row.resp, 1)}
-            cards.append({"champ": card(s.champ_id), "prob": round(s.enemy_prob, 4), "role": s.role,
-                          "role_label": ROLE_LABELS.get(s.role or "", ""), "answer": answer,
-                          "badge": badge_of(s.champ_id, s.role),
-                          "answer_note": None if answer else (row.via_note if row else "no answer in our pool")})
-        center = {"mode": "enemy_turn", "title": f"THEIR {'BAN' if step.kind == 'ban' else 'PICK'}", "cards": cards}
+        center = _center_enemy_turn(v)
 
+    card = catalog.card
     return {
         "status": "champ_select", "data_source": data_source, "note": note,
-        "format": st.format.name, "side": st.our_side, "phase": phase, "turn": turn,
+        "format": st.format.name, "side": st.our_side, "phase": _phase_label(live, finished),
+        "turn": None if finished else ("us" if st.is_our_turn else "them"),
         "action": None if finished else step.kind, "seconds_left": live.seconds_left, "game_id": live.game_id,
-        "our_slots": our_slots, "their_slots": their_slots,
+        "our_slots": _our_slots(v, finished), "their_slots": _their_slots(v),
         "our_bans": [card(c) for c in st.bans(st.our_side)],
         "their_bans": [card(c) for c in st.bans(st.their_side)],
-        "comp": {"ours": {**team_comp(profiles, ours).as_dict(), "target": _target(engine, ours)},
-                 "theirs": team_comp(profiles, theirs).as_dict()},
+        "comp": {"ours": {**team_comp(v.profiles, ours).as_dict(), "target": _target(engine, ours)},
+                 "theirs": team_comp(v.profiles, theirs).as_dict()},
         "center": center,
         "plan": _plan_bar(engine, catalog, pin, effects.banner, st, ev.our_roles) if effects else None,
     }

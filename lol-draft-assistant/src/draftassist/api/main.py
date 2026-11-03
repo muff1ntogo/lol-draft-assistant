@@ -346,6 +346,22 @@ class UIFiles(StaticFiles):
 
 
 
+def start_live_feed(svc: Services) -> asyncio.Task | None:
+    """Start what feeds the Live screen for `svc.lcu_mode`: the League client (its own thread), the demo
+    draft loop, or a recorded replay. Returns the asyncio task to cancel on shutdown, if any."""
+    if svc.lcu_mode == "client":
+        from draftassist.lcu.connector import LcuConnector
+
+        live = svc.live
+        LcuConnector(live.handle_session, live.handle_phase, live.handle_status, live.handle_end_of_game).start()
+    elif svc.lcu_mode == "demo":
+        return asyncio.create_task(run_demo(svc.live))
+    elif svc.lcu_mode == "replay" and svc.settings is not None:
+        folder = Path(svc.settings.replay_dir or PROJECT_ROOT / "fixtures" / "lcu" / "flex-ranked-sample")
+        return asyncio.create_task(run_replay(svc.live, folder))
+    return None
+
+
 def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
                stats_refresh_s: float | None = None) -> FastAPI:
     """`services` is injected by tests; otherwise it is built from settings at startup.
@@ -358,19 +374,9 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         svc.hub.bind(asyncio.get_running_loop())
         if services is None and svc.lcu_mode == "client":
             svc.learn()  # catch up on games played since the last run
-        demo_task = None
         every = stats_refresh_s if stats_refresh_s is not None else (svc.settings.stats_refresh_s if svc.settings else 0)
         refresh_task = asyncio.create_task(refresh_stats_forever(svc, every)) if every > 0 else None
-        if svc.lcu_mode == "client":
-            from draftassist.lcu.connector import LcuConnector
-
-            live = svc.live
-            LcuConnector(live.handle_session, live.handle_phase, live.handle_status, live.handle_end_of_game).start()
-        elif svc.lcu_mode == "demo":
-            demo_task = asyncio.create_task(run_demo(svc.live))
-        elif svc.lcu_mode == "replay" and svc.settings is not None:
-            folder = Path(svc.settings.replay_dir or PROJECT_ROOT / "fixtures" / "lcu" / "flex-ranked-sample")
-            demo_task = asyncio.create_task(run_replay(svc.live, folder))
+        demo_task = start_live_feed(svc)
         yield
         for task in (demo_task, refresh_task):
             if task:
