@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from draftassist.engine.comp import IDENTITIES, IDENTITY_LABELS, IDENTITY_TERMS
 from draftassist.engine.traits import ChampionTraits, term_role_averages, term_value, validate_term
 
 Comp = Sequence[tuple[int, str]]  # (champ, role); any subset of the five roles
@@ -37,16 +38,7 @@ SPECIALS = ("damage_imbalance", "curve_coherence", "identity_coherence")
 DAMAGE_TERMS = ("dmg_phys", "dmg_magic", "dmg_true")
 IMBALANCE_FROM = 0.70  # share of one damage type where the imbalance feature starts (1 at 100%)
 
-IDENTITIES = ("engage", "poke", "pick", "protect", "split")
-IDENTITY_LABELS = {"engage": "Engage", "poke": "Poke", "pick": "Pick", "protect": "Protect", "split": "Split"}
-# identity -> (term, weight): a champion's contribution to an identity
-IDENTITY_TERMS: dict[str, tuple[tuple[str, float], ...]] = {
-    "engage": (("engage", 1.0), ("dive", 0.5)),
-    "poke": (("poke", 1.0),),
-    "pick": (("pick", 1.0),),
-    "protect": (("enchanter", 1.0), ("disengage", 0.5), ("peel_all", 0.5)),
-    "split": (("splitpush", 1.0),),
-}
+# the five comp identities are the shared fight-style vocabulary (engine/comp.py)
 BAR_TERMS = ("engage", "frontline_all", "peel_all", "enchanter", "poke", "power_curve")
 
 

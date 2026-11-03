@@ -80,7 +80,7 @@
 </script>
 
 <main class="page">
-  <h1>Tags <small>judgement traits per champion and role</small> <a class="back" href="#/prep">← Prep</a></h1>
+  <h1>Champions <small>tags, fight style and timing per role</small> <a class="back" href="#/prep">← Prep</a></h1>
   {#if data}
     <div class="bar">
       <div class="progress" title="{data.counts.reviewed} of {data.counts.entries} reviewed">
@@ -99,14 +99,16 @@
       <input placeholder="Search" bind:value={query} />
     </div>
     <p class="muted small">
-      0 = not at all, 3 = defining. Unreviewed tags count at half weight in synergy and team models; "Looks right"
-      marks them reviewed. Champions without tags use measured traits only. Measured traits (percentile in the role,
-      0–100) come from crawled matches and aren't edited here.
+      0 = not at all, 3 = defining. The tags are the one source of fight style: Style shows the identity they give
+      (Engage, Poke, Pick, Protect, Split), used by the badges, comp panels, comp coherence and the Team page.
+      Unreviewed tags count at half weight in the synergy and team models (labels read them as written); "Looks right"
+      marks them reviewed. Untagged champions fall back to their Data Dragon classes. Timing (Early / Late) and the
+      measured traits (percentile in the role, 0–100) come from crawled matches and aren't edited here.
     </p>
     <table>
       <thead><tr><th></th><th>Champion</th><th>Role</th>
         {#each data.tags as t}<th class="num">{LABELS[t]}</th>{/each}
-        <th>Measured</th><th></th></tr></thead>
+        <th>Style</th><th>Measured</th><th></th></tr></thead>
       <tbody>
         {#each rows as { c, role, entry } (key(c, role))}
           {@const v = role ? values(c, role, entry) : null}
@@ -127,6 +129,16 @@
                   {#each [0, 1, 2, 3] as n}<option value={n}>{n}</option>{/each}
                 </select>{/if}</td>
             {/each}
+            <td class="stylecol small">
+              {#if role && c.identity[role]}
+                {@const id = c.identity[role]}
+                {@const t = c.timing[role]}
+                <span title={Object.entries(id.shares).map(([k, v]) => `${data.styles[k]} ${Math.round(v * 100)}%`).join(' · ')}>
+                  {id.badge.styles.map((k) => data.styles[k]).join(' / ') || 'Spread'}</span>
+                {#if t?.label === 'early' || t?.label === 'late'}<span class="tm {t.label}">{data.timings[t.label]}</span>{/if}
+                {#if id.source === 'classes'}<span class="muted">(classes)</span>{/if}
+              {/if}
+            </td>
             <td class="measured small">
               {#if m}
                 {#each MEASURED as [k, l]}<span title="{l}: percentile in role">{l} {fmt(m[k])}</span>{/each}
@@ -145,7 +157,7 @@
             </td>
           </tr>
         {:else}
-          <tr><td colspan={data.tags.length + 5} class="muted">Nothing here.</td></tr>
+          <tr><td colspan={data.tags.length + 6} class="muted">Nothing here.</td></tr>
         {/each}
       </tbody>
     </table>
@@ -183,6 +195,10 @@
   .tag { font-size: 11px; padding: 0 5px; border-radius: 4px; background: #2d3540; color: #c9d1d9; margin-left: 6px; }
   .tag.untagged { background: #3d2e0a; color: #e0a640; }
   .measured { white-space: nowrap; color: var(--muted); }
+  .stylecol { white-space: nowrap; }
+  .tm { margin-left: 6px; font-size: 11px; padding: 0 4px; border-radius: 3px; background: #2d3540; }
+  .tm.early { color: #e0a640; }
+  .tm.late { color: #79b8ff; }
   .measured span { margin-right: 8px; }
   .actions { white-space: nowrap; }
   .err { color: var(--red); font-size: 12px; }

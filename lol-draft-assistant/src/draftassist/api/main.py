@@ -39,7 +39,7 @@ from draftassist.data.pools import (
     set_pool_entry,
 )
 from draftassist.data.provider import ChampionCatalog, load_catalog, load_engine_inputs, stats_version
-from draftassist.data.profiles import load_profiles, reset_style, save_style
+from draftassist.data.profiles import load_profiles
 from draftassist.data.rules import STYLE_RULES_FILE, TEAM_RULES_FILE, set_prior
 from draftassist.data.synergy_model import build_evaluator, fit_synergy_model, load_synergy_model
 from draftassist.data.tags import TAGS_FILE, remove_tag, sync_tags, update_tag
@@ -653,67 +653,32 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         svc.reload()  # the engine's synergy term and the Prep page use the same table
         return {"synergy_bracket": bracket, "applied": True}
 
-    # ---------- champion styles (docs/comp-style.md) ----------
-    def _style_row(svc: Services, champ: Champion, profiles) -> dict:
-        st = profiles.style(champ.champ_id)
-        timing = {}
-        for role in champ.roles or []:
-            tc = profiles.curve(champ.champ_id, role)
-            timing[role] = None if tc is None else {"curve": round(tc.curve, 3), "games": tc.games, "label": tc.label}
-        return {"champ": svc.catalog.card(champ.champ_id), "roles": champ.roles or [], "tags": champ.tags or [],
-                "weights": {k: round(v, 3) for k, v in st.as_dict().items()}, "frontline": st.frontline,
-                "source": st.source, "reviewed": st.reviewed, "unsure": st.unsure, "timing": timing}
-
+    # ---------- champion profiles: timing and fight style (comp-style, merged into the Tags page) ----------
     def _profiles(svc: Services):
         patch = ".".join(svc.catalog.patch.split(".")[:2]) if svc.catalog.patch else None
         return load_profiles(_db(svc), patch)
 
-    @app.get("/api/champions/styles")
-    def get_champion_styles(request: Request) -> dict:
-        svc: Services = request.app.state.services
-        profiles = _profiles(svc)
-        with Session(_db(svc)) as s:
-            champs = sorted(s.exec(select(Champion)).all(), key=lambda c: c.name)
-        rows = [_style_row(svc, c, profiles) for c in champs]
-        return {"champions": rows, "total": len(rows), "reviewed": sum(r["reviewed"] for r in rows),
-                "styles": STYLE_LABELS, "timings": TIMING_LABELS}
 
-    def _one(svc: Services, champ_id: int) -> dict:
-        with Session(_db(svc)) as s:
-            champ = s.get(Champion, champ_id)
-        if champ is None:
-            raise HTTPException(404, "unknown champion")
-        return _style_row(svc, champ, _profiles(svc))
-
-    @app.put("/api/champions/styles/{champ_id}")
-    def put_champion_style(request: Request, champ_id: int, weights: dict[str, float] | None = Body(None),
-                           frontline: bool | None = Body(None)) -> dict:
-        """Save the user's review; weights null = confirm the seed as is."""
-        svc: Services = request.app.state.services
-        _one(svc, champ_id)
-        try:
-            w = None if weights is None else tuple(float(weights[k]) for k in STYLES)
-            save_style(_db(svc), champ_id, w, frontline)
-        except (KeyError, TypeError, ValueError) as e:
-            raise HTTPException(422, f"invalid style: {e}") from None
-        svc.refresh_profiles()
-        return _one(svc, champ_id)
-
-    @app.delete("/api/champions/styles/{champ_id}")
-    def delete_champion_style(request: Request, champ_id: int) -> dict:
-        """Back to the seed (or Data Dragon classes)."""
-        svc: Services = request.app.state.services
-        reset_style(_db(svc), champ_id)
-        svc.refresh_profiles()
-        return _one(svc, champ_id)
 
     # ---------- judgement tags (docs/synergy-v2.md, Stage 1b) ----------
-    def _tag_row(svc: Services, champ: Champion, traits) -> dict:
+    def _tag_row(svc: Services, champ: Champion, traits, prof=None) -> dict:
         entries = {role: {"values": dict(e.values), "reviewed": e.reviewed}
                    for (c, role), e in traits.tags.items() if c == champ.champ_id}
         measured = {role: {k: (None if v is None else round(v, 3)) for k, v in m.items()}
                     for (c, role), m in traits.measured.items() if c == champ.champ_id}
-        return {"champ_id": champ.champ_id, "champ": svc.catalog.card(champ.champ_id), "key": champ.key, "name": champ.name, "roles": champ.roles or [],
+        prof = prof if prof is not None else _profiles(svc)
+        timing = {}
+        for role in champ.roles or []:
+            tc = prof.curve(champ.champ_id, role)
+            timing[role] = None if tc is None else {"curve": round(tc.curve, 3), "games": tc.games, "label": tc.label}
+        identity = {}
+        for role in {*(champ.roles or []), *entries}:
+            st = prof.style(champ.champ_id, role)
+            if st is not None:
+                identity[role] = {"badge": badge(prof, champ.champ_id, role).as_dict(), "source": st.source,
+                                  "shares": {k: round(v, 3) for k, v in zip(STYLES, st.weights)}}
+        return {"champ_id": champ.champ_id, "champ": svc.catalog.card(champ.champ_id), "key": champ.key,
+                "timing": timing, "identity": identity, "name": champ.name, "roles": champ.roles or [],
                 "attack_range": champ.attack_range, "entries": entries, "measured": measured,
                 "untagged": not entries}
 
@@ -730,10 +695,11 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         traits = load_traits(_db(svc))
         with Session(_db(svc)) as s:
             champs = sorted(s.exec(select(Champion)).all(), key=lambda c: c.name)
-        rows = [_tag_row(svc, c, traits) for c in champs]
+        prof = _profiles(svc)
+        rows = [_tag_row(svc, c, traits, prof) for c in champs]
         entries = [e for r in rows for e in r["entries"].values()]
-        return {"tags": list(TAGS), "roles": list(ROLES), "role_labels": ROLE_LABELS,
-                "version": svc.catalog.patch, "champions": rows,
+        return {"tags": list(TAGS), "roles": list(ROLES), "role_labels": ROLE_LABELS, "styles": STYLE_LABELS,
+                "timings": TIMING_LABELS, "version": svc.catalog.patch, "champions": rows,
                 "counts": {"champions": len(rows), "entries": len(entries),
                            "reviewed": sum(e["reviewed"] for e in entries),
                            "untagged": sum(r["untagged"] for r in rows)}}
@@ -748,6 +714,7 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         except ValueError as e:
             raise HTTPException(422, str(e)) from None
         svc.invalidate_synergy()
+        svc.refresh_profiles()  # fight-style badges and comp labels come from the tags
         return _tag_one(svc, champ_id)
 
     @app.delete("/api/tags/{champ_id}/{role}")
@@ -755,6 +722,7 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         svc: Services = request.app.state.services
         remove_tag(_db(svc), svc.tags_path, champ_id, role)
         svc.invalidate_synergy()
+        svc.refresh_profiles()  # fight-style badges and comp labels come from the tags
         return _tag_one(svc, champ_id)
 
     # ---------- synergy v2 rules (docs/synergy-v2.md, Stage 2) ----------

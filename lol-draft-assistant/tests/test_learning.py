@@ -230,12 +230,12 @@ def test_model_check_trend_then_calibration(db):
 # ---------- style ----------
 def test_style_classification():
     # docs/comp-style.md Stage C: the Live comp panel's rule (more in test_comp_ranking.py)
-    def st(ftb, dive, poke, front=False):
-        return ChampStyle((ftb, dive, poke), front, "seed", False, False)
+    def st(ftb, dive, poke, front=False):  # old fixtures as identities: protect, engage, poke
+        return ChampStyle((dive, poke, 0.0, ftb, 0.0), front, "tags", False, False)
     profiles = ChampionProfiles({1: st(0.8, 0.2, 0, True), 2: st(0.6, 0.4, 0, True), 3: st(0.2, 0.8, 0),
                                  4: st(0, 1, 0), 5: st(0.1, 0.2, 0.7), 6: st(0, 0.1, 0.9)}, {})
-    assert classify(profiles, [(1, None), (2, None), (5, None)]) == "front_to_back"
-    assert classify(profiles, [(3, None), (4, None), (5, None)]) == "dive"
+    assert classify(profiles, [(1, None), (2, None), (5, None)]) == "protect"
+    assert classify(profiles, [(3, None), (4, None), (5, None)]) == "engage"
     assert classify(profiles, [(5, None), (6, None), (3, None)]) == "poke"
     assert classify(profiles, [(1, None), (4, None), (6, None)]) == "mixed"
 

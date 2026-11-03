@@ -39,18 +39,18 @@ def fit_of(sugs, champ):
 
 # ---------- the coherence term ----------
 def test_zero_at_our_first_pick_even_with_a_team_style():
-    for target in (None, "dive"):
+    for target in (None, "engage"):
         sugs = engine(comp_target=target).suggest_picks(state(*BANS), k=50)
         assert sugs and all(s.comp_fit == 0 for s in sugs)
 
 
 def test_damped_in_picks_one_to_three_full_at_four_and_five():
-    # Team style Dive; Rakan's dive weight is 0.7: fit = w * damping * (0.7 - 1/3)
-    eng = engine(comp_target="dive")
+    # Team style Engage; Rakan's engage share is 0.7: fit = w * damping * (0.7 - 1/5), five identities
+    eng = engine(comp_target="engage")
     pick2 = state(*BANS, SEJUANI, VI, GNAR)  # ours: Sejuani -> B2 (1 locked)
     pick3 = state(*BANS, SEJUANI, VI, GNAR, KAISA)  # B3 (2 locked)
     pick4 = state(*BANS, KSANTE, GNAR, VI, KAISA, SEJUANI, ORIANNA, *(SKIPPED,) * 4, AZIR)  # B4 (3 locked)
-    base = W * (0.7 - 1 / 3)
+    base = W * (0.7 - 1 / 5)
     damping = EngineConfig().comp_damping
     assert damping[0] == 0 and damping[1] < damping[2] < damping[3] == damping[4] == 1
     for st, n in ((pick2, 1), (pick3, 2), (pick4, 3)):
@@ -60,7 +60,7 @@ def test_damped_in_picks_one_to_three_full_at_four_and_five():
 
 def test_value_includes_the_term_but_win_prob_does_not():
     st = state(*BANS, KSANTE, GNAR, VI, KAISA, SEJUANI, ORIANNA, *(SKIPPED,) * 4, AZIR)
-    on = {s.champ_id: s for s in engine(comp_target="dive").suggest_picks(st, k=50)}
+    on = {s.champ_id: s for s in engine(comp_target="engage").suggest_picks(st, k=50)}
     off = {s.champ_id: s for s in engine(comp_coherence=False).suggest_picks(st, k=50)}
     for c, s in on.items():
         assert s.win_prob == pytest.approx(off[c].win_prob)
@@ -68,7 +68,7 @@ def test_value_includes_the_term_but_win_prob_does_not():
         assert off[c].comp_fit == 0
 
 
-# Rumble played as a pure dive champion in this test: a pick that completes Dive
+# Rumble played as a pure dive champion in this test: a pick that completes Engage
 DIVE_RUMBLE = replace(PROFILES, styles={**PROFILES.styles, RUMBLE: style(0.0, 1.0, 0.0)})
 
 
@@ -83,7 +83,7 @@ def test_completing_the_target_style_ranks_higher_at_pick_four():
     on = rank(engine(DIVE_RUMBLE, comp_weight=0.6))
     assert on < off
     target, source = engine(DIVE_RUMBLE).comp_target(st)
-    assert (target, source) == ("dive", "comp")  # no team style: the style the comp converges on
+    assert (target, source) == ("engage", "comp")  # no team style: the style the comp converges on
     # the same pick at our pick 2 moves much less
     early = state(*BANS, KAISA, VI, GNAR)
     eng = engine(DIVE_RUMBLE, comp_weight=0.6)
@@ -101,23 +101,20 @@ def test_team_style_beats_the_converging_style():
     assert all(s.comp_fit == 0 for s in sugs)
 
 
-def test_front_to_back_rewards_the_first_front_liner():
-    # ours: Azir, Kai'Sa (no front-liner yet); target Front to back by hand; our pick 3
-    eng = engine(comp_target="front_to_back")
+def test_coherence_is_the_share_of_the_target_minus_an_even_spread():
+    # merged identities: no front-liner bonus any more; share - 1/5
+    eng = engine(comp_target="protect")
     ours = [(AZIR, "mid"), (KAISA, "adc")]
-    assert eng.coherence(ours, KSANTE, "top", "front_to_back") > eng.coherence(ours, ORIANNA, "mid", "front_to_back")
-    # K'Sante: 0.6 front to back + front-liner bonus; capped at 1
-    assert eng.coherence(ours, KSANTE, "top", "front_to_back") == pytest.approx(
-        W * eng.cfg.comp_damping[2] * (1.0 - 1 / 3))
-    with_front = [(AZIR, "mid"), (NAUTILUS, "support")]
-    assert eng.coherence(with_front, KSANTE, "top", "front_to_back") == pytest.approx(
-        W * eng.cfg.comp_damping[2] * (0.6 - 1 / 3))
+    damp = eng.cfg.comp_damping[2]
+    assert eng.coherence(ours, ORIANNA, "mid", "protect") == pytest.approx(W * damp * (0.7 - 1 / 5))
+    assert eng.coherence(ours, KSANTE, "top", "protect") == pytest.approx(W * damp * (0.6 - 1 / 5))
+    assert eng.coherence(ours, VI, "jungle", "protect") == pytest.approx(W * damp * (0.0 - 1 / 5))
 
 
 def test_live_payload_shows_the_target_and_reason():
     st = state(*BANS, *PHASE1, *(SKIPPED,) * 4, VI)
     view = build_live_view(engine(DIVE_RUMBLE, comp_weight=0.6), CATALOG, live(st), "fixture", None)
-    assert view["comp"]["ours"]["target"] == {"style": "dive", "label": "Dive", "source": "comp"}
+    assert view["comp"]["ours"]["target"] == {"style": "engage", "label": "Engage", "source": "comp"}
     assert view["comp"]["theirs"].get("target") is None
     view = build_live_view(engine(comp_target="poke"), CATALOG, live(st), "fixture", None)
     assert view["comp"]["ours"]["target"]["source"] == "team"
@@ -131,8 +128,8 @@ def test_settings_round_trip_and_hand_style_reaches_the_engine(db):
     assert cfg.comp_coherence is False and cfg.comp_weight == pytest.approx(0.3)
     with pytest.raises(ValueError):
         save_engine_settings(db, comp_weight=2.0)
-    set_hand_style(db, "dive")
-    assert engine_config(db).comp_target == "dive"
+    set_hand_style(db, "engage")
+    assert engine_config(db).comp_target == "engage"
 
 
 # ---------- Team page: the same labels ----------
@@ -140,17 +137,23 @@ def test_team_page_uses_the_comp_style_labels(db):
     assert list(TEAM_STYLES) == [*STYLES, "mixed"]
     assert all(TEAM_STYLES[k] == STYLE_LABELS[k] for k in STYLES)
     picks = [(VI, "jungle"), (RAKAN, "support"), (KAISA, "adc"), (KSANTE, "top"), (AZIR, "mid")]
-    assert classify(PROFILES, picks) == "dive"
-    assert classify(PROFILES, [(AZIR, "mid"), (ORIANNA, "mid"), (GNAR, "top")]) == "front_to_back"
-    # old labels saved before Stage C still read
-    with Session(db) as s:
-        s.add(AppSetting(key="team_style", value='{"style": "engage"}'))
-        s.commit()
-    assert get_hand_style(db) == "front_to_back"
+    assert classify(PROFILES, picks) == "engage"
+    assert classify(PROFILES, [(AZIR, "mid"), (ORIANNA, "mid"), (GNAR, "top")]) == "protect"
+    # hand styles saved under the old vocabulary read as identities
+    for old, new in (("front_to_back", "protect"), ("dive", "engage"), ("poke", "poke"), ("engage", "protect"),
+                     ("balanced", "mixed")):
+        with Session(db) as s:
+            row = s.get(AppSetting, "team_style") or AppSetting(key="team_style", value="")
+            row.value = '{"style": "%s"}' % old
+            s.add(row)
+            s.commit()
+        assert get_hand_style(db) == new, old
+    set_hand_style(db, "engage")  # a new save is read as written
+    assert get_hand_style(db) == "engage"
     set_hand_style(db, "mixed")
     assert get_hand_style(db) == "mixed"
     with pytest.raises(ValueError):
-        set_hand_style(db, "engage")
+        set_hand_style(db, "front_to_back")
 
 
 # ---------- varied "Next 2 picks" ----------

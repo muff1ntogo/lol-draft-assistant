@@ -3,7 +3,6 @@
   import Pools from './Pools.svelte';
   import History from './History.svelte';
   import Prep from './Prep.svelte';
-  import Champions from './Champions.svelte';
   import Settings from './Settings.svelte';
   import Team from './Team.svelte';
   import Tags from './Tags.svelte';
@@ -11,7 +10,7 @@
   import PlanBar from './PlanBar.svelte';
 
   const PAGES = { live: 'Live', prep: 'Prep', pools: 'Pools', champions: 'Champions', history: 'History', team: 'Team', settings: 'Settings' };
-  const HIDDEN = { tags: 'Tags', rules: 'Rules' }; // reached from the Prep page's header, not the nav
+  const HIDDEN = { tags: 'Tags', rules: 'Rules' }; // the Champions tab opens the Tags page (fight style + tags) // reached from the Prep page's header, not the nav
   const pageFromHash = () => {
     const key = location.hash.slice(2);
     if (key === 'synergy') return 'prep'; // the Synergy page is part of Prep now (docs/synergy-v2.md)
@@ -67,12 +66,10 @@
   <Pools />
 {:else if page === 'prep'}
   <Prep />
-{:else if page === 'tags'}
+{:else if page === 'tags' || page === 'champions'}
   <Tags />
 {:else if page === 'rules'}
   <Rules />
-{:else if page === 'champions'}
-  <Champions />
 {:else if page === 'settings'}
   <Settings />
 {:else if page === 'team'}

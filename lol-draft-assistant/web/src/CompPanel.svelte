@@ -1,13 +1,16 @@
 <script>
-  // One team's comp (docs/comp-style.md): comp type, fight-style shares and confidence (picks / 5).
-  // Style colours: categorical slots 5-7 (slots 1-3 are taken by Threat / Matchup / Comp on this screen),
-  // validated all-pairs on the panel surface #161b22. Every segment is also labelled with its share in text
-  // colour and listed in the tooltip, so colour is never the only signal.
+  // One team's comp: comp type, fight-style shares over the five identities and confidence (picks / 5).
+  // Identity colours: categorical slots 4-8 in the documented order (slots 1-3 are Threat / Matchup / Comp on
+  // this screen), validated as an adjacent stack on the panel surface #161b22 (dataviz validator: all checks
+  // pass). Every segment is also labelled with its share in text and listed in the tooltip, so colour is
+  // never the only signal.
   let { comp, title } = $props();
   const STYLES = [
-    ['front_to_back', 'Front to back', 'FtB'],
-    ['dive', 'Dive', 'Dive'],
+    ['engage', 'Engage', 'Eng'],
     ['poke', 'Poke', 'Poke'],
+    ['pick', 'Pick', 'Pick'],
+    ['protect', 'Protect', 'Prot'],
+    ['split', 'Split', 'Split'],
   ];
   const pct = (x) => `${Math.round(x * 100)}%`;
   const tip = $derived(STYLES.map(([k, label]) => `${label} ${pct(comp.shares[k] ?? 0)}`).join(' · '));
@@ -34,7 +37,7 @@
       {/each}
     </div>
     <div class="legend">
-      {#each STYLES as [k, , short]}<span><i class="key {k}"></i>{short} {pct(comp.shares[k] ?? 0)}</span>{/each}
+      {#each STYLES.filter(([k]) => (comp.shares[k] ?? 0) >= 0.005) as [k, , short]}<span><i class="key {k}"></i>{short} {pct(comp.shares[k] ?? 0)}</span>{/each}
     </div>
   {/if}
   {#if comp.target}
@@ -61,11 +64,13 @@
   .seg { min-width: 3px; }
   .seg:first-child { border-radius: 4px 0 0 4px; }
   .seg:last-child { border-radius: 0 4px 4px 0; }
-  .legend { display: flex; gap: 10px; margin-top: 4px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .legend { display: flex; flex-wrap: wrap; column-gap: 10px; margin-top: 4px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .target { margin-top: 4px; font-size: 12px; color: var(--muted); }
   .target small { font-size: 11px; }
   .key { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
-  .front_to_back { background: #9085e9; }
-  .dive { background: #d55181; }
-  .poke { background: #008300; }
+  .engage { background: #c98500; }
+  .poke { background: #d55181; }
+  .pick { background: #008300; }
+  .protect { background: #9085e9; }
+  .split { background: #e66767; }
 </style>

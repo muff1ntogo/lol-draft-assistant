@@ -1,10 +1,11 @@
 """Team style (advisory): classify each logged draft's comp, then suggest the style that has been winning
 lately. The style itself is set by hand, and the engine pulls our picks towards it (comp coherence).
 
-Labels are the comp styles of docs/comp-style.md (engine/comp.py `team_comp`): Front to back, Dive, Poke,
-or Mixed when no style leads. Before Stage C this used Data Dragon classes and called Front to back
-"engage"; stored labels from then are re-classified, and a hand style saved as "engage" reads as
-Front to back ("balanced" as Mixed).
+Labels are the five comp identities (engine/comp.py `team_comp`, from the reviewed tags since the fight-style
+merge of docs/synergy-v2.md): Engage, Poke, Pick, Protect, Split, or Mixed when none leads. Every draft is
+re-classified on each view (labels follow tag edits). A hand style saved under the old vocabulary is read
+as its identity: Front to back -> Protect, Dive -> Engage, Poke -> Poke; from before comp-style Stage C,
+"engage" (which meant Front to back) -> Protect and "balanced" -> Mixed.
 """
 from __future__ import annotations
 
@@ -17,7 +18,10 @@ from draftassist.db.models import AppSetting, Draft, DraftAction
 from draftassist.engine.comp import STYLE_LABELS, ChampionProfiles, team_comp
 
 STYLES = {**STYLE_LABELS, "mixed": "Mixed"}
-LEGACY = {"engage": "front_to_back", "balanced": "mixed"}  # labels saved before docs/comp-style.md Stage C
+# hand styles saved before the merge (no "v": 2): old vocabulary -> identity
+LEGACY = {"front_to_back": "protect", "dive": "engage", "poke": "poke", "engage": "protect", "balanced": "mixed",
+          "mixed": "mixed"}
+HAND_STYLE_VERSION = 2
 RECENT_GAMES = 20
 MIN_STYLE_GAMES = 3
 STYLE_K = 5  # shrink each style's win rate towards 50% by this many games
@@ -40,8 +44,11 @@ def _draft_style(s: Session, d: Draft, profiles: ChampionProfiles) -> str | None
 def get_hand_style(db: Engine) -> str | None:
     with Session(db) as s:
         row = s.get(AppSetting, STYLE_KEY)
-    style = json.loads(row.value).get("style") if row else None
-    return LEGACY.get(style, style)
+    value = json.loads(row.value) if row else {}
+    style = value.get("style")
+    if style is not None and value.get("v") != HAND_STYLE_VERSION:
+        style = LEGACY.get(style)
+    return style
 
 
 def set_hand_style(db: Engine, style: str | None) -> None:
@@ -49,7 +56,7 @@ def set_hand_style(db: Engine, style: str | None) -> None:
         raise ValueError(f"style must be one of {', '.join(STYLES)}")
     with Session(db) as s:
         row = s.get(AppSetting, STYLE_KEY) or AppSetting(key=STYLE_KEY, value="{}")
-        row.value = json.dumps({"style": style})
+        row.value = json.dumps({"style": style, "v": HAND_STYLE_VERSION})
         s.add(row)
         s.commit()
 
@@ -64,8 +71,9 @@ def team_summary(db: Engine, profiles: ChampionProfiles | None = None) -> dict:
         drafts = s.exec(select(Draft).where(col(Draft.result).in_(("win", "loss")))
                         .order_by(col(Draft.played_at).desc())).all()[:RECENT_GAMES]
         for d in drafts:
-            if d.style_tag is None or d.style_tag not in STYLES:
-                d.style_tag = _draft_style(s, d, profiles)
+            style = _draft_style(s, d, profiles)
+            if style != d.style_tag:
+                d.style_tag = style
                 s.add(d)
         s.commit()
         rows = [(d.style_tag, d.result == "win", d.played_at.isoformat()) for d in drafts]

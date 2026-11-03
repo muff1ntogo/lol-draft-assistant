@@ -28,7 +28,8 @@ from test_engine_synergy import (
 
 
 def style(ftb, dive, poke, frontline=False):
-    return ChampStyle((ftb, dive, poke), frontline, "seed", False, False)
+    """Old three-style fixtures as identities: front to back -> protect, dive -> engage, poke -> poke."""
+    return ChampStyle((dive, poke, 0.0, ftb, 0.0), frontline, "tags", False, False)
 
 
 STYLES = {
@@ -53,14 +54,14 @@ def engine():
 
 # ---------- badges ----------
 def test_badges_show_timing_main_style_and_front_line():
-    assert badge(PROFILES, KSANTE, "top").text() == "Late · Front to back · Front-line"
-    assert badge(PROFILES, VI, "jungle").text() == "Early · Dive"
-    assert badge(PROFILES, KAISA, "adc").text() == "Dive"  # mid timing isn't shown on a badge
+    assert badge(PROFILES, KSANTE, "top").text() == "Late · Engage / Protect · Front-line"  # 0.4 engage counts
+    assert badge(PROFILES, VI, "jungle").text() == "Early · Engage"
+    assert badge(PROFILES, KAISA, "adc").text() == "Engage"  # mid timing isn't shown on a badge
     assert badge(PROFILES, KAISA, "adc").timing == "mid"
     assert badge(PROFILES, RUMBLE, "top").timing is None  # 20 games: no label
     assert badge(PROFILES, RUMBLE, None).timing == "late"  # role unknown: the role with most games
     split = badge(PROFILES, SEJUANI, "jungle")  # 0.5 / 0.5: both named, no single main style
-    assert split.text() == "Early · Front to back / Dive · Front-line" and split.style is None
+    assert split.text() == "Early · Engage / Protect · Front-line" and split.style is None
     assert badge(PROFILES, 999, "top").as_dict() == {"timing": None, "style": None, "styles": [], "frontline": False,
                                                      "text": ""}
 
@@ -72,28 +73,30 @@ def test_team_comp_converges_as_picks_are_added():
     one = team_comp(PROFILES, [(VI, "jungle")])
     assert one.style == "mixed" and one.timing == "early"  # one champion doesn't make a style
     two = team_comp(PROFILES, [(VI, "jungle"), (RAKAN, "support")])
-    assert two.style == "dive" and two.shares["dive"] == pytest.approx(0.85)
+    assert two.style == "engage" and two.shares["engage"] == pytest.approx(0.85)
     three = team_comp(PROFILES, [(VI, "jungle"), (RAKAN, "support"), (KSANTE, "top")])
-    assert three.style == "dive" and three.confidence == pytest.approx(0.6) and three.frontliners == 1
+    assert three.style == "engage" and three.confidence == pytest.approx(0.6) and three.frontliners == 1
     assert three.timing == "mid"  # (-0.40 + 0.30) / 2 = -0.05: Rakan has no curve
     d = three.as_dict()
-    assert d["timing_label"] == "Mix" and d["style_label"] == "Dive" and d["picks"] == 3
+    assert d["timing_label"] == "Mix" and d["style_label"] == "Engage" and d["picks"] == 3
 
 
-def test_front_to_back_needs_a_front_liner():
-    no_front = team_comp(PROFILES, [(AZIR, "mid"), (ORIANNA, "mid")])
-    assert no_front.shares["front_to_back"] == pytest.approx(0.65) and no_front.style == "mixed"
-    assert team_comp(PROFILES, [(AZIR, "mid"), (ORIANNA, "mid"), (GNAR, "top")]).style == "front_to_back"
+def test_a_style_needs_two_contributors_and_no_front_liner():
+    # merged identities: Protect no longer needs a front-liner (docs/synergy-v2.md, S7-3)
+    two = team_comp(PROFILES, [(AZIR, "mid"), (ORIANNA, "mid")])
+    assert two.shares["protect"] == pytest.approx(0.65) and two.style == "protect"
+    assert team_comp(PROFILES, [(AZIR, "mid")]).style == "mixed"
 
 
 def test_comp_effect_for_suggestion_cards():
-    assert comp_effect(PROFILES, [(VI, "jungle")], RAKAN, "support") == ["completes Dive"]
-    assert comp_effect(PROFILES, [(VI, "jungle"), (RAKAN, "support")], KAISA, "adc") == ["fits Dive"]
-    # Sejuani is half front to back, half dive: both styles on the badge, so it fits Dive
-    assert comp_effect(PROFILES, [(VI, "jungle"), (RAKAN, "support")], SEJUANI, "jungle") == ["fits Dive",
+    assert comp_effect(PROFILES, [(VI, "jungle")], RAKAN, "support") == ["completes Engage"]
+    assert comp_effect(PROFILES, [(VI, "jungle"), (RAKAN, "support")], KAISA, "adc") == ["fits Engage"]
+    # Sejuani is half front to back, half dive: both styles on the badge, so it fits Engage
+    assert comp_effect(PROFILES, [(VI, "jungle"), (RAKAN, "support")], SEJUANI, "jungle") == ["fits Engage",
                                                                                               "pushes Early"]
     assert comp_effect(PROFILES, [(VI, "jungle"), (RAKAN, "support")], AZIR, "mid") == ["pushes Late"]
-    assert comp_effect(PROFILES, [(AZIR, "mid"), (ORIANNA, "mid")], GNAR, "top") == ["completes Front to back"]
+    assert comp_effect(PROFILES, [(AZIR, "mid")], ORIANNA, "mid") == ["completes Protect"]
+    assert comp_effect(PROFILES, [(AZIR, "mid"), (ORIANNA, "mid")], GNAR, "top") == ["fits Protect"]
     assert comp_effect(PROFILES, [], AZIR, "mid") == ["pushes Late"]
 
 
@@ -137,16 +140,16 @@ def test_live_view_has_comp_for_both_teams_and_badges():
     slots = [Slot(1, "jungle", VI, 0), Slot(4, "support", RAKAN, 0)]
     view = build_live_view(eng, CATALOG, live(st, slots), "fixture", None)
     ours, theirs = view["comp"]["ours"], view["comp"]["theirs"]
-    assert ours["style"] == "dive" and ours["picks"] == 2 and ours["confidence"] == pytest.approx(0.4)
-    assert theirs["style"] == "front_to_back" and theirs["frontliners"] == 2
+    assert ours["style"] == "engage" and ours["picks"] == 2 and ours["confidence"] == pytest.approx(0.4)
+    assert theirs["style"] == "protect" and theirs["frontliners"] == 2
     jungle = next(s for s in view["our_slots"] if s["role"] == "jungle")
-    assert jungle["badge"]["text"] == "Early · Dive"
+    assert jungle["badge"]["text"] == "Early · Engage"
     assert all("badge" in s for s in view["their_slots"])
     cards = view["center"]["cards"]
     assert len(cards) == 5 and all("badge" in c and "effect" in c for c in cards)
     kaisa = next((c for c in cards if c["champ"]["id"] == KAISA), None)
     if kaisa is not None:
-        assert kaisa["effect"] == ["fits Dive"]
+        assert kaisa["effect"] == ["fits Engage"]
 
 
 def test_synergy_nodes_carry_badges():
@@ -158,8 +161,8 @@ def test_synergy_nodes_carry_badges():
     ev = SynergyEvaluator(data().synergy, EMPTY_TRAITS, StyleModel([], {}), TeamModel([], EMPTY_TRAITS))
     view = build_prep_view(ev, CATALOG, TEAM, profiles=PROFILES)
     nodes = {n["id"]: n for col in view["columns"] for n in col["nodes"]}
-    assert nodes[SEJUANI]["badge"]["text"] == "Early · Front to back / Dive · Front-line"
-    assert nodes[NAUTILUS]["badge"]["styles"] == ["front_to_back", "dive"]
+    assert nodes[SEJUANI]["badge"]["text"] == "Early · Engage / Protect · Front-line"
+    assert nodes[NAUTILUS]["badge"]["styles"] == ["engage", "protect"]
 
 
 # ---------- guardrails and response time at 5 cards ----------

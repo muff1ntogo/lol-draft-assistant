@@ -5,8 +5,10 @@ Power curve, per champion and role, from crawled games bucketed by length:
 each bucket shrunk towards the champion's own win rate p (k = 50 games), so a champion that is simply
 strong reads 0, and thin data reads close to 0. Negative = early, positive = late.
 
-Team-fight style per champion: weights over (front to back, dive, poke) summing to 1, plus a front-line
-flag (data/profiles.py: a reviewed seed file).
+Fight style per champion: shares over the five comp identities (engage, poke, pick, protect, split) summing
+to 1, plus a front-line flag (data/profiles.py: from the reviewed tags of docs/synergy-v2.md, the one source
+for fight style since the merge; Data Dragon classes for untagged champions). The same identities name a
+team's plan in the synergy v2 team model (engine/team.py).
 """
 from __future__ import annotations
 
@@ -22,8 +24,18 @@ CURVE_MIN_GAMES = 50  # short + long games needed for a timing label
 # sd 0.22): 0.10 labelled two thirds, mostly noise at 100-200 games; 0.15 labels about half.
 TIMING_THRESHOLD = 0.15
 
-STYLES = ("front_to_back", "dive", "poke")
-STYLE_LABELS = {"front_to_back": "Front to back", "dive": "Dive", "poke": "Poke"}
+IDENTITIES = ("engage", "poke", "pick", "protect", "split")
+IDENTITY_LABELS = {"engage": "Engage", "poke": "Poke", "pick": "Pick", "protect": "Protect", "split": "Split"}
+# identity -> (trait term, weight): a champion's contribution to an identity (tags 0-1, measured percentiles)
+IDENTITY_TERMS: dict[str, tuple[tuple[str, float], ...]] = {
+    "engage": (("engage", 1.0), ("dive", 0.5)),
+    "poke": (("poke", 1.0),),
+    "pick": (("pick", 1.0),),
+    "protect": (("enchanter", 1.0), ("disengage", 0.5), ("peel_all", 0.5)),
+    "split": (("splitpush", 1.0),),
+}
+STYLES = IDENTITIES  # the fight-style vocabulary everywhere (badges, comp panels, coherence, Team page)
+STYLE_LABELS = IDENTITY_LABELS
 TIMING_LABELS = {"early": "Early", "mid": "Mid", "late": "Late"}
 
 
@@ -57,11 +69,11 @@ class TimingCurve:
 
 @dataclass(frozen=True)
 class ChampStyle:
-    weights: tuple[float, float, float]  # front to back, dive, poke
+    weights: tuple[float, ...]  # shares over STYLES (the five identities), summing to 1
     frontline: bool
-    source: str  # seed | user | classes (Data Dragon classes: champion missing from the seed)
-    reviewed: bool
-    unsure: bool  # seeded mostly from classes: review first
+    source: str  # tags | classes (Data Dragon classes: an untagged champion)
+    reviewed: bool  # its tags are reviewed
+    unsure: bool  # untagged: style guessed from classes
 
     def as_dict(self) -> dict[str, float]:
         return dict(zip(STYLES, self.weights))
@@ -69,11 +81,14 @@ class ChampStyle:
 
 @dataclass(frozen=True)
 class ChampionProfiles:
-    """Every champion's style (reviewed seed) and power curves per role (data/profiles.py loads it)."""
-    styles: Mapping[int, ChampStyle]
+    """Every champion's style (from its tags) and power curves per role (data/profiles.py loads it)."""
+    styles: Mapping[int, ChampStyle]  # the champion in its main role
     curves: Mapping[tuple[int, str], TimingCurve]
+    role_styles: Mapping[tuple[int, str], ChampStyle] = None  # (champ, role) when its tags differ by role
 
-    def style(self, champ: int) -> ChampStyle | None:
+    def style(self, champ: int, role: str | None = None) -> ChampStyle | None:
+        if role is not None and self.role_styles and (st := self.role_styles.get((champ, role))) is not None:
+            return st
         return self.styles.get(champ)
 
     def curve(self, champ: int, role: str | None) -> TimingCurve | None:
@@ -87,8 +102,8 @@ class ChampionProfiles:
 EMPTY_PROFILES = ChampionProfiles({}, {})
 
 # ---------- badges and team comp (Live screen) ----------
-MAIN_STYLE = 0.5  # a champion "is" a style (badge, contributor) at this weight or more
-STYLE_SHARE = 0.45  # a team's style is named at this share of its picks' weights...
+MAIN_STYLE = 0.4  # a champion "is" a style (badge, contributor) at this share or more (five identities)
+STYLE_SHARE = 0.35  # a team's style is named at this share of its picks' weights...
 STYLE_CONTRIBUTORS = 2  # ...with at least this many champions of that style
 COMP_TIMING_LABELS = {"early": "Early", "mid": "Mix", "late": "Late"}
 FULL_CARDS, NARROW_CARDS = 5, 3  # suggestion cards while the comp is open / converging
@@ -97,7 +112,7 @@ FULL_CARDS, NARROW_CARDS = 5, 3  # suggestion cards while the comp is open / con
 @dataclass(frozen=True)
 class Badge:
     timing: str | None  # early | mid | late; None = not enough games
-    styles: tuple[str, ...]  # styles with weight >= MAIN_STYLE: one, two for a 0.5 / 0.5 champion, or none
+    styles: tuple[str, ...]  # styles with share >= MAIN_STYLE: one, two for an even split, or none
     frontline: bool
 
     @property
@@ -119,7 +134,7 @@ class Badge:
 
 
 def badge(profiles: ChampionProfiles, champ: int, role: str | None) -> Badge:
-    st = profiles.style(champ)
+    st = profiles.style(champ, role)
     tc = profiles.curve(champ, role)
     styles = tuple(k for k, w in zip(STYLES, st.weights) if w >= MAIN_STYLE) if st else ()
     return Badge(tc.label if tc else None, styles, bool(st and st.frontline))
@@ -148,10 +163,10 @@ class TeamComp:
 
 def team_comp(profiles: ChampionProfiles, picks: list[tuple[int, str | None]]) -> TeamComp:
     """picks: (champion, role or None). Converges as picks are added: a style needs STYLE_SHARE of the
-    weight and STYLE_CONTRIBUTORS champions of it; Front to back also needs a front-liner."""
+    weight and STYLE_CONTRIBUTORS champions of it."""
     curves = [tc.curve for c, r in picks if (tc := profiles.curve(c, r)) is not None and tc.label is not None]
     curve = sum(curves) / len(curves) if curves else None
-    styles = [st for c, _ in picks if (st := profiles.style(c)) is not None]
+    styles = [st for c, r in picks if (st := profiles.style(c, r)) is not None]
     totals = [sum(st.weights[i] for st in styles) for i in range(len(STYLES))]
     shares = {k: (t / len(styles) if styles else 0.0) for k, t in zip(STYLES, totals)}
     frontliners = sum(st.frontline for st in styles)
@@ -160,8 +175,7 @@ def team_comp(profiles: ChampionProfiles, picks: list[tuple[int, str | None]]) -
         top = max(STYLES, key=lambda k: shares[k])
         i = STYLES.index(top)
         contributors = sum(st.weights[i] >= MAIN_STYLE for st in styles)
-        if (shares[top] >= STYLE_SHARE and contributors >= STYLE_CONTRIBUTORS
-                and (top != "front_to_back" or frontliners > 0)):
+        if shares[top] >= STYLE_SHARE and contributors >= STYLE_CONTRIBUTORS:
             style = top
     return TeamComp(len(picks), timing_label(curve), curve, shares, style, frontliners)
 

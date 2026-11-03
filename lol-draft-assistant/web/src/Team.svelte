@@ -66,8 +66,8 @@
       </label>
       {#if message}<p class="ok">{message}</p>{/if}
       <p class="muted small">
-        Each logged draft is classified like the Live comp panel, from the champions' fight styles (Champions page):
-        a style needs 45% of the comp and two champions of it (Front to back also a front-liner), else it is Mixed.
+        Each logged draft is classified like the Live comp panel, from the champions' tags (Champions page): an
+        identity (Engage, Poke, Pick, Protect, Split) needs 35% of the comp and two champions of it, else it is Mixed.
         In a draft, picks are pulled towards the style set here (from our pick 2, full strength at picks 4–5;
         Settings › Comp style). "Mixed" means no pull; "not set" follows the style our comp is heading for.
       </p>

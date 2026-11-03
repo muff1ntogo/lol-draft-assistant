@@ -1,5 +1,5 @@
-"""Comp type and team-fight style, Stage A: game length, power curves, the style seed, user overrides.
-See docs/comp-style.md."""
+"""Comp type and fight style: game length and power curves (docs/comp-style.md, Stage A), and fight style as
+the five comp identities derived from the reviewed tags (the merge in docs/synergy-v2.md)."""
 import json
 
 import pytest
@@ -10,13 +10,8 @@ from draftassist.api.main import create_app
 from draftassist.data.aggregate import aggregate
 from draftassist.data.backfill import backfill_durations
 from draftassist.data.crawler import Crawler, parse_match
-from draftassist.data.profiles import (
-    load_profiles,
-    load_seed,
-    reset_style,
-    save_style,
-    style_from_classes,
-)
+from draftassist.data.profiles import load_profiles, profiles_from_traits, style_from_classes
+from draftassist.data.tags import sync_tags
 from draftassist.data.riot import cache_path
 from draftassist.db.models import Champion, ChampRoleStats, CrawledMatch
 from draftassist.engine.comp import LONG_S, SHORT_S, power_curve, timing_label
@@ -95,41 +90,71 @@ def test_timing_needs_enough_games(db):
     assert load_profiles(db, "16.21").curve(99, "top") is None
 
 
-# ---------- style seed and overrides ----------
-def test_seed_is_valid_and_covers_the_roster():
-    seed = load_seed()
-    assert len(seed.champions) >= 170
-    for key, (weights, frontline) in seed.champions.items():
-        assert sum(weights) == pytest.approx(1.0), key
-        assert all(0 <= w <= 1 for w in weights) and isinstance(frontline, bool)
-    assert seed.unsure <= set(seed.champions)
-    assert seed.champions["Malphite"][1] is True and seed.champions["Xerath"][0] == (0.0, 0.0, 1.0)
+# ---------- fight style from tags (the merge) ----------
+from draftassist.engine.comp import STYLES, badge, team_comp  # noqa: E402
+from draftassist.engine.traits import TAGS, ChampionTraits, TagEntry  # noqa: E402
 
 
-def test_style_falls_back_to_classes_for_champions_missing_from_the_seed(db):
+def tags(reviewed=False, **v):
+    return TagEntry({**dict.fromkeys(TAGS, 0), **v}, reviewed)
+
+
+def shares(st):
+    return dict(zip(STYLES, st.weights))
+
+
+def test_identity_shares_come_from_the_tags_as_written():
+    traits = ChampionTraits({(89, "support"): {"peel_all": 0.0, "frontline_all": 0.9}},
+                            {(89, "support"): tags(engage=3, pick=3),  # unreviewed: read as written for labels
+                             (117, "support"): tags(True, enchanter=3, disengage=2)}, {})
+    prof = profiles_from_traits(traits)
+    leona = shares(prof.style(89))
+    assert leona["engage"] == pytest.approx(0.5) and leona["pick"] == pytest.approx(0.5)
+    assert prof.style(89).frontline and prof.style(89).source == "tags" and not prof.style(89).reviewed
+    lulu = shares(prof.style(117))
+    assert lulu["protect"] == pytest.approx(1.0) and prof.style(117).reviewed
+    assert sum(prof.style(117).weights) == pytest.approx(1.0)
+    assert badge(prof, 89, "support").styles == ("engage", "pick")
+    assert badge(prof, 117, "support").text() == "Protect"
+
+
+def test_style_depends_on_the_role_tagged():
+    traits = ChampionTraits({}, {(80, "top"): tags(splitpush=3), (80, "support"): tags(engage=3)}, {})
+    prof = profiles_from_traits(traits)
+    assert prof.style(80, "top").weights[STYLES.index("split")] == pytest.approx(1.0)
+    assert prof.style(80, "support").weights[STYLES.index("engage")] == pytest.approx(1.0)
+
+
+def test_untagged_champions_fall_back_to_classes():
     weights, frontline = style_from_classes(["Assassin"])
-    assert weights == (0.0, 1.0, 0.0) and not frontline
+    assert dict(zip(STYLES, weights)) == {"engage": 0.3, "poke": 0.0, "pick": 0.7, "protect": 0.0, "split": 0.0}
+    assert not frontline
     weights, frontline = style_from_classes(["Tank", "Fighter"])
     assert sum(weights) == pytest.approx(1.0) and frontline
-    new = load_profiles(db, "16.21").style(11)
-    assert new.source == "classes" and new.weights == (0.0, 1.0, 0.0) and new.unsure
+    prof = profiles_from_traits(ChampionTraits({}, {}, {}), class_tags={11: ["Assassin"]})
+    assert prof.style(11).source == "classes" and prof.style(11).unsure
 
 
-def test_user_override_beats_the_seed_and_reset_restores_it(db):
-    seeded = load_profiles(db, "16.21").style(1)  # Malphite
-    assert seeded.source == "seed" and not seeded.reviewed
-    save_style(db, 1, (0.6, 0.4, 0.0), frontline=True)
-    mine = load_profiles(db, "16.21").style(1)
-    assert mine.source == "user" and mine.weights == (0.6, 0.4, 0.0) and mine.reviewed
-    reset_style(db, 1)
-    assert load_profiles(db, "16.21").style(1) == seeded
-    with pytest.raises(ValueError):
-        save_style(db, 1, (0.6, 0.6, 0.0), frontline=True)  # doesn't sum to 1
-    with pytest.raises(ValueError):
-        save_style(db, 1, (1.2, -0.2, 0.0), frontline=True)
-    save_style(db, 3, None, frontline=None)  # confirm the seed as is
-    confirmed = load_profiles(db, "16.21").style(3)
-    assert confirmed.reviewed and confirmed.weights == (0.0, 0.0, 1.0) and confirmed.source == "seed"
+def test_team_comp_names_an_identity_with_two_contributors():
+    traits = ChampionTraits({}, {(1, "top"): tags(engage=3), (2, "jungle"): tags(engage=3, dive=3),
+                                 (3, "mid"): tags(poke=3), (4, "adc"): tags(), (5, "support"): tags(engage=2)}, {})
+    prof = profiles_from_traits(traits)
+    comp = team_comp(prof, [(1, "top"), (2, "jungle"), (3, "mid"), (5, "support")])
+    assert comp.style == "engage" and comp.shares["engage"] > 0.6
+    assert team_comp(prof, [(1, "top"), (3, "mid")]).style == "mixed"  # one engage champion is not a plan
+
+
+def test_load_profiles_reads_the_tags_table(db, tmp_path):
+    path = tmp_path / "champion_tags.yaml"
+    path.write_text("Malphite:\n  top: {engage: 3, reviewed: true}\nXerath:\n  mid: {poke: 3, pick: 1}\n",
+                    encoding="utf-8")
+    sync_tags(db, path)
+    prof = load_profiles(db, "16.21")
+    assert prof.style(1).source == "tags" and prof.style(1).reviewed
+    assert shares(prof.style(1))["engage"] == pytest.approx(1.0)
+    assert shares(prof.style(3))["poke"] == pytest.approx(0.75)
+    assert prof.style(11).source == "classes"  # Newchamp: no tags
+    assert prof.style(1).frontline  # Malphite's Tank class
 
 
 # ---------- backfill game length from the Riot cache ----------
@@ -156,19 +181,21 @@ def test_backfill_durations_from_cache_is_idempotent(db, tmp_path):
         assert s.get(CrawledMatch, "EUW1_1").game_duration_s == 1500
 
 
-# ---------- API ----------
-def test_champion_styles_api(make_services, db):
+# ---------- API: the Tags page shows timing and fight style ----------
+def test_tags_api_shows_timing_and_identity(make_services, db, tmp_path):
+    path = tmp_path / "champion_tags.yaml"
+    path.write_text("Malphite:\n  top: {engage: 3, reviewed: true}\n", encoding="utf-8")
+    sync_tags(db, path)
+    with Session(db) as s:
+        s.get(Champion, 1).roles = ["top"]
+        s.commit()
     svc = make_services(db=db)
+    svc.tags_path = path
     with TestClient(create_app(svc, stats_refresh_s=0)) as c:
-        rows = {r["champ"]["id"]: r for r in c.get("/api/champions/styles").json()["champions"]}
-        assert rows[1]["weights"] == {"front_to_back": 0.3, "dive": 0.7, "poke": 0.0} and rows[1]["source"] == "seed"
-        assert rows[11]["unsure"] and rows[11]["source"] == "classes"
-        put = c.put("/api/champions/styles/1", json={"weights": {"front_to_back": 0.5, "dive": 0.5, "poke": 0.0},
-                                                      "frontline": True})
-        assert put.status_code == 200 and put.json()["source"] == "user"
-        bad = c.put("/api/champions/styles/1", json={"weights": {"front_to_back": 0.9, "dive": 0.5, "poke": 0.0},
-                                                      "frontline": True})
-        assert bad.status_code == 422
-        assert c.delete("/api/champions/styles/1").json()["source"] == "seed"
-        body = c.get("/api/champions/styles").json()
-        assert body["reviewed"] == 0 and body["total"] == len(body["champions"])
+        body = c.get("/api/tags").json()
+        assert body["styles"]["engage"] == "Engage"
+        malphite = next(r for r in body["champions"] if r["champ_id"] == 1)
+        assert malphite["identity"]["top"]["badge"]["styles"] == ["engage"]
+        assert malphite["identity"]["top"]["source"] == "tags"
+        assert "top" in malphite["timing"]
+        assert c.get("/api/champions/styles").status_code in (404, 405)  # the old review is gone

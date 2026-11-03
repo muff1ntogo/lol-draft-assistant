@@ -295,19 +295,16 @@ class DraftEngine:
 
     def coherence(self, ours: list[tuple[int, str | None]], champ: int, role: str | None,
                   target: str | None) -> float:
-        """weight * damping(our pick number) * (champ's weight in the target style - 1/3), in log-odds.
-        1/3 is an even spread, so a neutral champion scores 0 and an off-style one a little below.
-        Front to back needs a front-liner: the first one counts as a fit of at least weight + 0.5."""
+        """weight * damping(our pick number) * (champ's share of the target style - 1/5), in log-odds.
+        1/5 is an even spread over the five identities, so a neutral champion scores 0 and an off-style one
+        a little below."""
         cfg = self.cfg
         damp = cfg.comp_damping[min(len(ours), len(cfg.comp_damping) - 1)]
-        st = self.data.profiles.style(champ)
+        st = self.data.profiles.style(champ, role)
         if target is None or damp == 0 or st is None:
             return 0.0
         fit = st.weights[STYLES.index(target)]
-        if target == "front_to_back" and st.frontline and not any(
-                (o := self.data.profiles.style(c)) is not None and o.frontline for c, _ in ours):
-            fit = min(1.0, fit + 0.5)
-        return cfg.comp_weight * damp * (fit - 1 / 3)
+        return cfg.comp_weight * damp * (fit - 1 / len(STYLES))
 
     def _evaluate(self, state: DraftState) -> Evaluation:
         ours, theirs = state.our_picks, state.their_picks
