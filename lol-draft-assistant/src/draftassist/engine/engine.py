@@ -212,6 +212,10 @@ class DraftEngine:
         self._assign_cache[key] = (best, best_map)
         return best, best_map
 
+    def likely_roles(self, champs: list[int], side: str = THEM) -> dict[int, str]:
+        """Role assignment for a set of champions: the enemy's most likely one (THEM, default) or ours (US)."""
+        return dict(self._assign(side, tuple(champs))[1]) if champs else {}
+
     def _role_likelihood(self, side: str, champ: int, role: str) -> float:
         """Enemy roles: log P(champion played in role) from pick rates, so the assignment is the most likely
         one, not the one with their best win rates (a jungler with a high WR in rare top games stays the

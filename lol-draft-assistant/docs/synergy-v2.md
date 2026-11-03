@@ -199,3 +199,27 @@ Trio-specific win-rate data; roam pairs (JG–SUP, MID–SUP) as separate in-lan
 - **Fits** (`data/synergy_model.py` → `synergy_fits`): refitted at the end of every `aggregate()` (a broken rule file is logged; old fits stay) and after a prior edit. Bracket-pooled coefficients; the average comp's features are stored per bracket. A fit made under an older prior is treated as stale (the prior is used until the next fit).
 - **Rules page** (`#/rules`, linked from Prep): pair-style and team tabs, prior (editable: writes the YAML, then refits everything), fitted, support, "disagrees" flag (> 1.5pp from the prior or the other sign).
 - **Measured** on a scratch database with 15.7k synthetic matches across 171 real champions: aggregation + traits + fits 9 s, a refit 2.3 s. With SD 1pp the prior is strong: recovering a planted −4pp against a −1pp prior took ~100k matches in the test (30k got −2.5pp); pair rules on tags barely move on one patch of pair data (most core pairs have a handful of games), as intended.
+
+### Stage 3 (3 Nov 2026)
+- `engine/synergy_v2.py`: `SynergyEvaluator` (pair, evaluate, suggest, warm), `SynergyWeights` (Settings). Generalised weights: a core pair contributes `ws·c·Stat + (wy + ws·(1 − c))·Style`, Lane is that over `ws + wy`, other pairs `ws·Stat`, plus `wt·Team`; defaults 0.50 / 0.25 / 0.25 and k = 200 give the spec's formulas (decomposition tested to 1e-9).
+- `POST /api/synergy/evaluate` (`api/synergy_v2.py` for the JSON): champions `[{champ_id, role}]`, optional `enemies` (`role` optional), `banned`, `k`. Returns pairs (Stat / Style / Lane / Overall part, games, confidence, top rules), team (Stat_total / Style_total / Team / Team_weighted / Overall, Team vs enemy with its top rules, identity, damage, bars) and suggestions for the missing roles.
+- Settings page: a "Synergy (Prep page)" section (Stat / Style / Team weights, confidence k, rule prior SD — saving it refits — and d for the Stage 5 Combined bans).
+- Measured on the scratch database: building + warming the evaluator 0.12 s; evaluate through the API 12–15 ms.
+
+## Decision log (Stages 3–5, built without review: please check these)
+
+Each entry: the question, the options, what I chose and why.
+
+**S3-1. Team for a partial comp.** Options: (a) Team only once all 5 roles are known; (b) only from 3 locked roles, 0 before; (c) fill missing roles with an average champion of the role, always computed. **Chose (c)** for the numbers (so "Overall gain if added" is well defined at every step, and Team moves smoothly as locks are added), and (b) for display: the plan panel shows Team from 3 locked roles, as the spec says (`show_team`). With nothing locked Team is ~0 by construction.
+
+**S3-2. Team vs enemy with a partial enemy comp.** Same fill: the enemy's missing roles are average champions, so cross terms with an unknown enemy are neutral.
+
+**S3-3. Enemy roles when not given.** Options: ask for roles; most likely assignment from pick rates; best-for-them assignment. **Chose the most likely assignment** (the engine's existing enemy role model; CLAUDE.md "Lessons learned" rules out the best-for-them one).
+
+**S3-4. Where pair Style is precomputed.** Options: a nightly table in the database; in memory when the evaluator is built. **Chose in memory**: fits only change at aggregation (or a tag / rule edit), and the evaluator is rebuilt then (`Services.invalidate_synergy`), warming every core pair of our pools in 0.1 s. Same effect as a nightly table, no extra table to keep in step.
+
+**S3-5. Which Stat table.** The engine's (the synergy bracket setting, default "all"), and the average comp for Team from the same bracket. Alternative: each player's own bracket per pair — rejected, pairs cross players with different brackets.
+
+**S3-6. Suggestions for missing roles.** Pool champions only (as specified), ranked by Overall gain including Team (filled). Excluded: `banned`, enemy champions, our own comp; then checked by `guards.validate_suggestions` against a provisional `DraftState` so availability still has one source of truth.
+
+**S3-7. Settings scope.** The weights apply to the Prep page and its plan (Stages 4–5). The Live engine's v1 synergy term and its damage-balance penalty are unchanged (decision 5 above); the Team model's `damage_imbalance` rule is the v2 replacement on Prep.

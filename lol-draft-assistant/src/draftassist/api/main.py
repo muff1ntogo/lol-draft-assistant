@@ -45,7 +45,7 @@ from draftassist.data.pools import (
 from draftassist.data.provider import ChampionCatalog, load_catalog, load_engine_inputs, stats_version
 from draftassist.data.profiles import load_profiles, reset_style, save_style
 from draftassist.data.rules import STYLE_RULES_FILE, TEAM_RULES_FILE, set_prior
-from draftassist.data.synergy_model import fit_synergy_model, load_synergy_model
+from draftassist.data.synergy_model import build_evaluator, fit_synergy_model, load_synergy_model
 from draftassist.data.tags import TAGS_FILE, remove_tag, sync_tags, update_tag
 from draftassist.data.traits import load_traits
 from draftassist.engine.traits import TAGS
@@ -94,6 +94,29 @@ class Services:
     tags_path: Path = TAGS_FILE  # judgement tags (docs/synergy-v2.md); tests point it at a scratch copy
     style_rules_path: Path = STYLE_RULES_FILE
     team_rules_path: Path = TEAM_RULES_FILE
+    synergy_v2_override: object | None = None  # tests: a fixed SynergyEvaluator
+    _synergy_v2: object | None = None  # built lazily, dropped on reload and after tag / rule edits
+
+    def synergy_v2(self):
+        """The synergy v2 evaluator (Stat / Style / Team), warmed for our pools."""
+        if self.synergy_v2_override is not None:
+            return self.synergy_v2_override
+        if self._synergy_v2 is None:
+            from draftassist.engine.style import StyleModel
+            from draftassist.engine.synergy_v2 import SynergyEvaluator
+            from draftassist.engine.team import TeamModel
+            from draftassist.engine.traits import EMPTY_TRAITS
+
+            stat = self.engine.data.synergy
+            if self.db is None:
+                self._synergy_v2 = SynergyEvaluator(stat, EMPTY_TRAITS, StyleModel([], {}), TeamModel([], EMPTY_TRAITS))
+            else:
+                self._synergy_v2 = build_evaluator(self.db, stat, get_synergy_bracket(self.db), self.style_rules_path,
+                                                   self.team_rules_path, self.engine.team.pools)
+        return self._synergy_v2
+
+    def invalidate_synergy(self) -> None:
+        self._synergy_v2 = None
 
     def synergy_source(self) -> SynergySource:
         """The engine's scored synergy pairs and damage profiles (reloaded with the stats)."""
@@ -136,6 +159,7 @@ class Services:
         live = self.live
         live.engine, live.catalog = DraftEngine(inputs.data, inputs.team, engine_config(self.db)), inputs.catalog
         live.data_source, live.note = inputs.data_source, inputs.note
+        self._synergy_v2 = None
         if self.players is not None:
             self.players.invalidate()
         self.loaded_version = version
@@ -513,6 +537,22 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         svc.reload()
         return settings_payload(db)
 
+    @app.put("/api/settings/synergy")
+    def put_synergy_settings(request: Request, values: dict[str, float] = Body(..., embed=True)) -> dict:
+        """Synergy v2 weights (Overall = Stat / Style / Team), confidence k, prior SD of the fits, ban d."""
+        from draftassist.data.settings_store import save_synergy_v2_settings
+
+        svc: Services = request.app.state.services
+        db = _db(svc)
+        try:
+            save_synergy_v2_settings(db, **values)
+        except (TypeError, ValueError) as e:
+            raise HTTPException(422, str(e)) from None
+        if "prior_sd_pp" in values:
+            fit_synergy_model(db, style_path=svc.style_rules_path, team_path=svc.team_rules_path)
+        svc.invalidate_synergy()
+        return settings_payload(db)
+
     # ---------- synergy ----------
     @app.post("/api/synergy")
     def post_synergy(request: Request, roles: list[str] = Body(...), columns: dict[str, list[int]] | None = Body(None),
@@ -647,12 +687,14 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
             update_tag(_db(svc), svc.tags_path, champ_id, role, values, reviewed)
         except ValueError as e:
             raise HTTPException(422, str(e)) from None
+        svc.invalidate_synergy()
         return _tag_one(svc, champ_id)
 
     @app.delete("/api/tags/{champ_id}/{role}")
     def delete_tag(request: Request, champ_id: int, role: str) -> dict:
         svc: Services = request.app.state.services
         remove_tag(_db(svc), svc.tags_path, champ_id, role)
+        svc.invalidate_synergy()
         return _tag_one(svc, champ_id)
 
     # ---------- synergy v2 rules (docs/synergy-v2.md, Stage 2) ----------
@@ -690,6 +732,7 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         except ValueError as e:
             raise HTTPException(422, str(e)) from None
         fit_synergy_model(_db(svc), style_path=svc.style_rules_path, team_path=svc.team_rules_path)
+        svc.invalidate_synergy()
         rows = _rules_payload(svc)["style" if kind == "style" else "team"]
         return next(r for r in rows if r["id"] == id)
 
@@ -697,9 +740,59 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
     def post_refit(request: Request) -> dict:
         svc: Services = request.app.state.services
         try:
-            return fit_synergy_model(_db(svc), style_path=svc.style_rules_path, team_path=svc.team_rules_path)
+            result = fit_synergy_model(_db(svc), style_path=svc.style_rules_path, team_path=svc.team_rules_path)
         except ValueError as e:
             raise HTTPException(422, str(e)) from None
+        svc.invalidate_synergy()
+        return result
+
+    # ---------- synergy v2: evaluate (docs/synergy-v2.md, Stage 3) ----------
+    def _comp_input(svc: Services, champions: list[dict], enemies: list[dict] | None):
+        comp: dict[str, int] = {}
+        for item in champions:
+            role, champ = item.get("role"), item.get("champ_id")
+            if role not in ROLES or not isinstance(champ, int) or role in comp:
+                raise HTTPException(422, "champions: one {champ_id, role} per role, roles from " + ", ".join(ROLES))
+            comp[role] = champ
+        if len(set(comp.values())) != len(comp):
+            raise HTTPException(422, "a champion can only fill one role")
+        enemies = enemies or []
+        if len(enemies) > 5:
+            raise HTTPException(422, "at most 5 enemy champions")
+        known = {e["champ_id"]: e["role"] for e in enemies if e.get("role") in ROLES}
+        rest = [e["champ_id"] for e in enemies if e.get("role") not in ROLES]
+        if rest:
+            free = tuple(r for r in ROLES if r not in known.values())
+            guess = svc.engine._assign("them", tuple(rest), free)[1] if len(rest) <= len(free) else {}
+            known |= guess
+        return comp, [(c, r) for c, r in known.items()]
+
+    @app.post("/api/synergy/evaluate")
+    def post_synergy_evaluate(request: Request, champions: list[dict] = Body(...), enemies: list[dict] | None = Body(None),
+                              banned: list[int] | None = Body(None), k: int = Body(5)) -> dict:
+        """Stat / Style / Team for up to 5 of our champions (any roles) and optional enemies; for missing
+        roles, the top k pool champions by Overall gain. Banned and picked champions are never suggested."""
+        from draftassist.api.synergy_v2 import evaluation_json
+        from draftassist.engine.engine import Suggestion as EngineSuggestion
+        from draftassist.engine.formats import TOURNAMENT as _T
+        from draftassist.engine.guards import validate_suggestions
+
+        svc: Services = request.app.state.services
+        comp, enemy = _comp_input(svc, champions, enemies)
+        ev = svc.synergy_v2()
+        team = svc.engine.team
+        unavailable = set(banned or []) | {c for c, _ in enemy}
+        result = ev.evaluate(comp, enemy)
+        suggestions = ev.suggest(comp, {r: list(team.pools.get(r, {})) for r in ROLES}, unavailable, enemy, k=k)
+        # last check, as for every suggestion list: the single availability source and Rule 1
+        state = DraftState(_T, "blue", provisional=frozenset(unavailable | set(comp.values())))
+        for role, rows in suggestions.items():
+            checked = validate_suggestions(state, "pick", [
+                EngineSuggestion(s.champ, svc.catalog.card(s.champ)["name"], "pick", s.gain, "", role) for s in rows])
+            keep = {s.champ_id for s in checked}
+            suggestions[role] = [s for s in rows if s.champ in keep]
+        tier = lambda c, r: (e.tier if (e := team.entry(c, r)) else None)  # noqa: E731
+        return {"window": ev.stat.window, **evaluation_json(result, svc.catalog.card, suggestions, tier)}
 
     # ---------- learning ----------
     @app.post("/api/pools/accept")

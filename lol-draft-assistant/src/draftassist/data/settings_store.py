@@ -121,7 +121,8 @@ def settings_payload(db: Engine) -> dict:
             "ban_declared_intents": declared, "alpha": engine["alpha"], "beta": engine["beta"],
             "comfort_games_cap": engine["comfort_games_cap"], "damage_balance": engine["damage_balance"],
             "damage_penalty": engine["damage_penalty"], "ban_comp_synergy": engine["ban_comp_synergy"],
-            "comp_coherence": engine["comp_coherence"], "comp_weight": engine["comp_weight"]}
+            "comp_coherence": engine["comp_coherence"], "comp_weight": engine["comp_weight"],
+            "synergy_v2": get_synergy_v2_settings(db)}
 
 
 SYNERGY_KEY = "synergy"
@@ -147,11 +148,15 @@ def save_synergy_bracket(db: Engine, bracket: str) -> None:
 
 
 SYNERGY_V2_KEY = "synergy_v2"
-SYNERGY_V2_DEFAULTS = {"prior_sd_pp": 1.0}
+SYNERGY_V2_DEFAULTS = {"prior_sd_pp": 1.0, "w_stat": 0.50, "w_style": 0.25, "w_team": 0.25, "conf_k": 200.0,
+                       "ban_teamfight_d": 1.0}
+_SYNERGY_V2_RANGES = {"prior_sd_pp": (0.1, 10), "w_stat": (0, 5), "w_style": (0, 5), "w_team": (0, 5),
+                      "conf_k": (1, 5000), "ban_teamfight_d": (0, 10)}
 
 
 def get_synergy_v2_settings(db: Engine) -> dict:
-    """Synergy v2 settings (docs/synergy-v2.md): prior SD of the style and team fits, in pp."""
+    """Synergy v2 settings (docs/synergy-v2.md): prior SD of the style and team fits (pp), the Stat / Style /
+    Team weights of Overall, the confidence games k, and d (Win teamfights in the Combined ban list)."""
     with Session(db) as s:
         row = s.get(AppSetting, SYNERGY_V2_KEY)
     v = json.loads(row.value) if row else {}
@@ -163,11 +168,21 @@ def save_synergy_v2_settings(db: Engine, **values: float) -> None:
     for k, v in values.items():
         if k not in SYNERGY_V2_DEFAULTS:
             raise ValueError(f"unknown synergy setting {k}")
-        if k == "prior_sd_pp" and not 0.1 <= float(v) <= 10:
-            raise ValueError("prior_sd_pp must be between 0.1 and 10")
+        lo, hi = _SYNERGY_V2_RANGES[k]
+        if not lo <= float(v) <= hi:
+            raise ValueError(f"{k} must be between {lo} and {hi}")
         current[k] = float(v)
+    if current["w_stat"] + current["w_style"] <= 0:
+        raise ValueError("Stat and Style weights can't both be 0")
     with Session(db) as s:
         row = s.get(AppSetting, SYNERGY_V2_KEY) or AppSetting(key=SYNERGY_V2_KEY, value="{}")
         row.value = json.dumps(current)
         s.add(row)
         s.commit()
+
+
+def synergy_weights(db: Engine):
+    from draftassist.engine.synergy_v2 import SynergyWeights
+
+    v = get_synergy_v2_settings(db)
+    return SynergyWeights(v["w_stat"], v["w_style"], v["w_team"], v["conf_k"])

@@ -150,7 +150,9 @@ def test_settings_api_changes_ban_weights(make_services, engine, session):
             "ban_weights": {"threat": 1.0, "matchup": 1.5, "comp": 1.0, "own": 1.0}, "slider": 0.6,
             "ban_declared_intents": False, "alpha": 1.0, "beta": 1.0, "comfort_games_cap": 10,
             "damage_balance": True, "damage_penalty": -0.05, "ban_comp_synergy": False,
-            "comp_coherence": True, "comp_weight": 0.15}
+            "comp_coherence": True, "comp_weight": 0.15,
+            "synergy_v2": {"prior_sd_pp": 1.0, "w_stat": 0.5, "w_style": 0.25, "w_team": 0.25, "conf_k": 200.0,
+                           "ban_teamfight_d": 1.0}}
         body = {"ban_weights": {"threat": 2.5, "matchup": 0.0, "comp": 1.0}, "ban_declared_intents": True}
         assert client.put("/api/settings", json=body).json()["slider"] == 0.0
         assert svc.engine.cfg.ban_weights == BanWeights(2.5, 0.0, 1.0) and svc.engine.cfg.ban_declared_intents

@@ -11,6 +11,8 @@
   let compCoherence = $state(true);
   let compWeight = $state(0.15);
   let message = $state('');
+  let syn = $state({ w_stat: 0.5, w_style: 0.25, w_team: 0.25, conf_k: 200, prior_sd_pp: 1, ban_teamfight_d: 1 });
+  let synMessage = $state('');
 
   fetch('/api/settings').then((r) => r.json()).then((s) => {
     weights = { ...s.ban_weights };
@@ -24,7 +26,18 @@
     banSynergy = s.ban_comp_synergy;
     compCoherence = s.comp_coherence;
     compWeight = s.comp_weight;
+    if (s.synergy_v2) syn = { ...s.synergy_v2 };
   });
+
+  async function saveSynergy() {
+    synMessage = '';
+    const res = await fetch('/api/settings/synergy', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values: syn }),
+    });
+    const body = await res.json();
+    synMessage = res.ok ? 'Saved. The Prep page uses the new weights at once.' : `Not saved: ${body.detail}`;
+    if (res.ok) syn = { ...body.synergy_v2 };
+  }
 
   function fromSlider() {
     weights.threat = +(2.5 * (1 - slider)).toFixed(3);
@@ -133,6 +146,30 @@
     <button onclick={save}>Save</button>
     {#if message}<p class="msg">{message}</p>{/if}
   </section>
+
+  <section class="gap">
+    <h2>Synergy (Prep page)</h2>
+    <div class="advanced">
+      <label>Stat weight <input type="number" min="0" max="5" step="0.05" bind:value={syn.w_stat} /></label>
+      <label>Style weight <input type="number" min="0" max="5" step="0.05" bind:value={syn.w_style} /></label>
+      <label>Team weight <input type="number" min="0" max="5" step="0.05" bind:value={syn.w_team} /></label>
+      <label>Confidence games (k) <input type="number" min="1" max="5000" step="10" bind:value={syn.conf_k} /></label>
+    </div>
+    <p class="muted">
+      Overall = Stat × win-rate synergy of every pair + Style × the core pairs' style rules + Team × the whole-comp
+      model. A core pair with few games together moves its Stat weight to Style: confidence = games / (games + k).
+    </p>
+    <div class="advanced">
+      <label>Rule prior SD (pp) <input type="number" min="0.1" max="10" step="0.1" bind:value={syn.prior_sd_pp} /></label>
+      <label>Win teamfights in Combined bans (d) <input type="number" min="0" max="10" step="0.1" bind:value={syn.ban_teamfight_d} /></label>
+    </div>
+    <p class="muted">
+      Prior SD: how far crawled data may move a written rule (smaller = trust the rules more); changing it refits
+      every rule.
+    </p>
+    <button onclick={saveSynergy}>Save synergy settings</button>
+    {#if synMessage}<p class="msg">{synMessage}</p>{/if}
+  </section>
 </main>
 
 <style>
@@ -144,6 +181,7 @@
   .row input { width: 80px; background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
                border-radius: 6px; padding: 4px 6px; font: inherit; }
   section { background: var(--panel); border-radius: 8px; padding: 18px 20px; }
+  section.gap { margin-top: 18px; }
   .slider { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; font-size: 16px; }
   input[type='range'] { width: 100%; }
   .advanced { display: flex; gap: 16px; flex-wrap: wrap; margin: 10px 0; }

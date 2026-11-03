@@ -161,3 +161,17 @@ def load_synergy_model(db: Engine, window: str | None = None, bracket: str = ALL
                            side.value if side else 0.0)
     team = team.with_means(np.array([means.get(r.id, 0.0) for r in team.own_rules]))
     return SynergyModel(traits, style, team, window, bracket, fits, side.support if side else 0)
+
+
+def build_evaluator(db: Engine, stat_table, bracket: str = ALL, style_path: Path = STYLE_RULES_FILE,
+                    team_path: Path = TEAM_RULES_FILE, pools: Mapping | None = None):
+    """The Stage 3 evaluator: Stat from the engine's synergy table, Style and Team from the stored fits, weights
+    from Settings; warmed for our pools."""
+    from draftassist.data.settings_store import synergy_weights
+    from draftassist.engine.synergy_v2 import SynergyEvaluator
+
+    model = load_synergy_model(db, bracket=bracket, style_path=style_path, team_path=team_path)
+    ev = SynergyEvaluator(stat_table, model.traits, model.style, model.team, synergy_weights(db))
+    if pools:
+        ev.warm(pools)
+    return ev
