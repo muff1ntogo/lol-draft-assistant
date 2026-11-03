@@ -16,7 +16,6 @@ from draftassist.data.riot import RateLimiter, RiotClient
 from draftassist.db.models import Champion, Draft, DraftAction, Player, PlayerGame, PoolEntry
 from draftassist.engine.formats import TOURNAMENT
 from draftassist.engine.model import ROLES, tier_comfort
-from draftassist.engine.state import DraftState
 from draftassist.learning.comfort import accept, comfort_score, rescore, scored_tier, set_locked, wr_adj
 from draftassist.learning.history import collect_logged, fetch_history
 from draftassist.learning.jobs import run_learning

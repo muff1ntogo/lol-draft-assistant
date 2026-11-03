@@ -6,7 +6,7 @@ import pytest
 
 from draftassist.engine.engine import DraftEngine
 from draftassist.engine.formats import STANDARD_RANKED, TOURNAMENT
-from draftassist.engine.model import ROLES, BracketStats, RoleStat
+from draftassist.engine.model import ROLES, BracketStats
 from draftassist.engine.plan import (
     PlanContext,
     backups,

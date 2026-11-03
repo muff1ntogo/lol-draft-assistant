@@ -182,7 +182,7 @@ def _plan_bar(engine: DraftEngine, catalog: ChampionCatalog, pin: dict, banner: 
                      "backup": card(g["backup"]) if g["backup"] else None} for g in banner["gone"]]}
 
     profiles = engine.data.profiles
-    slots, now = [], None
+    slots = []
     if st is None:
         for c, r in plan_comp:
             slots.append({"role": r, "role_label": ROLE_LABELS[r], "planned": card(c), "status": "planned",

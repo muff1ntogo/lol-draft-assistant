@@ -4,7 +4,6 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
 
 from draftassist.api.main import create_app
 from draftassist.db.models import Champion
@@ -218,8 +217,6 @@ def test_pin_api_and_unpin(svc):
     from draftassist.api.main import load_pinned
 
     assert load_pinned(svc.db)["locks"] == {r: c for r, c in locks.items()}
-    with Session(svc.db):
-        pass
 
 
 def test_live_budgets_hold_with_a_pinned_plan():

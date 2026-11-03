@@ -32,7 +32,7 @@ from itertools import permutations
 
 import numpy as np
 
-from draftassist.engine.engine import US, DraftEngine, Evaluation, Suggestion, enemy_team_ban_prob
+from draftassist.engine.engine import DraftEngine, Evaluation, Suggestion, enemy_team_ban_prob
 from draftassist.engine.formats import DraftFormat
 from draftassist.engine.guards import validate_suggestions
 from draftassist.engine.lane_ban import RoleBanTable, team_lane_ban
@@ -114,11 +114,10 @@ class PlanContext:
     def discount(self, champ: int) -> float:
         if not self.flex:
             return 1.0
-        return 1 - enemy_team_ban_prob(self.engine._enemy().ban_rates.get(champ, 0.0))
+        return 1 - enemy_team_ban_prob(self.engine.enemy_stats.ban_rates.get(champ, 0.0))
 
     def lane_tables(self) -> dict[str, RoleBanTable]:
-        self.engine._assign_cache.clear()
-        return self.engine._lane_ban_tables(self.state, self.evaluation, self.active)
+        return self.engine.lane_ban_tables(self.state, self.active)
 
     def ours(self) -> list[tuple[int, str]]:
         return [(c, r) for r, c in self.active.items()]
@@ -134,7 +133,7 @@ class PlanContext:
 def enemy_presence(engine: DraftEngine, champ: int) -> float:
     """P(the enemy team picks X): its pick rate summed over roles (picks per match, both teams) halved,
     given it isn't banned."""
-    enemy = engine._enemy()
+    enemy = engine.enemy_stats
     rate = sum(s.pick_rate for r in ROLES if (s := enemy.role_stat(champ, r)) is not None)
     available = max(1 - enemy.ban_rates.get(champ, 0.0), 0.05)
     return min(rate / 2 / available, 0.95)
@@ -192,10 +191,10 @@ def _teamfight_table(c: PlanContext) -> dict[int, Teamfight]:
     open_roles = [r for r in ROLES if r not in {r for _, r in theirs}]
     base_total, base_parts = team.vs_batch(ours, [theirs])
     cands: list[tuple[int, str, float]] = []
-    for x in eng._champs:
+    for x in eng.champion_ids:
         if x in c.unavailable or x in c.plan_champs or enemy_presence(eng, x) < MIN_PRESENCE:
             continue
-        shares = {r: s for r, s in eng._role_shares.get(x, {}).items() if r in open_roles and s >= MIN_ROLE_SHARE}
+        shares = {r: s for r, s in eng.role_shares(x).items() if r in open_roles and s >= MIN_ROLE_SHARE}
         z = sum(shares.values())
         cands += [(x, r, s / z) for r, s in shares.items()]
     if not cands:
@@ -255,12 +254,9 @@ def combined_bans(c: PlanContext, d_weight: float = 1.0, k: int = K) -> list[Pla
         return PlanBan(**(fields | {"reason": reason}), owner=owner, teamfight=part)
 
     if c.flex and c.state.step is not None and c.state.step.kind == "ban":
-        eng._assign_cache.clear()
         group = eng.ban_group(c.state, list(ROLES), c.active, extra, exclude=c.plan_champs)
         return [wrap(s, owner) for owner, s in group if s is not None][:k]
-    cands = eng._ban_candidates(c.state, c.active, extra)
-    out = [wrap(eng._ban_suggestion(c.state, b, eng._last_tables)) for b in cands
-           if b.value > 0 and b.champ_id not in c.plan_champs]
+    out = [wrap(s) for s in eng.ban_suggestions(c.state, c.active, extra) if s.champ_id not in c.plan_champs]
     return _finish(c, out[: k * 2], k)
 
 
@@ -321,10 +317,10 @@ class PlannedPick:
 
 def _counter(c: PlanContext, champ: int, role: str) -> tuple[int | None, float]:
     eng = c.engine
-    lane = eng._our_bracket(role)
-    enemy = eng._enemy()
+    lane = eng.our_stats(role)
+    enemy = eng.enemy_stats
     best, who = 0.0, None
-    for e in eng._champs:
+    for e in eng.champion_ids:
         if e == champ or e in c.unavailable or e in c.plan_champs or not enemy.role_stat(e, role):
             continue
         if (x := logit(lane.matchup_wr(role, e, champ))) > best:
@@ -332,67 +328,84 @@ def _counter(c: PlanContext, champ: int, role: str) -> tuple[int | None, float]:
     return who, best
 
 
-def pick_order(c: PlanContext) -> list[PlannedPick]:
+@dataclass(frozen=True)
+class _PickCosts:
+    """One plan champion's costs per slot, in pp of win chance (docs/synergy-v2.md, S5-6)."""
+    champ: int
+    role: str
+    loss: float  # what losing it costs (vs its backup)
+    counter: int | None  # the best open counter
+    edge: float  # that counter's lane edge, log-odds
+    roles: int  # pool roles it can play (flex)
+    ban_q: float  # P(the enemy team bans it)
+    presence: float  # P(the enemy picks it)
+    risk_weight: float
+    risk_horizon: int
+    flex_bonus: float
+
+    def contest(self, s: Slot) -> float:
+        """P(banned or taken before slot s)."""
+        return 1 - (1 - self.ban_q * s.enemy_bans_before) * (1 - self.presence * s.enemy_picks_before / 5)
+
+    def counter_pp(self, s: Slot) -> float:
+        return 100 * self.risk_weight * self.edge * min(1.0, s.enemy_picks_after / self.risk_horizon)
+
+    def flex_pp(self, s: Slot) -> float:
+        return 100 * self.flex_bonus * max(self.roles - 1, 0) * s.enemy_picks_after / 5
+
+    def score(self, s: Slot) -> float:
+        return -self.contest(s) * self.loss - self.counter_pp(s) + self.flex_pp(s)
+
+
+def _pick_costs(c: PlanContext, champ: int, role: str, backup: Backup | None) -> _PickCosts:
     eng, cfg = c.engine, c.engine.cfg
+    if backup is None:
+        loss = NO_BACKUP_LOSS_PP
+    else:
+        strength = eng.pick_weight(champ, role) - eng.pick_weight(backup.champ, role)
+        loss = max(0.0, 25 * (strength + backup.drop))
+    who, edge = _counter(c, champ, role)
+    return _PickCosts(champ, role, loss, who, edge, len(eng.team.roles_for(champ)),
+                      enemy_team_ban_prob(eng.enemy_stats.ban_rates.get(champ, 0.0)), enemy_presence(eng, champ),
+                      cfg.risk_weight, cfg.risk_horizon, cfg.flex_bonus)
+
+
+def _pick_line(c: PlanContext, k: _PickCosts, s: Slot, first: Slot) -> str:
+    name = c.engine.data.name
+    early_counter = k.counter_pp(first)
+    countered = early_counter >= COUNTERED_PP and k.counter is not None
+    if s.group == first.group:
+        tail = f"{name(k.counter)} counters it ({_pp(-25 * k.edge)})" if countered else "safe blind"
+        return f"{s.label} {name(k.champ)}: contested {_pct(k.contest(s))}, {tail}"
+    if countered:
+        return (f"Hold {name(k.champ)} to {s.group.replace('–', '/')}: "
+                f"countered by {name(k.counter)} ({_pp(-25 * k.edge)})")
+    return f"{s.label} {name(k.champ)}: contested {_pct(k.contest(s))} by then"
+
+
+def pick_order(c: PlanContext) -> list[PlannedPick]:
     picked = set(c.state.our_picks)
     todo = [(r, ch) for r, ch in c.active.items() if ch not in picked]
     slots = [s for s in our_slots(c.state.format, c.state.our_side) if s.index >= len(c.state.actions)]
     if not todo or not slots:
         return []
-    todo = todo[: len(slots)]
     backup = backups(c)
-    info = {}
-    for r, ch in todo:
-        b = backup.get(r)
-        if b is None:
-            loss = NO_BACKUP_LOSS_PP
-        else:
-            strength = eng._weight(US, ch, r) - eng._weight(US, b.champ, r)
-            loss = max(0.0, 25 * (strength + b.drop))
-        who, edge = _counter(c, ch, r)
-        flex_roles = len(eng.team.roles_for(ch))
-        q = enemy_team_ban_prob(eng._enemy().ban_rates.get(ch, 0.0))
-        info[ch] = (r, loss, who, edge, flex_roles, q, enemy_presence(eng, ch))
+    costs = [_pick_costs(c, ch, r, backup.get(r)) for r, ch in todo[: len(slots)]]
 
-    def contest(ch: int, s: Slot) -> float:
-        _, _, _, _, _, q, p = info[ch]
-        return 1 - (1 - q * s.enemy_bans_before) * (1 - p * s.enemy_picks_before / 5)
-
-    def counter_pp(ch: int, s: Slot) -> float:
-        edge = info[ch][3]
-        return 100 * cfg.risk_weight * edge * min(1.0, s.enemy_picks_after / cfg.risk_horizon)
-
-    def flex_pp(ch: int, s: Slot) -> float:
-        return 100 * cfg.flex_bonus * max(info[ch][4] - 1, 0) * s.enemy_picks_after / 5
-
-    def score(ch: int, s: Slot) -> float:
-        return -contest(ch, s) * info[ch][1] - counter_pp(ch, s) + flex_pp(ch, s)
-
-    champs = [ch for _, ch in todo]
+    # the assignment of plan champions to open slots with the lowest total cost (<= 5!/0! = 120 to try)
     best, best_perm = -math.inf, None
-    for perm in permutations(range(len(slots)), len(champs)):
-        total = sum(score(ch, slots[i]) for ch, i in zip(champs, perm))
-        # ties: the more contested champion goes first
-        total -= 1e-9 * sum(i * contest(ch, slots[-1]) for ch, i in zip(champs, perm))
+    for perm in permutations(range(len(slots)), len(costs)):
+        total = sum(k.score(slots[i]) for k, i in zip(costs, perm))
+        total -= 1e-9 * sum(i * k.contest(slots[-1]) for k, i in zip(costs, perm))  # ties: most contested first
         if total > best + 1e-12:
             best, best_perm = total, perm
-    first_group = slots[0].group
+
     out = []
-    for ch, i in sorted(zip(champs, best_perm), key=lambda t: t[1]):
+    for k, i in sorted(zip(costs, best_perm), key=lambda t: t[1]):
         s = slots[i]
-        r, loss, who, edge, _, _, _ = info[ch]
-        con, cpp = contest(ch, s), counter_pp(ch, s)
-        priority = contest(ch, slots[-1]) * loss - counter_pp(ch, slots[0]) + flex_pp(ch, slots[0])
-        name = eng.data.name(ch)
-        early_counter = counter_pp(ch, slots[0])
-        if s.group == first_group:
-            tail = "safe blind" if early_counter < COUNTERED_PP else f"{eng.data.name(who)} counters it ({_pp(-25 * edge)})"
-            line = f"{s.label} {name}: contested {_pct(con)}, {tail}"
-        elif early_counter >= COUNTERED_PP and who is not None:
-            line = f"Hold {name} to {s.group.replace('–', '/')}: countered by {eng.data.name(who)} ({_pp(-25 * edge)})"
-        else:
-            line = f"{s.label} {name}: contested {_pct(con)} by then"
-        out.append(PlannedPick(ch, r, s.n, s.label, s.group, con, who, 25 * edge, cpp, loss, priority, line))
+        priority = k.contest(slots[-1]) * k.loss - k.counter_pp(slots[0]) + k.flex_pp(slots[0])
+        out.append(PlannedPick(k.champ, k.role, s.n, s.label, s.group, k.contest(s), k.counter, 25 * k.edge,
+                               k.counter_pp(s), k.loss, priority, _pick_line(c, k, s, slots[0])))
     return out
 
 
@@ -438,14 +451,14 @@ def plan_risks(c: PlanContext, k: int = 3) -> dict:
     if ours and team.rules:
         theirs = c.theirs()
         filled = {r for _, r in theirs}
-        enemy = eng._enemy()
+        enemy = eng.enemy_stats
         comps = []
         for ident in IDENTITIES:
             comp = list(theirs)
             for role in ROLES:
                 if role in filled:
                     continue
-                cands = sorted((x for x in eng._champs if x not in c.unavailable and x not in c.plan_champs
+                cands = sorted((x for x in eng.champion_ids if x not in c.unavailable and x not in c.plan_champs
                                 and (s := enemy.role_stat(x, role)) and s.pick_rate > 0),
                                key=lambda x: -enemy.role_stat(x, role).pick_rate)[:IDENTITY_POOL]
                 if cands:

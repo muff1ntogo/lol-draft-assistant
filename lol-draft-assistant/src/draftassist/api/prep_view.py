@@ -20,7 +20,7 @@ from draftassist.data.provider import ChampionCatalog
 from draftassist.engine.comp import EMPTY_PROFILES, ChampionProfiles, badge
 from draftassist.engine.model import ROLE_LABELS, ROLES, OurTeam
 from draftassist.engine.synergy import LOW_DATA_GAMES
-from draftassist.engine.synergy_v2 import CORE_PAIRS, SynergyEvaluator, is_core
+from draftassist.engine.synergy_v2 import CORE_PAIRS, SynergyEvaluator
 
 SCOPES = ("lane", "teamfight")
 VIEWS = ("overall", "stat", "style", "team")
@@ -120,5 +120,3 @@ def build_prep_view(ev: SynergyEvaluator, catalog: ChampionCatalog, team: OurTea
         "table": {"pairs": rows, "completions": completions},
     }
 
-
-__all__ = ["SCOPES", "VIEWS", "build_prep_view", "is_core"]

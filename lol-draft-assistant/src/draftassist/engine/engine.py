@@ -215,9 +215,40 @@ class DraftEngine:
         self._assign_cache[key] = (best, best_map)
         return best, best_map
 
-    def likely_roles(self, champs: list[int], side: str = THEM) -> dict[int, str]:
-        """Role assignment for a set of champions: the enemy's most likely one (THEM, default) or ours (US)."""
-        return dict(self._assign(side, tuple(champs))[1]) if champs else {}
+    def likely_roles(self, champs: list[int], side: str = THEM, roles: tuple[str, ...] = ROLES) -> dict[int, str]:
+        """Role assignment for a set of champions over `roles`: the enemy's most likely one (THEM, default) or
+        our best one (US). Empty when there are more champions than roles."""
+        if not champs or len(champs) > len(roles):
+            return {}
+        return dict(self._assign(side, tuple(champs), tuple(roles))[1])
+
+    # ---------- read-only views for planners (engine/plan.py) ----------
+    @property
+    def champion_ids(self) -> list[int]:
+        return self._champs
+
+    @property
+    def enemy_stats(self) -> BracketStats:
+        return self._enemy()
+
+    def our_stats(self, role: str) -> BracketStats:
+        """The stats of the bracket our player in `role` is scored in."""
+        return self._our_bracket(role)
+
+    def role_shares(self, champ: int) -> dict[str, float]:
+        """P(champion is played in role) in the enemy bracket."""
+        return dict(self._role_shares.get(champ, {}))
+
+    def pick_weight(self, champ: int, role: str) -> float:
+        """Our pick weight: alpha * meta + beta * comfort, log-odds."""
+        return self._weight(US, champ, role)
+
+    def ban_suggestions(self, state: DraftState, plan: dict[str, int] | None = None,
+                        extra: dict[int, float] | None = None) -> list[Suggestion]:
+        """Every ban candidate with value > 0 as a suggestion, best first, before the guardrails (callers
+        filter and validate). `plan` / `extra` as in `_ban_candidates`."""
+        cands = self._ban_candidates(state, plan, extra)
+        return [self._ban_suggestion(state, b, self._last_tables) for b in cands if b.value > 0]
 
     def _role_likelihood(self, side: str, champ: int, role: str) -> float:
         """Enemy roles: log P(champion played in role) from pick rates, so the assignment is the most likely
@@ -452,10 +483,11 @@ class DraftEngine:
             for r in ROLES
         }
 
-    def lane_ban_tables(self, state: DraftState) -> dict[str, RoleBanTable]:
-        """Per-role lane ban tables (Opp / PR / Resp / via / Ban) for the Prep page and API."""
+    def lane_ban_tables(self, state: DraftState, plan: dict[str, int] | None = None) -> dict[str, RoleBanTable]:
+        """Per-role lane ban tables (Opp / PR / Resp / via / Ban) for the Prep page and API; `plan` treats our
+        planned champions as locked in their roles."""
         self._assign_cache.clear()
-        return self._lane_ban_tables(state, self._evaluate(state))
+        return self._lane_ban_tables(state, self._evaluate(state), plan)
 
     # ---------- bans ----------
     def _ban_candidates(self, state: DraftState, plan: dict[str, int] | None = None,

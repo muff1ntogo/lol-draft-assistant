@@ -4,13 +4,11 @@ import itertools
 import random
 import time
 
-import numpy as np
 import pytest
 
 from draftassist.engine.style import StyleModel, parse_style_rules
 from draftassist.engine.synergy import PairScore, SynergyTable
 from draftassist.engine.synergy_v2 import (
-    CORE_PAIRS,
     SynergyEvaluator,
     SynergyWeights,
     confidence,

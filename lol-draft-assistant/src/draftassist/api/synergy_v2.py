@@ -3,6 +3,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from draftassist.engine.plan import (
+    backups,
+    combined_bans,
+    fills,
+    pick_order,
+    plan_risks,
+    win_lane_bans,
+    win_teamfight_bans,
+)
 from draftassist.engine.style import StyleModel
 from draftassist.engine.synergy_v2 import CompResult, PairResult, Suggestion
 from draftassist.engine.team import IDENTITY_LABELS
@@ -58,9 +67,6 @@ def evaluation_json(result: CompResult, card: Callable[[int], dict], suggestions
 
 def plan_json(ctx, card: Callable[[int], dict], d_weight: float) -> dict:
     """The Prep page's bottom half (docs/synergy-v2.md, Stage 5) for a PlanContext."""
-    from draftassist.engine.plan import backups, combined_bans, fills, pick_order, plan_risks, win_lane_bans, \
-        win_teamfight_bans
-
     def ban(b) -> dict:
         return {"champ": card(b.champ_id), "value_pp": pp(b.value), "reason": b.reason, "role": b.role,
                 "owner": b.owner, "relevance": None if b.relevance is None else round(b.relevance, 3),
