@@ -313,6 +313,13 @@ Show what's present and what's missing. It's informational: no automatic changes
 - **`k_r` is 400 (the ceiling) in every role.** On this data the spread of champion pairs around the prediction can't be told from noise, so the doc's expectation of a smaller `k_r` for top isn't visible yet. Re-check as the crawl grows.
 - Unreviewed labels blend towards the role's average, so reviewing them should sharpen E and K. Not measured.
 
+**Stage 4, first look (4 Nov 2026, 202 matches with gold, 19.5k without; lane figures to re-check once the backlog clears):**
+
+- Gold leads average 0 in every role, with SDs of 1,780 top, 1,150 jungle, 1,593 mid, 1,829 ADC and 920 support. Win rate rises steadily with the lead: 30% at under −1,500, 50% around even, 70% at over +1,500.
+- The old flag means a large lead: +2,185 gold on average, against −307 without it.
+- **±300 gold is common:** 72–88% of lanes are past it at 15 minutes. Stage 6's `behind_value` cutoff of −300 would count about 40% of games as "behind".
+- **Role weights, fitted on 18.8k matches:** top 1.46, jungle 1.29, support 1.08, mid 0.71, ADC 0.46, each ± about 0.35. So the guide's "jungle matters least" doesn't show up, and the gaps are mostly within the noise.
+
 ## Built
 
 ### Stage 4 (4 Nov 2026)
