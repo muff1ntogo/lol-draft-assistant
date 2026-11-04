@@ -210,3 +210,20 @@ def test_recap_combines_the_two_lanes():
     assert got["delta_pp"] == 1.8 and got["lane_gold"] == 200 and got["band"] == "ours" and got["games"] == 10
     assert bot_lane_summary({"delta_pp": None}, sup, 0.0) is None
     assert bot_lane_summary(adc, {"delta_pp": 1.0, "lane_gold": None, "games": 5}, 0.0)["lane_gold"] is None
+
+
+def test_health_and_the_tree_stay_json_with_bot_tables():
+    # Real data has bot tables and fixtures didn't: a numpy value here was a 500 on Pools and the Matchup tree
+    import json
+
+    from draftassist.engine.blind import pool_health
+    from draftassist.engine.matchup_tree import matchup_tree
+
+    eng = _engine(tables(pair=cell("scaler", "engage", 0.4), cross=cell("lane_bully", "engage", 0.1)))
+    for role in ("adc", "support"):
+        json.dumps(pool_health(eng, role))
+        json.dumps(matchup_tree(eng, role, ARCHETYPES[role]))
+    wr = BotLaneData(MappingLaneData({"adc": {2: 0.5}}, matchups={("adc", 1, 2): 0.5}), tables(pair=cell("scaler", "engage", 0.4)),
+                     {"support": [(3, 1.0)]}, {}, 0.0).matchup_wr("adc", 1, 2)
+    assert type(wr) is float
+

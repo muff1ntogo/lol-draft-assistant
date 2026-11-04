@@ -5,10 +5,12 @@
   import Champ from './Champ.svelte';
   import PlanSynergy from './PlanSynergy.svelte';
   import PlanBansPicks from './PlanBansPicks.svelte';
+  import MatchupTree from './MatchupTree.svelte';
 
   const savedPlan = (() => { try { return JSON.parse(localStorage.getItem('prep-plan') || '{}'); } catch { return {}; } })();
   let locks = $state(savedPlan);
   let planView = $state(null);
+  let tab = $state('plan'); // plan | tree
   // the plan the bottom half works on: the locks, plus champions locked in a live draft ("use current draft")
   const planLocks = $derived(planView ? Object.fromEntries(planView.plan.champs.map((c) => [c.role, c.id])) : locks);
   $effect(() => {
@@ -25,6 +27,13 @@
 
 <main class="page">
   <h1>Prep <a class="synlink" href="#/tags">Tags →</a> <a class="synlink" href="#/rules">Rules →</a></h1>
+  <div class="tabs">
+    <button class:on={tab === 'plan'} onclick={() => (tab = 'plan')}>Plan</button>
+    <button class:on={tab === 'tree'} onclick={() => (tab = 'tree')}>Matchup tree</button>
+  </div>
+  {#if tab === 'tree'}
+    <MatchupTree />
+  {:else}
   <PlanSynergy bind:locks onplan={(d) => (planView = d)} />
   <PlanBansPicks locks={planLocks} />
 
@@ -117,9 +126,13 @@
     <p class="muted">Loading…</p>
   {/if}
   </details>
+  {/if}
 </main>
 
 <style>
+  .tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+  .tabs button { font: inherit; font-size: 14px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 14px; cursor: pointer; }
+  .tabs button.on { border-color: var(--gold); color: var(--gold); }
   .page { max-width: 1880px; margin: 0 auto; padding: 12px 20px 60px; }
   h1 { font-size: 28px; margin: 4px 0 8px; }
   .overview { margin-top: 24px; }

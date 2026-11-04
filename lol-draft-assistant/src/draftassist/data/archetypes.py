@@ -110,6 +110,21 @@ def load_archetype_priors(path: Path = PRIORS_FILE) -> dict[str, list[dict]]:
     return out
 
 
+def load_archetype_plans(path: Path = PRIORS_FILE) -> dict[str, dict[str, str]]:
+    """role -> enemy archetype -> a one-line plan (data/archetype_matchups.yaml, editable)."""
+    if not path.is_file():
+        return {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    out = {}
+    for role, body in data.items():
+        plans = dict(body.get("plans") or {})
+        wrong = set(plans) - set(ARCHETYPES.get(role, ()))
+        if wrong:
+            raise ValueError(f"{path.name}: {role} plans for unknown archetypes {sorted(wrong)}")
+        out[role] = {str(k): str(v) for k, v in plans.items()}
+    return out
+
+
 def priors_for(priors: Mapping[str, list[dict]], role: str, target: str) -> dict[tuple[str, str], float]:
     """(a, b) -> pp favouring a, in both directions, for one target (lane or game)."""
     out: dict[tuple[str, str], float] = {}

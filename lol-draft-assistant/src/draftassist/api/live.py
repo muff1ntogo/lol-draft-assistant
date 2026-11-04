@@ -149,6 +149,10 @@ def _check_strip(engine: DraftEngine, st: DraftState) -> dict | None:
             "frontline": any(engine.provides_frontline(c, r) for c, r in locked)}
 
 
+def _archetype_of(engine: DraftEngine, champ: int, role: str | None) -> str | None:
+    return (engine.data.labels or {}).get((champ, role)) if role else None
+
+
 def _note_fixes(card: dict, s: Suggestion, engine: DraftEngine, check: dict | None) -> None:
     """A suggestion that fixes a "no" on the check strip says so."""
     if not check or s.role is None:
@@ -369,6 +373,7 @@ def _center_our_pick(v: _View, n_cards: int) -> dict:
     center["check"] = check
     for card, s in zip(center["cards"], picks):
         _note_fixes(card, s, eng, check)
+        card["archetype"] = _archetype_of(eng, s.champ_id, s.role)
     if eng.back_to_back(st):
         center["next_two"] = _next_two(v)
     actor_hover = next((sl.hover_id for sl in live.our_slots if sl.cell_id == live.actor_cell_id), 0)

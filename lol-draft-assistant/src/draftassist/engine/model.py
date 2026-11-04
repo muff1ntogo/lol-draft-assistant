@@ -122,6 +122,8 @@ class EngineData:
     synergy_v2: object | None = None
     bot: object | None = None  # docs/matchup-archetypes.md, Stage 5: engine/bot_lane.BotLane
     traits: object | None = None  # Stage 6: engine/traits.ChampionTraits, for blind safety and the check strip
+    labels: Mapping[tuple[int, str], str] | None = None  # Stage 7: (champ, role) -> main archetype
+    explainer: object | None = None  # Stage 7: .explain(role, a, b) -> the matchup's biggest fitted term, or None
 
     def champions(self) -> frozenset[int]:
         ids = set(self.names)

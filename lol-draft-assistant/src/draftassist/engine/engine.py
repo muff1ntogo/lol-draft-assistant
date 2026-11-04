@@ -37,6 +37,14 @@ from draftassist.engine.synergy import to_pp
 log = logging.getLogger(__name__)
 
 US, THEM = "us", "them"
+_KIT_PHRASES = {  # Stage 7: a kit interaction, when it's the biggest term in a matchup
+    "auto_denial*auto_reliant": "{c} blocks {opp}'s autos",
+    "max_hp_damage*arch:tank": "{c} shreds tanky {opp}",
+    "hard_gap_close*kite": "{c} reaches kiting {opp}",
+    "anti_dive*arch:assassin": "{c} punishes {opp}'s dive",
+    "anti_dive*arch:diver": "{c} punishes {opp}'s dive",
+    "sustain*ability_range": "{c} out-heals {opp}'s poke",
+}
 DEFAULT_COMFORT_GATE = {"main": 1.0, "comfortable": 0.7, "learning": 0.2}  # Stage 6: "lock in your main"
 LEARNING_EDGE_PP = 3.0  # a learning champion goes above a main only with more edge than this
 MAIN_HOLDS_PP = -1.5  # a main at or above this ("even or slightly losing") holds its place
@@ -989,8 +997,23 @@ class DraftEngine:
         return self.cfg.role_weights.get(role, 1.0) if self.cfg.role_weights else 1.0
 
     def _matchup_term(self, bracket: BracketStats, role: str, c: int, opp: int) -> tuple[float, str]:
-        """A reason's (value, text) for the lane opponent's game matchup."""
-        return _LO_TO_PROB * bracket.matchup_edge(role, c, opp), f"counters their {self.data.name(opp)}"
+        """A reason's (value, text) for the lane opponent's game matchup: its biggest fitted term when it has one, a kit
+        exception before the archetype line."""
+        name, opp_name = self.data.name(c), self.data.name(opp)
+        edge = bracket.matchup_edge(role, c, opp)
+        value, plain = _LO_TO_PROB * edge, f"counters their {opp_name}"
+        term = self.data.explainer.explain(role, c, opp) if self.data.explainer is not None and edge > 0 else None
+        if term is None:
+            return value, plain
+        pp = _pp(25 * edge)
+        if term[0].startswith("K:"):
+            phrase = _KIT_PHRASES.get(term[0][2:])
+            return (value, f"{phrase.format(c=name, opp=opp_name)} {pp}") if phrase else (value, plain)
+        labels = self.data.labels or {}
+        ours, theirs = labels.get((c, role)), labels.get((opp, role))
+        if not ours or not theirs:
+            return value, plain
+        return value, (f"vs {theirs.replace('_', ' ')} ({opp_name}): {ours.replace('_', ' ')} {role} favoured: {name} {pp}")
 
     def _lane_note(self, bracket: BracketStats, role: str, c: int, opp: int) -> str | None:
         """The expected gold lead when it's past 300, with the game matchup: figures, not a verdict. The user reads them."""

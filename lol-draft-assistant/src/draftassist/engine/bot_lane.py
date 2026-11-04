@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from draftassist.engine.mathx import logit, sigmoid
 from draftassist.engine.matchup_model import LANE_PRIOR_SD_GOLD, PP_PER_LOGODDS, PRIOR_SD_PP, _logistic
 
 
@@ -107,4 +108,4 @@ class BotLaneData:
                 total += share * self._bot.resp_adjust(ours, partner, theirs, self._enemy.get("support"), self._w)
             else:
                 total += share * self._bot.resp_adjust(partner, ours, self._enemy.get("adc"), theirs, self._w)
-        return 1 / (1 + np.exp(-(np.log(wr / (1 - wr)) + total)))
+        return sigmoid(logit(wr) + total)

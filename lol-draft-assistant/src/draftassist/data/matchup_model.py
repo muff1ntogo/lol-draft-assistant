@@ -59,6 +59,7 @@ ROLE_WEIGHT, ROLE_WEIGHT_SE = "role_weight", "role_weight_se"
 BEHIND_PREFIX = "behind:"  # Stage 6: win rate when BEHIND_GOLD+ behind at 15 minutes
 BEHIND_GOLD = 300
 BEHIND_K = 50
+MIN_EXPLAINED = 0.002  # log-odds (0.05pp): a term below this doesn't explain a matchup
 BOT_ROLE = "bot"  # Stage 5: bot_game:cross:a|s, bot_game:pair:a|s, bot_gold:cross:a|s, bot_gold:pair:a|s
 LANE_STRENGTH_K = 100  # a champion's own mean lead shrinks towards 0 by this many lanes
 LANE_MIN_GAMES = 30  # champions with fewer lane games in the window get no lane matchups
@@ -315,6 +316,7 @@ class MatchupModel:
     _lane_pairs: list = field(default_factory=list)
     _lane_table: dict | None = None
     _bot: Mapping[str, float] = field(default_factory=dict)
+    _feats: dict = field(default_factory=dict)
 
     def coefs(self, role: str) -> Mapping[str, float]:
         return self._coefs.get(role, {})
@@ -387,7 +389,28 @@ class MatchupModel:
         return out
 
     def features(self, role: str) -> RoleFeatures:
-        return _features(role, sorted(self.classes), self.written, self.classes, self.kit)
+        if role not in self._feats:
+            self._feats[role] = _features(role, sorted(self.classes), self.written, self.classes, self.kit)
+        return self._feats[role]
+
+    def labels_table(self) -> dict[tuple[int, str], str]:
+        return {(c, r): self.label(r, c).primary for r in ROLES for c in self.classes}
+
+    def explain(self, role: str, a: int, b: int) -> tuple[str, float] | None:
+        """a's biggest fitted term against b: (parameter, log-odds), or None if nothing favours a."""
+        feats = self.features(role)
+        if a not in feats.index or b not in feats.index:
+            return None
+        row = feats.pair_features(np.array([feats.index[a]]), np.array([feats.index[b]]))[0]
+        values = row * np.array([self.coefs(role).get(n, 0.0) for n in feats.names])
+        at = int(values.argmax())
+        return (feats.names[at], float(values[at])) if values[at] > MIN_EXPLAINED else None
+
+    def expected(self, role: str, a: str, b: str) -> float:
+        """Archetype a against b, in pp, from the fit."""
+        coefs = self.coefs(role)
+        value = coefs.get(f"E:{a}>{b}")
+        return (value if value is not None else -coefs.get(f"E:{b}>{a}", 0.0)) * PP_PER_LOGODDS
 
     def prediction(self, role: str) -> tuple[Mapping[int, int], np.ndarray]:
         """(champ -> index, label-only log-odds of row vs column) for every champion, built once per role."""

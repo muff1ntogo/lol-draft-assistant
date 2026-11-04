@@ -89,7 +89,8 @@
           <div>
             <div class="title">{card.champ.name}{#if card.role_label} <small>{card.role_label}</small>{/if}
               {#if card.plan}<span class="plantag">plan</span>{/if}
-              {#if card.badge?.text}<span class="badge">{card.badge.text}</span>{/if}</div>
+              {#if card.badge?.text}<span class="badge">{card.badge.text}</span>{/if}
+              {#if card.archetype}<span class="badge">{card.archetype.replaceAll('_', ' ')}</span>{/if}</div>
             <div class="reason">{card.reason}{#if card.effect?.length}<span class="effect">{` → ${card.effect.join(', ')}`}</span>{/if}</div>
             {#if card.components}<ComponentBar components={card.components} />{/if}
             {#each card.warnings as w}<div class="warn">{w}</div>{/each}

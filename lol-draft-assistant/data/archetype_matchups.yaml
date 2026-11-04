@@ -5,8 +5,15 @@
 # target: game (win rate), lane (laning phase, used from Stage 4) or both.
 # slight: true = half size ("slightly", ">=" in the guides).
 # size_pp: the role's prior size (default 0.5). Support has no guide yet.
+# plans: one line per enemy archetype, shown on the Matchup tree. Edit freely.
 
 top:
+  plans:
+    juggernaut: "vs juggernaut: kite them; ranged tops favoured, tanks lose ground"
+    diver: "vs diver: a tank stops the dive"
+    skirmisher: "vs skirmisher: watch their scaling, it's about the champion more than the class"
+    tank: "vs tank: skirmishers and juggernauts; they won't win lane, stop them mattering later"
+    ranged: "vs ranged: divers or a tank, get on top of them"
   priors:
     - {row: juggernaut, col: tank, dir: "+", target: game, source: video, reviewed: false}
     - {row: ranged, col: juggernaut, dir: "+", target: game, source: video, reviewed: false}
@@ -21,6 +28,12 @@ top:
     - {row: ranged, col: tank, dir: "+", target: lane, source: video, reviewed: false}
 
 mid:
+  plans:
+    artillery: "vs artillery: skirmisher or assassin, close the distance"
+    control_mage: "vs control mage: artillery or assassin"
+    battle_mage: "vs battle mage: out-range and abuse in lane"
+    skirmisher: "vs skirmisher: control mage or battle mage"
+    assassin: "vs assassin: battle mage or anti-dive"
   priors:  # each archetype beats two, as a cycle
     - {row: artillery, col: control_mage, dir: "+", target: both, source: video, reviewed: false}
     - {row: artillery, col: battle_mage, dir: "+", target: both, source: video, reviewed: false}
@@ -34,6 +47,12 @@ mid:
     - {row: assassin, col: control_mage, dir: "+", target: both, source: video, reviewed: false}
 
 adc:
+  plans:
+    scaler: "vs scaler: lane bully or poke, win before they come online"
+    lane_bully: "vs lane bully: poke, or survive and out-scale"
+    poke: "vs poke: a mage bot out-ranges it"
+    skirmisher: "vs skirmisher: lane bully or poke, punish in lane"
+    mage_bot: "vs mage bot: hard to beat in lane, plan for later"
   priors:
     - {row: lane_bully, col: scaler, dir: "+", target: lane, source: video, reviewed: false}
     - {row: lane_bully, col: skirmisher, dir: "+", target: lane, source: video, reviewed: false}
@@ -50,6 +69,12 @@ adc:
 
 jungle:
   size_pp: 0.25  # "the least important" matchups
+  plans:
+    tempo_ganker: "vs tempo ganker: track them early, they want the map"
+    farmer: "vs farmer: tempo or skirmisher, invade before they scale"
+    skirmisher: "vs skirmisher: tempo ganker, avoid their duels"
+    tank: "vs tank: tempo or skirmisher; useful even when behind"
+    assassin: "vs assassin: skirmisher; they want your squishies"
   priors:
     - {row: tempo_ganker, col: farmer, dir: "+", target: game, source: video, reviewed: false}
     - {row: tempo_ganker, col: tank, dir: "+", target: game, source: video, reviewed: false}

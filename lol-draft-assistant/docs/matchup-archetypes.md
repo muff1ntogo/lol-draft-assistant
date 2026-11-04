@@ -309,7 +309,25 @@ Show what's present and what's missing. It's informational: no automatic changes
 33. **The expected partner (Stage 5).** With no lock: our pool weighted main 3, comfortable 2, learning 1. The ADC vs enemy support term applies once the enemy support is known.
 34. **Reason line threshold (Stage 5).** A pairing worth at least 0.5pp, naming the champion's archetype: `Your Leona: lane bully partner +2.1pp`. The doc's "(Samira/Draven)" examples are left out.
 
+38. **Stage 6 and 7 built tonight, ahead of the audit (user, 4 Nov 2026).** Their numbers refit as gold arrives.
+39. **What counts as blind-safe (Stage 6).** A total of 0 or more: average or better for the role, comfort included. Comfort is the tier comfort / 0.3, about the size of a z-score. Both are easy to change.
+40. **The comfort gate (Stage 6).** Shrinks only a positive edge, in pick value and not in P(win). "Even or slightly losing" for a main = −1.5pp or better. It only fires for `main`: today's pools have one main (Aphelios) and the rest comfortable or learning, so it mostly won't fire until tiers change.
+41. **`has_fight_starter` (Stage 6).** `{max_any: [engage, setup]}`, prior +1.5 as `has_engage` had. `followup_without_setup` and `needs_team_alone` use `{none: [..]}` rather than the `{max: not x}` of `poke_without_engage`, which is 1 whenever any one champion lacks x. That older rule is unchanged: worth a look.
+42. **The check strip (Stage 6).** Early = 3 or more enemy picks to come. Fight starter = a locked champion with engage or setup 2+. Frontline = the same flag as the comp panels.
+43. **Pick order (Stage 6).** Blind safety adds 0.5pp per point, scaled by the share of enemy picks still to come. Only with real data: fixtures are unchanged.
+44. **Matchup tree (Stage 7).** Chips: covered at 0pp or better, thin to −1.5pp, gap below. The expectation is the fit's archetype coefficient. Live reasons use the matchup's biggest fitted term; kit phrases are generic ("Kayle blocks Darius's autos"), since the tags don't name abilities. Plan lines beyond the doc's two are Claude's, from the guides' grids: edit them in `data/archetype_matchups.yaml`.
+
 ## Findings
+
+**Stage 6, Team score before and after `has_fight_starter` (at the rules' priors, real tags, centred on these five comps):**
+
+| Comp | Before | After |
+| --- | --- | --- |
+| Hard engage: Ornn, Sejuani, Lissandra, Jinx, Leona | +1.10 | +1.34 |
+| Follow-up, no starter: Fiora, Master Yi, Yasuo, Samira, Yuumi | −1.25 | −1.70 |
+| Setup, no hard engage: Gnar, Elise, Syndra, Ashe, Morgana | −0.23 | −0.08 |
+| Orianna alone: Jax, Viego, Orianna, Jinx, Soraka | −0.58 | −0.89 |
+| Orianna with a team: Ornn, Vi, Orianna, Jinx, Leona | +0.97 | +1.33 |
 
 **Stage 5, the check the doc asks for: ADC-support rules that encode a main effect.** Additive R² = how much of a rule's strength over real pairs each champion explains alone, weighted by games. High means it mostly says "this ADC" or "this support" rather than "these two together". No rule was changed.
 
@@ -349,6 +367,14 @@ All 16 rules score 0.71 or higher. Part of that is arithmetic: unreviewed tags b
 - **Role weights, fitted on 18.8k matches:** top 1.46, jungle 1.29, support 1.08, mid 0.71, ADC 0.46, each ± about 0.35. So the guide's "jungle matters least" doesn't show up, and the gaps are mostly within the noise.
 
 ## Built
+
+### Stage 7 (4 Nov 2026)
+- `engine/matchup_tree.py`, `GET /api/prep/matchup-tree`, `web/src/MatchupTree.svelte`: a Matchup tree tab on Prep, with coverage chips (a red one lists ban candidates and what answers it), the health card, and plan lines from `data/archetype_matchups.yaml`.
+- `MatchupModel.explain`, `.expected`, `.labels_table`; `EngineData.labels`, `.explainer`. Live cards: an archetype badge, and reasons from the biggest fitted term.
+
+### Stage 6 (4 Nov 2026)
+- `engine/blind.py`: `blind_table`, `blind_safety`, `pool_health`. Tags `setup`, `followup`, `needs_team` (214 lines drafted, unreviewed). `behind:<champ>` in `matchup_fits`, read as the `behind_value` trait.
+- Comfort gate and main-over-learning in `suggest_picks`; blind safety in plan pick order; Live check strip; pool health on the Pools page; Settings: blind weights and gate shares.
 
 ### Stage 5 (4 Nov 2026)
 - `engine/bot_lane.py`: `BotLane` (cross and pair tables, game and gold), `BotLaneData` (a lane ban provider with both partners in view), `bot_features`, `fit_bot_game`, `fit_bot_gold`. `EngineData.bot`. Stored as `bot_game:*`, `bot_gold:*` under role `bot` in `matchup_fits`; printed by `data.coverage`.
