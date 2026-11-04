@@ -32,6 +32,7 @@ from draftassist.engine.model import (
     sigmoid,
 )
 from draftassist.engine.state import DraftState
+from draftassist.engine.traits import STRONG_TAG
 from draftassist.engine.synergy import to_pp
 
 log = logging.getLogger(__name__)
@@ -48,7 +49,6 @@ _KIT_PHRASES = {  # Stage 7: a kit interaction, when it's the biggest term in a 
 DEFAULT_COMFORT_GATE = {"main": 1.0, "comfortable": 0.7, "learning": 0.2}  # Stage 6: "lock in your main"
 LEARNING_EDGE_PP = 3.0  # a learning champion goes above a main only with more edge than this
 MAIN_HOLDS_PP = -1.5  # a main at or above this ("even or slightly losing") holds its place
-FIGHT_STARTER_MIN = 2 / 3  # a tag of 2 or more
 _LANE_MENTION_GOLD = 300  # an expected lead this large is always mentioned (user, 4 Nov 2026)
 _PAIR_MENTION_PP = 0.5  # a bot pairing worth at least this gets a reason line
 _LO_TO_PROB = 0.25  # d sigmoid / dx at 0.5: converts small log-odds terms to win-prob units
@@ -211,7 +211,7 @@ class DraftEngine:
     def provides_fight_starter(self, champ: int, role: str) -> bool:
         traits = self.data.traits
         entry = traits.tag_entry(champ, role) if traits is not None else None
-        return entry is not None and max(entry.raw("engage"), entry.raw("setup")) >= FIGHT_STARTER_MIN
+        return entry is not None and max(entry.raw("engage"), entry.raw("setup")) >= STRONG_TAG
 
     def provides_frontline(self, champ: int, role: str) -> bool:
         style = self.data.profiles.style(champ, role)
@@ -848,23 +848,31 @@ class DraftEngine:
         large. Says so on the main's card when this decides the order."""
         out = list(picks)
         for role, opp in their_by_role.items():
-            bracket = self._our_bracket(role)
-            edge_pp = lambda c: 25 * bracket.matchup_edge(role, c, opp)
-            tier = lambda s: (e.tier if (e := self.team.entry(s.champ_id, role)) else None)
-            mains = [i for i, s in enumerate(out) if s.role == role and tier(s) == "main"
-                     and edge_pp(s.champ_id) >= MAIN_HOLDS_PP]
-            if not mains:
-                continue
-            top = max(mains, key=lambda i: out[i].value)
-            for i, s in enumerate(out):
-                if s.role == role and tier(s) == "learning" and edge_pp(s.champ_id) <= LEARNING_EDGE_PP \
-                        and s.value >= out[top].value:
-                    pp = edge_pp(out[top].champ_id)
-                    stance = "even" if abs(pp) < 0.5 else _pp(pp)
-                    out[top] = replace(out[top], reason=f"{out[top].reason}; Your main {out[top].name} ({stance}) over "
-                                                        f"{s.name} (learning, {_pp(edge_pp(s.champ_id))})")
-                    out[i] = replace(s, value=out[top].value - 1e-6)
+            self._hold_main(out, role, opp)
         return out
+
+    def _hold_main(self, out: list[Suggestion], role: str, opp: int) -> None:
+        bracket = self._our_bracket(role)
+
+        def edge_pp(champ: int) -> float:
+            return 25 * bracket.matchup_edge(role, champ, opp)
+
+        def tier(s: Suggestion) -> str | None:
+            entry = self.team.entry(s.champ_id, role)
+            return entry.tier if entry else None
+
+        mains = [i for i, s in enumerate(out) if s.role == role and tier(s) == "main" and edge_pp(s.champ_id) >= MAIN_HOLDS_PP]
+        if not mains:
+            return
+        top = max(mains, key=lambda i: out[i].value)
+        for i, s in enumerate(out):
+            if s.role == role and tier(s) == "learning" and edge_pp(s.champ_id) <= LEARNING_EDGE_PP \
+                    and s.value >= out[top].value:
+                pp = edge_pp(out[top].champ_id)
+                stance = "even" if abs(pp) < 0.5 else _pp(pp)
+                out[top] = replace(out[top], reason=f"{out[top].reason}; Your main {out[top].name} ({stance}) over "
+                                                    f"{s.name} (learning, {_pp(edge_pp(s.champ_id))})")
+                out[i] = replace(s, value=out[top].value - 1e-6)
 
     # ---------- pick-ahead ----------
     @staticmethod

@@ -20,7 +20,6 @@ K = 200  # shrinkage games towards the no-interaction expectation
 ROLE_K = 50  # champion strength p_A shrinks towards 50% (spec: role win rates)
 CAP = 0.3  # log-odds
 LOW_DATA_GAMES = 30  # fewer raw games: stored and scored, but shown as low data
-WEAK_PAIR_PP = -1.5  # a trio passing the threshold with a pair below this hides a weak pair
 
 
 def to_pp(s: float) -> float:
@@ -62,24 +61,6 @@ def pair_score(wins: float, games: float, p_a: float, p_b: float, k: float = K, 
 def _logit(p: float) -> float:
     # nearly unclamped: the usual 1e-4 clamp would bias extreme expectations
     return logit(p, eps=1e-12)
-
-
-@dataclass(frozen=True)
-class Trio:
-    mean: float  # log-odds
-    weakest: float
-
-    @property
-    def pp(self) -> float:
-        return to_pp(self.mean)
-
-    def hides_weak_pair(self, threshold_pp: float) -> bool:
-        """The trio passes the threshold, but one of its pairs is below -1.5pp."""
-        return self.pp >= threshold_pp and to_pp(self.weakest) < WEAK_PAIR_PP
-
-
-def trio_score(s_ab: float, s_ac: float, s_bc: float) -> Trio:
-    return Trio((s_ab + s_ac + s_bc) / 3, min(s_ab, s_ac, s_bc))
 
 
 Slot = tuple[str, int]  # (role, champ)

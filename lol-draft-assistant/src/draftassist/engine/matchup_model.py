@@ -15,10 +15,9 @@ from collections.abc import Mapping, Sequence
 
 import numpy as np
 
-from draftassist.engine.traits import KitTraits
+from draftassist.engine.traits import UNREVIEWED_WEIGHT, KitTraits
 
 SECONDARY_WEIGHT = 0.3
-UNREVIEWED_WEIGHT = 0.5
 K_MIN, K_MAX = 50.0, 400.0
 DEFAULT_K = 200.0  # the old PAIR_K, when there's no data to estimate it from
 PRIOR_SD_PP = 1.5

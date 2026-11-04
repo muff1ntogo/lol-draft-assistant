@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 
 from draftassist.data.aggregate import shrink
 from draftassist.data.archetypes import ARCHETYPES, Archetype, load_archetype_priors, priors_for
-from draftassist.data.matchup_model import fit_matchup_model, format_matchup_report, load_matchup_model
+from draftassist.data.matchup_model import format_matchup_report, load_matchup_model
 from draftassist.data.provider import Bootstrap, bracket_stats, load_engine_inputs
 from draftassist.db.models import Champion, CrawledMatch, Matchup, MatchParticipant
 from draftassist.engine.engine import DraftEngine

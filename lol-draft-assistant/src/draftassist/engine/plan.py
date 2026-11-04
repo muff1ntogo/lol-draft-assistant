@@ -37,7 +37,7 @@ from draftassist.engine.engine import DraftEngine, Evaluation, Suggestion, enemy
 from draftassist.engine.formats import DraftFormat
 from draftassist.engine.guards import validate_suggestions
 from draftassist.engine.lane_ban import RoleBanTable, team_lane_ban
-from draftassist.engine.model import ROLE_LABELS, ROLES, logit
+from draftassist.engine.model import ROLE_LABELS, ROLES
 from draftassist.engine.state import DraftState
 from draftassist.engine.synergy_v2 import Suggestion as Fill
 from draftassist.engine.synergy_v2 import SynergyEvaluator

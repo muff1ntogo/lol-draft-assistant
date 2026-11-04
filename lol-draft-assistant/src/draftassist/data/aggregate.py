@@ -105,7 +105,7 @@ def _fit_matchups(db: Engine, patch: str) -> None:
     stop the stats from refreshing."""
     import logging
 
-    from draftassist.data.matchup_model import fit_matchup_model
+    from draftassist.data.matchup_fit import fit_matchup_model
 
     try:
         fit_matchup_model(db, patch)

@@ -55,7 +55,7 @@ class BotLane:
     pair_game: np.ndarray
     cross_gold: np.ndarray  # gold for the ADC's side
     pair_gold: np.ndarray
-    labels: Mapping[tuple[int, str], str] = None  # (champ, role) -> main archetype, for reasons
+    labels: Mapping[tuple[int, str], str] | None = None  # (champ, role) -> main archetype, for reasons
     slope: float = 0.4  # log-odds per 1,000 gold
 
     def _term(self, table: np.ndarray, adc: int | None, sup: int | None) -> float:

@@ -7,9 +7,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from draftassist.engine.blind import PICK_FLOOR
+from draftassist.engine.blind import GAP_PP, PICK_FLOOR
 
-GAP_PP = -1.5  # a best answer below this is a gap
 SHOWN_CHAMPS = 5
 SCORED_CHAMPS = 8  # an archetype's most-picked champions an answer is scored on
 GREEN_PP = 0.0

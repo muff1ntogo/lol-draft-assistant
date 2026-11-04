@@ -16,7 +16,6 @@ log = logging.getLogger(__name__)
 SESSION = "/lol-champ-select/v1/session"
 GAMEFLOW_PHASE = "/lol-gameflow/v1/gameflow-phase"
 GAMEFLOW_SESSION = "/lol-gameflow/v1/session"
-CURRENT_SUMMONER = "/lol-summoner/v1/current-summoner"
 END_OF_GAME = "/lol-end-of-game/v1/eog-stats-block"
 
 

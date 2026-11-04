@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 
 from draftassist.config import PROJECT_ROOT
+from draftassist.engine.traits import UNREVIEWED_WEIGHT
 
 PRIORS_FILE = PROJECT_ROOT / "data" / "archetype_matchups.yaml"
 DEFAULT_PRIOR_PP = 0.5
@@ -27,7 +28,6 @@ ARCHETYPES: dict[str, tuple[str, ...]] = {
     "support": ("engage", "enchanter", "warden", "mage", "catcher"),  # proposed: no video yet
 }
 SOURCES = ("video",)  # no source = drafted by Claude or edited by hand
-UNREVIEWED_WEIGHT = 0.5
 
 # Data Dragon class -> nearest archetype. The first class Data Dragon lists is the champion's main one.
 FALLBACK: dict[str, dict[str, str]] = {

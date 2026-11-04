@@ -26,6 +26,7 @@ TAG_MAX = 3
 KIT_TAGS = ("auto_reliant", "auto_denial", "max_hp_damage", "hard_gap_close", "kite", "escape", "extend_fight",
             "anti_dive", "sustain", "ability_range")
 UNREVIEWED_WEIGHT = 0.5
+STRONG_TAG = 2 / 3  # a tag of 2 or more
 
 # Power curve: win rate in three game-length buckets (< 25, 25-32, > 32 min), each shrunk towards the
 # champion's own win rate (k games, as in engine/comp.py), regressed on bucket index -1 / 0 / +1.

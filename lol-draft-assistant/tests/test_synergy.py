@@ -14,7 +14,7 @@ from draftassist.data.settings_store import get_synergy_bracket, save_synergy_br
 from draftassist.data.synergy import load_synergy, window_weights
 from draftassist.db.models import Champion, ChampRoleStats, CrawledMatch, MatchParticipant, SynergyPair, SynergyRoleStats
 from draftassist.engine.model import logit, sigmoid
-from draftassist.engine.synergy import LOW_DATA_GAMES, pair_score, to_pp, trio_score
+from draftassist.engine.synergy import LOW_DATA_GAMES, pair_score, to_pp
 
 POSITIONS = ("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
 BLUE = (1, 2, 3, 4, 5)
@@ -100,15 +100,6 @@ def test_low_data_flag():
 
 
 # ---------- A4: trios ----------
-def test_trio_mean_and_weakest_pair():
-    pp = 0.04  # 1pp in log-odds
-    t = trio_score(3 * pp, 2 * pp, -2 * pp)
-    assert to_pp(t.mean) == pytest.approx(1.0)
-    assert to_pp(t.weakest) == pytest.approx(-2.0)
-    assert t.hides_weak_pair(threshold_pp=1.0)  # passes +1pp but one pair is below -1.5pp
-    assert not t.hides_weak_pair(threshold_pp=1.5)  # does not pass the threshold at all
-    ok = trio_score(2 * pp, 1 * pp, -1 * pp)
-    assert to_pp(ok.mean) == pytest.approx(2 / 3) and not ok.hides_weak_pair(threshold_pp=0.5)
 
 
 # ---------- A2: pooling window ----------

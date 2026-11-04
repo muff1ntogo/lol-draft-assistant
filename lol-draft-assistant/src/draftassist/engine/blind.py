@@ -18,14 +18,14 @@ from dataclasses import dataclass
 from draftassist.engine.bot_lane import PARTNER_TIER_WEIGHT
 from draftassist.engine.mathx import logit
 from draftassist.engine.model import ROLES
+from draftassist.engine.traits import STRONG_TAG
 
 PICK_FLOOR = 0.005  # opponents and role champions picked less than this don't count
 TOP_OPPONENTS, WORST_OF = 20, 3
 COMFORT_SCALE = 0.3  # the tier comfort is +-0.3 or so: brings it to about the size of a z-score
 PARTS = ("matchup", "synergy", "worst", "behind", "kit")
 BLIND_SAFE = 0.0  # a total at or above this is blind-safe: at least average for the role, comfort included
-GAP_PP = -1.5
-SETUP_TAG_MIN = 2 / 3  # a tag of 2 or more
+GAP_PP = -1.5  # a best answer below this is a gap
 ROLES_WITHOUT_SETUP = ("adc",)  # "where the role allows"
 
 
@@ -134,7 +134,7 @@ def pool_health(engine, role: str) -> dict:
             return e.raw("setup") if e is not None else 0.0
 
         strongest = max(pool, key=lambda c: (setup_of(c), -c), default=None)
-        has = strongest is not None and setup_of(strongest) >= SETUP_TAG_MIN
+        has = strongest is not None and setup_of(strongest) >= STRONG_TAG
         setup = {"champ": strongest if has else None, "name": name(strongest) if has else None, "ok": has, "applies": True}
 
     tier_rank = {"main": 0, "comfortable": 1, "learning": 2}

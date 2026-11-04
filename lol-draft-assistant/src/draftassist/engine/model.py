@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from draftassist.engine.comp import EMPTY_PROFILES, ChampionProfiles
-from draftassist.engine.mathx import logit, sigmoid  # noqa: F401  (re-exported: engine.model.logit / sigmoid)
+from draftassist.engine.mathx import logit, sigmoid
 from draftassist.engine.synergy import EMPTY as EMPTY_SYNERGY
 from draftassist.engine.synergy import SynergyTable
 
