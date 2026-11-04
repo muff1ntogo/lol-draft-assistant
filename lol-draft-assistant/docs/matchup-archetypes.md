@@ -313,6 +313,8 @@ Show what's present and what's missing. It's informational: no automatic changes
 43. **Pick order (Stage 6).** Blind safety adds 0.5pp per point, scaled by the share of enemy picks still to come. Only with real data: fixtures are unchanged.
 44. **Matchup tree (Stage 7).** Chips: covered at 0pp or better, thin to −1.5pp, gap below. The expectation is the fit's archetype coefficient. Live reasons use the matchup's biggest fitted term; kit phrases are generic ("Kayle blocks Darius's autos"), since the tags don't name abilities. Plan lines beyond the doc's two are Claude's, from the guides' grids: edit them in `data/archetype_matchups.yaml`.
 
+45. **The Matchup tree reads the whole window (user, 4 Nov 2026).** There's far more 16.21 data than 16.22, so the tree's pair records and strength pool every crawled patch (newer ones counting more) and every tier, with "most picked" from the player's tier. This is `data/matchup_model.pooled_stats`. Live stays on the current patch, and the health card on the tree still reads Live's numbers.
+
 ## Findings
 
 **Stage 6, Team score before and after `has_fight_starter` (at the rules' priors, real tags, centred on these five comps):**

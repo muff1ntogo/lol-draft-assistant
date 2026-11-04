@@ -526,13 +526,15 @@ class DraftEngine:
             for r in ROLES
         }
 
-    def resp_data(self, unavailable, our_by_role: dict[str, int] | None = None, enemy: dict[str, int] | None = None):
+    def resp_data(self, unavailable, our_by_role: dict[str, int] | None = None, enemy: dict[str, int] | None = None,
+                  base=None):
         """What a lane answer is scored on: the blend, in 2v2 for the bot lane with our partner (locked, else expected
-        from the pool) and the enemy's."""
+        from the pool) and the enemy's. `base`: another source for the 1v1s."""
+        base = base if base is not None else self._lane_data
         if self.data.bot is None:
-            return self._lane_data
+            return base
         partners = {r: self._expected_partners(r, (our_by_role or {}).get(r), unavailable) for r in ("adc", "support")}
-        return BotLaneData(self._lane_data, self.data.bot, partners, enemy or {}, self.cfg.lane_weight)
+        return BotLaneData(base, self.data.bot, partners, enemy or {}, self.cfg.lane_weight)
 
     def _expected_partners(self, role: str, locked: int | None, unavailable) -> list[tuple[int, float]]:
         """Who plays `role` on our team: the locked champion, else the pool weighted by tier."""

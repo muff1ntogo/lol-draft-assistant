@@ -5,8 +5,10 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Body, HTTPException, Request
 
+from sqlalchemy import text
+
 from draftassist.data.archetypes import ARCHETYPES, load_archetype_plans
-from draftassist.data.matchup_model import load_matchup_model
+from draftassist.data.matchup_model import load_matchup_model, pooled_stats
 from draftassist.engine.blind import pool_health
 from draftassist.engine.matchup_tree import matchup_tree
 from draftassist.api.deps import db_of
@@ -88,16 +90,23 @@ def prep_matchup_tree(request: Request) -> dict:
     def with_card(item: dict | None) -> dict | None:
         return None if item is None else {**item, "card": svc.catalog.card(item["champ"])}
 
+    pooled = {}
     roles = []
     for role in ROLES:
+        bracket = engine.team.brackets.get(role)
+        if model is not None and bracket not in pooled:
+            pooled[bracket] = pooled_stats(db_of(svc), model, bracket)
         expected = (lambda a, b, r=role: model.expected(r, a, b)) if model is not None else None
-        rows = matchup_tree(engine, role, ARCHETYPES[role], plans.get(role), expected)
+        rows = matchup_tree(engine, role, ARCHETYPES[role], plans.get(role), expected, pooled.get(bracket))
         for row in rows:
             row["champs"] = [with_card(c) for c in row["champs"]]
             row["best"] = with_card(row["best"])
-        roles.append({"role": role, "role_label": ROLE_LABELS[role], "bracket": engine.team.brackets.get(role),
+        roles.append({"role": role, "role_label": ROLE_LABELS[role], "bracket": bracket,
                       "rows": rows, "health": pool_health(engine, role)})
-    return {"roles": roles}
+    with db_of(svc).connect() as conn:
+        counts = [{"patch": p, "matches": n} for p, n in conn.execute(text(
+            "SELECT patch, COUNT(*) FROM crawled_matches GROUP BY patch ORDER BY patch"))]
+    return {"roles": roles, "matches": counts}
 
 
 @router.get("/api/learning")

@@ -29,7 +29,7 @@ from draftassist.engine.matchup_model import (
     param_names,
     smooth,
 )
-from draftassist.engine.model import ROLES, RoleStat
+from draftassist.engine.model import ROLES, BracketStats, RoleStat
 from draftassist.engine.traits import KitTraits
 
 K_PARAM = "k_r"
@@ -295,6 +295,33 @@ def smoothed_matchups(model: MatchupModel, meta: Mapping[int, Mapping[str, RoleS
                 if n:
                     games[(role, a, b)] = n
     return matchups, games
+
+
+def pooled_stats(db: Engine, model: MatchupModel, bracket: str) -> BracketStats:
+    """Matchups over the whole window, for the Matchup tree: every crawled patch, decayed, and every tier for the sample
+    size, with pick rates from `bracket`. Live stays on the current patch."""
+    with db.connect() as conn:
+        values, params = weights_cte(crawl_weights(conn, model.window))
+        cte = f"WITH w(patch, weight) AS (VALUES {values}) "
+        rows = conn.execute(text(
+            cte + "SELECT role, champ_a, champ_b, SUM(games * weight) AS games, SUM(wins_a * weight) AS wins_a "
+            "FROM matchups JOIN w USING (patch) GROUP BY role, champ_a, champ_b"), params).all()
+        roles = conn.execute(text(
+            cte + "SELECT role, champ_id, SUM(games * weight), SUM(wins * weight), "
+            "SUM(CASE WHEN bracket = :bracket THEN picks * weight ELSE 0 END) "
+            "FROM champ_role_stats JOIN w USING (patch) GROUP BY role, champ_id"), {**params, "bracket": bracket}).all()
+        matches = conn.execute(text(
+            cte + "SELECT SUM(matches * weight) FROM bracket_totals JOIN w USING (patch) WHERE bracket = :bracket"),
+            {**params, "bracket": bracket}).scalar() or 0.0
+    meta: dict[int, dict[str, RoleStat]] = {}
+    strength: dict[tuple[int, str], float] = {}
+    for role, champ, games, wins, picks in roles:
+        wr = (wins + 0.5 * STRENGTH_K) / (games + STRENGTH_K)
+        strength[(champ, role)] = float(np.log(wr / (1 - wr)))
+        meta.setdefault(champ, {})[role] = RoleStat(wr, picks / matches if matches else 0.0)
+    matchups, games = smoothed_matchups(model, meta, rows, strength)
+    return BracketStats(meta, matchups, {}, True, {k: round(n) for k, n in games.items()},
+                        {r: model.k(r) for r in ROLES}, strength, model.lane_table(), model.lane_slopes())
 
 
 def format_matchup_report(db: Engine, window: str | None = None) -> str:

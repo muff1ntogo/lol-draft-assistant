@@ -14,22 +14,30 @@ SCORED_CHAMPS = 8  # an archetype's most-picked champions an answer is scored on
 GREEN_PP = 0.0
 
 
+class StatsLaneData:
+    """A lane answer read from any set of stats, blended as usual."""
+
+    def __init__(self, stats, lane_weight: float):
+        self._stats, self._weight = stats, lane_weight
+
+    def matchup_wr(self, role: str, ours: int, theirs: int) -> float | None:
+        return self._stats.blended_wr(role, ours, theirs, self._weight)
+
+
 def chip(best_pp: float | None) -> str:
     if best_pp is None or best_pp < GAP_PP:
         return "red"
     return "green" if best_pp >= GREEN_PP else "amber"
 
 
-def _members(engine, role: str, archetype: str) -> list[tuple[int, float]]:
-    stats = engine.our_stats(role)
+def _members(engine, stats, role: str, archetype: str) -> list[tuple[int, float]]:
     labels = engine.data.labels or {}
     rows = [(c, s[role].pick_rate) for c, s in stats.meta.items()
             if role in s and s[role].pick_rate >= PICK_FLOOR and labels.get((c, role)) == archetype]
     return sorted(rows, key=lambda t: (-t[1], t[0]))
 
 
-def _answer(engine, role: str, ours: int, members: list[tuple[int, float]], data) -> dict | None:
-    stats = engine.our_stats(role)
+def _answer(engine, stats, role: str, ours: int, members: list[tuple[int, float]], data) -> dict | None:
     total = pp = lane = game = gold = conf = 0.0
     golds = 0.0
     for opp, rate in members:
@@ -56,16 +64,18 @@ def _answer(engine, role: str, ours: int, members: list[tuple[int, float]], data
 
 
 def matchup_tree(engine, role: str, words: Sequence[str], plans: Mapping[str, str] | None = None,
-                 expected=None) -> list[dict]:
-    """One row per enemy archetype. `expected(a, b)`: the archetype-level pp of a against b, from the fit."""
+                 expected=None, stats=None) -> list[dict]:
+    """One row per enemy archetype. `expected(a, b)`: the archetype-level pp of a against b, from the fit. `stats`: what
+    to read matchups and pick rates from (default: the engine's, for the current patch)."""
+    stats = stats if stats is not None else engine.our_stats(role)
     pool = engine.team.pools.get(role, {})
     labels = engine.data.labels or {}
-    data = engine.resp_data(frozenset())
+    data = engine.resp_data(frozenset(), base=StatsLaneData(stats, engine.cfg.lane_weight))
     rows = []
     for archetype in words:
-        members = _members(engine, role, archetype)
+        members = _members(engine, stats, role, archetype)
         scored = members[:SCORED_CHAMPS]
-        answers = [a for c in sorted(pool) if (a := _answer(engine, role, c, scored, data)) is not None]
+        answers = [a for c in sorted(pool) if (a := _answer(engine, stats, role, c, scored, data)) is not None]
         best = max(answers, key=lambda a: (a["pp"], -a["champ"]), default=None)
         ours = labels.get((best["champ"], role)) if best else None
         expectation = expected(ours, archetype) if expected and ours and ours != archetype else (0.0 if best else None)
@@ -75,7 +85,7 @@ def matchup_tree(engine, role: str, words: Sequence[str], plans: Mapping[str, st
             answering = [w for pp, w in ranked[:2] if pp > 0]
         worst_first = []
         for champ, rate in scored:  # what our best answer does against each of them
-            against = _answer(engine, role, best["champ"], [(champ, rate)], data) if best else None
+            against = _answer(engine, stats, role, best["champ"], [(champ, rate)], data) if best else None
             worst_first.append((against["pp"] if against else 0.0, champ))
         ban_candidates = sorted(worst_first)[:3]
         rows.append({

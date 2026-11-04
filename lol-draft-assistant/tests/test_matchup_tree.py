@@ -177,3 +177,40 @@ def test_matchup_tree_api(make_services, engine):
     assert {"role", "role_label", "bracket", "rows", "health"} <= set(first)
     assert [r["archetype"] for r in first["rows"]] == list(TOP)
 
+
+# ---------- the tree reads every crawled patch ----------
+def test_pooled_stats_use_the_older_patch_and_every_tier(engine):
+    from test_lane_matchup import FILLER_BLUE, FILLER_RED, _store
+
+    from draftassist.data.aggregate import aggregate
+    from draftassist.data.matchup_model import load_matchup_model, pooled_stats
+    from draftassist.db.models import Champion, ChampionTag
+
+    with Session(engine) as s:
+        for c in (1, 3, *FILLER_BLUE, *FILLER_RED):
+            s.add(Champion(champ_id=c, key=f"C{c}", name=f"C{c}", patch="16.22.1", tags=["Fighter"]))
+        s.add(ChampionTag(champ_id=1, role="top", archetype="ranged", reviewed_arch=True))
+        s.add(ChampionTag(champ_id=3, role="top", archetype="juggernaut", reviewed_arch=True))
+        s.commit()
+        for i in range(300):
+            _store(s, f"EUW1_g{i}", (1, *FILLER_BLUE), (3, *FILLER_RED), i % 5 != 0, patch="16.21", bracket="gold")
+            _store(s, f"EUW1_i{i}", (1, *FILLER_BLUE), (3, *FILLER_RED), i % 5 != 0, patch="16.21", bracket="iron")
+        s.commit()
+    aggregate(engine, "16.21")
+    aggregate(engine, "16.22")  # the current patch has no matches
+    model = load_matchup_model(engine)
+    stats = pooled_stats(engine, model, "gold")
+    assert stats.matchup_games[("top", 1, 3)] == pytest.approx(600 * 0.5 ** (1 / 6), abs=1)  # both tiers, decayed
+    assert stats.matchup_wr("top", 1, 3) > 0.6
+    assert 0.5 < stats.matchup_confidence("top", 1, 3) < 1
+    assert stats.meta[1]["top"].pick_rate == pytest.approx(1.0)  # from the player's tier
+
+
+def test_the_tree_reads_the_stats_it_is_given():
+    eng = _engine({("top", 1, 10): 0.5, ("top", 1, 11): 0.5}, {1: "main"}, LABELS)
+    meta = {c: {"top": RoleStat(0.5, 0.1)} for c in (1, 10)}
+    pooled = BracketStats(meta, {("top", 1, 10): 0.60}, matchup_games={("top", 1, 10): 400}, matchup_k={"top": 400.0})
+    row = next(r for r in matchup_tree(eng, "top", TOP, stats=pooled) if r["archetype"] == "juggernaut")
+    assert [c["name"] for c in row["champs"]] == ["C10"]  # 11 isn't in these stats
+    assert row["best"]["pp"] == 10.0 and row["best"]["confidence"] == 0.5
+

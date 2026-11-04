@@ -14,6 +14,8 @@
 </script>
 
 {#if data}
+  <p class="muted source">From {data.matches.map((m) => `${m.matches.toLocaleString()} matches on ${m.patch}`).join(', ')}, every tier pooled,
+    newer patches counting more. "Most picked" is each player's tier.</p>
   {#each data.roles as role}
     <section class="role">
       <h2>{role.role_label} <small>{role.bracket}</small></h2>
@@ -67,6 +69,7 @@
 {/if}
 
 <style>
+  .source { font-size: 13px; margin: 0 0 10px; }
   .role { background: var(--panel); border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; }
   h2 { font-size: 20px; margin: 0 0 8px; }
   h2 small { font-size: 13px; font-weight: 400; color: var(--muted); }
