@@ -6,8 +6,8 @@ across patches while champion strength isn't (docs/synergy-visualizer.md, A2):
 - every crawled bracket is pooled into bracket "all", and each bracket is also kept on its own;
 - champion strength p_A comes from the same weighted window, so it is removed consistently.
 
-For now the window is the current patch only; `aggregate_synergy(..., patches=...)` takes more
-once older patches are crawled.
+The window is every crawled patch up to the current one (`crawl_weights`), so a new patch doesn't empty what's
+stable across patches. Win rates and lane matchups (champ_role_stats, matchups) stay per patch.
 """
 from __future__ import annotations
 
@@ -32,6 +32,22 @@ def window_weights(patches: Iterable[str], current: str) -> dict[str, float]:
     newer than it. Patches after `current` are left out."""
     ordered = sorted({p for p in patches if _version_key(p) <= _version_key(current)}, key=_version_key, reverse=True)
     return {p: 0.5 ** (i / DECAY_PATCHES) for i, p in enumerate(ordered)}
+
+
+def weights_cte(weights: Mapping[str, float]) -> tuple[str, dict]:
+    """The VALUES list and bound parameters for `WITH w(patch, weight) AS (VALUES ...)`."""
+    values = ", ".join(f"(:p{i}, :w{i})" for i in range(len(weights)))
+    params: dict = {}
+    for i, (patch, w) in enumerate(weights.items()):
+        params |= {f"p{i}": patch, f"w{i}": w}
+    return values, params
+
+
+def crawl_weights(conn, current: str) -> dict[str, float]:
+    """The pooling window ending at `current`: every crawled patch up to it, decayed. `current` counts even with no
+    matches yet, so the older patches' weights don't jump when its first match arrives."""
+    patches = [r[0] for r in conn.execute(text("SELECT DISTINCT patch FROM crawled_matches"))]
+    return window_weights([*patches, current], current)
 
 
 def aggregate_synergy(conn, window: str, patches: Mapping[str, float] | None = None) -> None:
@@ -70,14 +86,19 @@ def aggregate_synergy(conn, window: str, patches: Mapping[str, float] | None = N
 
 
 def load_damage(db: Engine, patch: str | None) -> dict[tuple[int, str], tuple[float, float, float]]:
-    """Damage profile per champion and role on `patch`, every bracket pooled (weighted by games)."""
+    """Damage profile per champion and role over the window ending at `patch`, every bracket pooled (weighted by
+    games and the patch's decay)."""
     if patch is None:
         return {}
     with db.connect() as conn:
+        values, params = weights_cte(crawl_weights(conn, patch))
         rows = conn.execute(text(
-            "SELECT champ_id, role, SUM(dmg_phys * games) / SUM(games), SUM(dmg_magic * games) / SUM(games), "
-            "SUM(dmg_true * games) / SUM(games) FROM champ_role_stats "
-            "WHERE patch = :patch AND dmg_phys IS NOT NULL GROUP BY champ_id, role"), {"patch": patch}).all()
+            f"WITH w(patch, weight) AS (VALUES {values}) "
+            "SELECT champ_id, role, SUM(dmg_phys * games * weight) / SUM(games * weight), "
+            "SUM(dmg_magic * games * weight) / SUM(games * weight), "
+            "SUM(dmg_true * games * weight) / SUM(games * weight) "
+            "FROM champ_role_stats JOIN w USING (patch) "
+            "WHERE dmg_phys IS NOT NULL GROUP BY champ_id, role"), params).all()
     return {(c, r): (p, m, t) for c, r, p, m, t in rows}
 
 

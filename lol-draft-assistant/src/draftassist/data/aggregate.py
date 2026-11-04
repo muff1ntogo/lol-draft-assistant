@@ -12,7 +12,7 @@ import json
 from sqlalchemy import Engine, text
 from sqlmodel import Session
 
-from draftassist.data.synergy import aggregate_synergy
+from draftassist.data.synergy import aggregate_synergy, crawl_weights
 from draftassist.data.traits import aggregate_traits
 from draftassist.engine.comp import LONG_S, SHORT_S
 
@@ -32,7 +32,7 @@ _SLICE = "JOIN crawled_matches cm ON cm.match_id = {alias}.match_id AND cm.patch
 
 def aggregate(db: Engine, patch: str) -> dict[str, int]:
     """Rebuild champ_role_stats (with damage profile), matchups and bracket_totals for every
-    bracket crawled on `patch`, and the role-aware synergy window ending at `patch` (data/synergy.py);
+    bracket crawled on `patch`, and the role-aware synergy and trait window ending at `patch` (data/synergy.py);
     refresh champions.roles. Returns matches per bracket."""
     with Session(db) as s:
         conn = s.connection()
@@ -73,8 +73,9 @@ def aggregate(db: Engine, patch: str) -> dict[str, int]:
                      AND b.team_id <> a.team_id AND a.champ_id < b.champ_id
                 GROUP BY a.role, a.champ_id, b.champ_id"""), p)
 
-        aggregate_synergy(conn, patch)
-        aggregate_traits(conn, patch)  # same window as synergy (docs/synergy-v2.md, Stage 1)
+        window = crawl_weights(conn, patch)  # every crawled patch up to this one, decayed
+        aggregate_synergy(conn, patch, window)
+        aggregate_traits(conn, patch, window)  # same window as synergy (docs/synergy-v2.md, Stage 1)
 
         # champions.roles: roles with a meaningful share of the champion's games, all brackets pooled
         rows = conn.execute(text(

@@ -10,7 +10,7 @@ Aatrox:
 Ahri:
   mid: {engage: 1, poke: 1, dive: 1, pick: 3, archetype: control_mage, archetype2: assassin, reviewed: false}
 Akali:
-  top: {dive: 3, pick: 2, splitpush: 1, archetype: skirmisher, reviewed: false}
+  top: {dive: 3, pick: 2, splitpush: 1, archetype: diver, archetype2: skirmisher, reviewed: false}
   mid: {dive: 3, pick: 2, splitpush: 1, archetype: assassin, reviewed: false}
 Akshan:
   top: {poke: 1, pick: 2, splitpush: 2, archetype: ranged, reviewed: false}
@@ -181,6 +181,9 @@ Lillia:
   jungle: {engage: 2, poke: 1, archetype: farmer, archetype2: skirmisher, reviewed: false}
 Lissandra:
   mid: {engage: 3, disengage: 2, pick: 2, archetype: control_mage, reviewed: false}
+Locke:
+  jungle: {archetype: assassin, archetype2: skirmisher, reviewed: true}
+  mid: {archetype: assassin, archetype2: skirmisher, reviewed: true}
 Lucian:
   mid: {dive: 1, archetype: skirmisher, reviewed: false}
   adc: {dive: 1, archetype: lane_bully, source: video, reviewed: false}
@@ -271,7 +274,7 @@ Renata:
 Renekton:
   top: {dive: 2, archetype: diver, source: video, reviewed: false}
 Rengar:
-  top: {dive: 2, pick: 3, archetype: skirmisher, reviewed: false}
+  top: {dive: 2, pick: 3, archetype: diver, archetype2: skirmisher, reviewed: false}
   jungle: {dive: 2, pick: 3, archetype: assassin, reviewed: false}
 Riven:
   top: {dive: 2, splitpush: 2, archetype: skirmisher, archetype2: diver, reviewed: false}
@@ -411,6 +414,8 @@ Yunara:
   adc: {hypercarry: 2, archetype: scaler, reviewed: false}
 Yuumi:
   support: {enchanter: 3, archetype: enchanter, reviewed: false}
+Zaahen:
+  top: {archetype: skirmisher, archetype2: juggernaut, reviewed: true}
 Zac:
   top: {engage: 3, dive: 2, archetype: tank, reviewed: false}
   jungle: {engage: 3, dive: 2, archetype: tank, source: video, reviewed: false}

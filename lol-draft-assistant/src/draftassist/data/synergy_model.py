@@ -20,7 +20,7 @@ from sqlalchemy import Engine, text
 from sqlmodel import Session, delete, select
 
 from draftassist.data.rules import STYLE_RULES_FILE, TEAM_RULES_FILE, load_style_rules, load_team_rules
-from draftassist.data.synergy import ALL, latest_window, load_synergy
+from draftassist.data.synergy import ALL, crawl_weights, latest_window, load_synergy
 from draftassist.data.traits import load_traits
 from draftassist.db.models import SynergyFit
 from draftassist.engine.style import PairObs, StyleModel, fit_style, pair_of_roles
@@ -81,7 +81,10 @@ def fit_synergy_model(db: Engine, window: str | None = None, style_path: Path = 
     style_fits = fit_style(style_rules, obs, traits, prior_sd_pp=sd)
 
     model = TeamModel(team_rules, traits)
-    games = _matches(db, patches or {window: 1.0})
+    if patches is None:
+        with db.connect() as conn:
+            patches = crawl_weights(conn, window)
+    games = _matches(db, patches)
     blue = [g[1] for g in games]
     red = [g[2] for g in games]
     won = np.array([g[3] for g in games], dtype=bool)

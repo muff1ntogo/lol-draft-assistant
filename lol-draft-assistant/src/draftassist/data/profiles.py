@@ -20,6 +20,7 @@ from collections.abc import Mapping
 from sqlalchemy import Engine, text
 from sqlmodel import Session, select
 
+from draftassist.data.synergy import crawl_weights, weights_cte
 from draftassist.db.models import Champion
 from draftassist.engine.comp import (
     EMPTY_PROFILES,
@@ -109,14 +110,17 @@ def load_profiles(db: Engine, patch: str | None, traits: ChampionTraits | None =
 
     curves = {}
     if patch is not None:
-        with db.connect() as conn:
+        with db.connect() as conn:  # over the pooling window, so a new patch keeps its timing labels
+            values, params = weights_cte(crawl_weights(conn, patch))
             rows = conn.execute(text(
-                "SELECT champ_id, role, SUM(games), SUM(wins), SUM(games_short), SUM(wins_short), "
-                "SUM(games_long), SUM(wins_long) FROM champ_role_stats "
-                "WHERE patch = :patch AND games_short IS NOT NULL GROUP BY champ_id, role"), {"patch": patch}).all()
+                f"WITH w(patch, weight) AS (VALUES {values}) "
+                "SELECT champ_id, role, SUM(games * weight), SUM(wins * weight), SUM(games_short * weight), "
+                "SUM(wins_short * weight), SUM(games_long * weight), SUM(wins_long * weight) "
+                "FROM champ_role_stats JOIN w USING (patch) "
+                "WHERE games_short IS NOT NULL GROUP BY champ_id, role"), params).all()
         for c, r, games, wins, gs, ws, gl, wl in rows:
             p = (wins + 25) / (games + 50)  # the champion's own win rate, lightly shrunk
-            curves[(c, r)] = TimingCurve(power_curve(ws, gs, wl, gl, p), gs + gl)
+            curves[(c, r)] = TimingCurve(power_curve(ws, gs, wl, gl, p), round(gs + gl))
     return ChampionProfiles(styles, curves, role_styles)
 
 

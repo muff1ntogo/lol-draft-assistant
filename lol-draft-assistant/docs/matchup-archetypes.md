@@ -242,11 +242,13 @@ Show what's present and what's missing. It's informational: no automatic changes
 5. **No borrowing across roles (Stage 1).** Unlike tags, an archetype applies to its own role only; the vocabularies differ per role.
 6. **One `reviewed` flag per line (Stage 1).** Archetype and tags on a line are reviewed together.
 7. **A changed archetype loses `source: video` (Stage 1).** It's no longer the guide's. Editing only the tags keeps it.
-8. **New releases (Stage 1).** Locke mid and Zaahen top stay on the fallback, as with the tags: Claude doesn't know their kits.
+8. **New releases (user, 4 Nov 2026).** Locke is assassin / skirmisher (mid and jungle), Zaahen is skirmisher / juggernaut (top), both reviewed. Zaahen jungle and mid stay on the fallback: juggernaut isn't in those vocabularies.
+9. **Top Rengar and Akali (user).** Diver / skirmisher: assassin types with some sustain. Top has no assassin archetype.
+10. **Patch 16.22 (user, 4 Nov 2026).** EUW moved to 16.22 on 4 Nov. Live uses the new patch (OP.GG blended with the crawl as it grows). Everything stable across patches pools the crawled patches with decay (`data/synergy.crawl_weights`): pairs, traits, Style and Team fits, damage and timing. Stage 3's E, K and `k_r` should use the same window; champion strength in its prior comes from the current patch.
 
 ## Built
 
 ### Stage 1 (4 Nov 2026)
 - `data/archetypes.py`: `ARCHETYPES`, `FALLBACK`, `Archetype` (`weight` is 0.5 until reviewed, for Stage 3), `resolve_archetype`, `pool_gaps`.
-- `data/champion_tags.yaml`: 255 lines (247 rated, unchanged, plus 8 archetype-only), 75 marked `source: video`. Written archetypes cover 90–93% of games per role on 16.21; all 808 champion-roles resolve.
+- `data/champion_tags.yaml`: 258 lines (247 rated, unchanged, plus 11 archetype-only), 75 marked `source: video`. Written archetypes cover 90–93% of games per role on 16.21; all 808 champion-roles resolve.
 - `champion_tags` gains `archetype`, `archetype2`, `archetype_source`. Tags page: two dropdowns per row, a "guide" chip, the class suggestion shown in brackets when blank. `PUT /api/tags` takes optional `archetype` and `archetype2` (omitted keeps, "" clears).
