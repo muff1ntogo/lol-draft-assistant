@@ -28,7 +28,7 @@
   let edits = $state({}); // "champ:role" -> values
   let archEdits = $state({}); // "champ:role" -> {archetype, archetype2}
   let kitEdits = $state({}); // "champ:role" -> kit tag -> 0..3
-  let view = $state('fight'); // which tag columns: fight (synergy) or kit (matchups)
+  let view = $state('fight'); // the group under review: fight (synergy tags), kit, or arch (archetypes)
   let error = $state({});
   let adding = $state({}); // champ id -> role being added
 
@@ -52,9 +52,8 @@
       for (const role of data.roles.filter((r) => roles.includes(r))) {
         if (roleFilter !== 'all' && role !== roleFilter) continue;
         const entry = c.entries[role] ?? null;
-        const reviewed = entry?.reviewed || c.archetypes[role]?.reviewed;
-        if (filter === 'review' && reviewed) continue;
-        if (filter === 'reviewed' && !reviewed) continue;
+        if (filter === 'review' && !(inGroup(c, role, entry) && !reviewedIn(c, role, entry))) continue;
+        if (filter === 'reviewed' && !(inGroup(c, role, entry) && reviewedIn(c, role, entry))) continue;
         if (filter === 'untagged') continue;
         out.push({ c, role, entry });
       }
@@ -63,6 +62,17 @@
   });
 
   const key = (c, role) => `${c.champ_id}:${role}`;
+  // does this line have labels in the group under review, and are they reviewed?
+  function inGroup(c, role, entry) {
+    if (view === 'kit') return !!c.kit[role];
+    if (view === 'arch') return !!c.archetypes[role] && !c.archetypes[role].untagged;
+    return !!entry;
+  }
+  function reviewedIn(c, role, entry) {
+    if (view === 'kit') return !!c.kit_reviewed[role];
+    if (view === 'arch') return !!c.archetypes[role]?.reviewed;
+    return !!entry?.reviewed;
+  }
   function values(c, role, entry) {
     return edits[key(c, role)] ?? { ...(entry?.values ?? Object.fromEntries(data.tags.map((t) => [t, 0]))) };
   }
@@ -112,8 +122,30 @@
     delete adding[c.champ_id];
     replace(res);
   }
-  const save = (c, role, entry, reviewed) => send(c, role, 'PUT', { values: values(c, role, entry), reviewed,
-    ...arch(c, role), kit: kitValues(c, role) });
+  // Saving marks the groups edited as reviewed; "Looks right" marks the group under review. Others are left alone.
+  // A kit is sent only when edited: it applies to all of the champion's lines.
+  function save(c, role, entry, looksRight = false) {
+    const k = key(c, role);
+    const fightEdited = edits[k] && (!entry || data.tags.some((t) => edits[k][t] !== entry.values[t]));
+    send(c, role, 'PUT', {
+      values: values(c, role, entry), ...arch(c, role),
+      kit: kitEdits[k],
+      reviewed: !!entry?.reviewed || !!fightEdited || (looksRight && view === 'fight'),
+      reviewed_kit: kitEdits[k] || (looksRight && view === 'kit') ? true : undefined,
+      reviewed_arch: archEdits[k] || (looksRight && view === 'arch') ? true : undefined,
+    });
+  }
+  const counts = $derived.by(() => {
+    if (!data) return { reviewed: 0, total: 0 };
+    let reviewed = 0, total = 0;
+    for (const c of data.champions) {
+      const lines = view === 'kit' ? Object.keys(c.kit)
+        : view === 'arch' ? Object.keys(c.archetypes).filter((r) => !c.archetypes[r].untagged)
+        : Object.keys(c.entries);
+      for (const r of lines) { total++; if (reviewedIn(c, r, c.entries[r])) reviewed++; }
+    }
+    return { reviewed, total };
+  });
   const remove = (c, role) => send(c, role, 'DELETE');
   const fmt = (v) => (v == null ? '—' : Math.round(v * 100));
 </script>
@@ -122,10 +154,10 @@
   <h1>Champions <small>tags, fight style and timing per role</small> <a class="back" href="#/prep">← Prep</a></h1>
   {#if data}
     <div class="bar">
-      <div class="progress" title="{data.counts.reviewed} of {data.counts.entries} reviewed">
-        <span style="width:{data.counts.entries ? (100 * data.counts.reviewed) / data.counts.entries : 0}%"></span>
+      <div class="progress" title="{counts.reviewed} of {counts.total} reviewed">
+        <span style="width:{counts.total ? (100 * counts.reviewed) / counts.total : 0}%"></span>
       </div>
-      <span>{data.counts.reviewed} / {data.counts.entries} reviewed · {data.counts.untagged} untagged</span>
+      <span>{counts.reviewed} / {counts.total} reviewed · {data.counts.untagged} untagged</span>
       <div class="group">
         {#each [['review', 'To review'], ['reviewed', 'Reviewed'], ['untagged', 'Untagged'], ['all', 'All']] as [k, l]}
           <button class:on={filter === k} onclick={() => (filter = k)}>{l}</button>
@@ -134,6 +166,7 @@
       <div class="group">
         <button class:on={view === 'fight'} onclick={() => (view = 'fight')}>Fight tags</button>
         <button class:on={view === 'kit'} onclick={() => (view = 'kit')}>Kit tags</button>
+        <button class:on={view === 'arch'} onclick={() => (view = 'arch')}>Archetypes</button>
       </div>
       <select bind:value={roleFilter}>
         <option value="all">All roles</option>
@@ -149,23 +182,25 @@
       measured traits (percentile in the role, 0–100) come from crawled matches and aren't edited here.
       Archetype is per role, for matchups; a blank one uses the suggestion from the champion's class, shown in the
       list. "guide" marks one named in a matchup guide. Kit tags feed the matchup model; hover a column for its meaning.
-      A champion's kit tags in one role also count for its other roles until you rate those.
+      A kit rating belongs to the champion: changing it in one role changes all its roles. Each of Fight tags, Kit tags
+      and Archetypes has its own review state; "Looks right" marks only the one you're viewing.
     </p>
     <table>
       <thead><tr><th></th><th>Champion</th><th>Role</th><th>Archetype</th>
         {#if view === 'kit'}
           {#each data.kit_tags as t}<th class="num" title={KIT_LABELS[t][1]}>{KIT_LABELS[t][0]}</th>{/each}
-        {:else}
+        {:else if view === 'fight'}
           {#each data.tags as t}<th class="num">{LABELS[t]}</th>{/each}
         {/if}
-        {#if view !== 'kit'}<th>Style</th><th>Measured</th>{/if}<th></th></tr></thead>
+        {#if view === 'fight'}<th>Style</th><th>Measured</th>{/if}<th></th></tr></thead>
       <tbody>
         {#each rows as { c, role, entry } (key(c, role))}
           {@const v = role ? values(c, role, entry) : null}
           {@const m = role ? c.measured[role] : null}
           {@const hasArch = role && c.archetypes[role] && !c.archetypes[role].untagged}
-          {@const isReviewed = !(entry || hasArch) || entry?.reviewed || (hasArch && c.archetypes[role].reviewed)}
-          <tr class:reviewed={(entry || hasArch) && isReviewed}>
+          {@const here = role && inGroup(c, role, entry)}
+          {@const isReviewed = !here || reviewedIn(c, role, entry)}
+          <tr class:reviewed={here && isReviewed}>
             <td><Champ champ={c.champ} size={30} /></td>
             <td><strong>{c.name}</strong>
               {#if c.untagged && !role}<span class="tag untagged">untagged</span>{/if}
@@ -197,7 +232,7 @@
                     {#each [0, 1, 2, 3] as n}<option value={n}>{n}</option>{/each}
                   </select>{/if}</td>
               {/each}
-            {:else}
+            {:else if view === 'fight'}
               {#each data.tags as t}
                 <td class="num">{#if role}
                   <select class="lvl l{v[t]}" value={v[t]} onchange={(ev) => setValue(c, role, entry, t, +ev.target.value)}>
@@ -205,7 +240,7 @@
                   </select>{/if}</td>
               {/each}
             {/if}
-            {#if view !== 'kit'}
+            {#if view === 'fight'}
             <td class="stylecol small">
               {#if role && c.identity[role]}
                 {@const id = c.identity[role]}
@@ -225,7 +260,7 @@
             <td class="actions">
               {#if role}
                 {#if changed(c, role, entry)}
-                  <button class="primary" onclick={() => save(c, role, entry, true)}>Save</button>
+                  <button class="primary" onclick={() => save(c, role, entry)}>Save</button>
                 {:else if !isReviewed}
                   <button onclick={() => save(c, role, entry, true)}>Looks right</button>
                 {/if}
@@ -235,7 +270,7 @@
             </td>
           </tr>
         {:else}
-          <tr><td colspan={view === 'kit' ? data.kit_tags.length + 5 : data.tags.length + 7} class="muted">Nothing here.</td></tr>
+          <tr><td colspan={view === 'kit' ? data.kit_tags.length + 5 : view === 'arch' ? 5 : data.tags.length + 7} class="muted">Nothing here.</td></tr>
         {/each}
       </tbody>
     </table>

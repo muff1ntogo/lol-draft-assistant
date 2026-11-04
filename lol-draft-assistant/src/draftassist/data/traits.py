@@ -20,7 +20,7 @@ from draftassist.data.synergy import ALL, latest_window
 from draftassist.data.traits_map import TRAIT_SOURCES
 from draftassist.db.models import Champion, ChampionTraitRow
 from draftassist.engine.comp import LONG_S, SHORT_S
-from draftassist.engine.traits import ChampionTraits, percentiles, power_curve_slope, ranged
+from draftassist.engine.traits import ChampionTraits, KitTraits, percentiles, power_curve_slope, ranged
 
 TRAIT_MIN_GAMES = 20  # fewer raw games in the window: no percentile traits (too noisy)
 
@@ -117,7 +117,7 @@ def _trait_rows(rows, ranges: Mapping[int, float | None]) -> list[dict]:
 
 def load_traits(db: Engine, window: str | None = None, bracket: str = ALL) -> ChampionTraits:
     """Measured traits for one window (default: the latest) and bracket, the tags, and attack ranges."""
-    from draftassist.data.tags import load_tags
+    from draftassist.data.tags import load_kit, load_tags
 
     window = window or latest_window(db)
     with Session(db) as s:
@@ -127,4 +127,4 @@ def load_traits(db: Engine, window: str | None = None, bracket: str = ALL) -> Ch
     fields = ("cc", "frontline", "peel", "dmg_phys", "dmg_magic", "dmg_true", "power_curve", "power_curve_slope",
               "lane_pressure", "ranged", "cc_all", "frontline_all", "peel_all")
     measured = {(r.champ_id, r.role): {f: getattr(r, f) for f in fields} | {"games": r.games} for r in rows}
-    return ChampionTraits(measured, load_tags(db), ranges)
+    return ChampionTraits(measured, load_tags(db), ranges, KitTraits(load_kit(db)))

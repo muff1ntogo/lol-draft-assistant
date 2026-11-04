@@ -1,5 +1,6 @@
 # Judgement traits per champion and role, 0-3 (docs/synergy-v2.md, Stage 1b). Missing tags are 0.
 # reviewed: false = drafted by Claude, not checked yet: counts at half weight in every model.
+# reviewed covers the synergy tags; reviewed_kit the kit tags; reviewed_arch the archetype (true is written, false isn't).
 # Edit here or on the Tags page (it writes this file). Keys are Data Dragon champion keys.
 # Tags: engage, disengage, poke, dive, pick, splitpush, enchanter, hypercarry
 # archetype / archetype2: the champion's archetype in that role (data/archetypes.py, docs/matchup-archetypes.md).
@@ -184,8 +185,8 @@ Lillia:
 Lissandra:
   mid: {engage: 3, disengage: 2, pick: 2, archetype: control_mage, escape: 2, extend_fight: 1, anti_dive: 3, ability_range: 1, reviewed: false}
 Locke:
-  jungle: {archetype: assassin, archetype2: skirmisher, reviewed: true}
-  mid: {archetype: assassin, archetype2: skirmisher, reviewed: true}
+  jungle: {archetype: assassin, archetype2: skirmisher, auto_reliant: 2, max_hp_damage: 2, hard_gap_close: 3, kite: 1, escape: 2, extend_fight: 2, sustain: 2, reviewed: false, reviewed_arch: true}
+  mid: {archetype: assassin, archetype2: skirmisher, auto_reliant: 2, max_hp_damage: 2, hard_gap_close: 3, kite: 1, escape: 2, extend_fight: 2, sustain: 2, reviewed: false, reviewed_arch: true}
 Lucian:
   mid: {dive: 1, archetype: skirmisher, auto_reliant: 2, hard_gap_close: 1, kite: 2, escape: 2, reviewed: false}
   adc: {dive: 1, archetype: lane_bully, source: video, auto_reliant: 2, hard_gap_close: 1, kite: 2, escape: 2, reviewed: false}
@@ -417,7 +418,7 @@ Yunara:
 Yuumi:
   support: {enchanter: 3, archetype: enchanter, anti_dive: 1, reviewed: false}
 Zaahen:
-  top: {archetype: skirmisher, archetype2: juggernaut, reviewed: true}
+  top: {archetype: skirmisher, archetype2: juggernaut, reviewed: false, reviewed_arch: true}
 Zac:
   top: {engage: 3, dive: 2, archetype: tank, max_hp_damage: 1, hard_gap_close: 3, extend_fight: 1, sustain: 2, reviewed: false}
   jungle: {engage: 3, dive: 2, archetype: tank, source: video, max_hp_damage: 1, hard_gap_close: 3, extend_fight: 1, sustain: 2, reviewed: false}

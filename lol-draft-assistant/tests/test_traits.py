@@ -358,7 +358,7 @@ def test_shipped_tag_file_is_valid_and_uses_real_champion_keys():
         for role, entry in by_role.items():
             assert role in roles, (key, role)
             assert all(0 <= v <= 3 for v in entry.values.values())
-            assert not (entry.reviewed and entry.rated)  # drafted by Claude: the user reviews them
+            assert not entry.reviewed  # drafted by Claude: the user reviews them
 
 
 # ---------- Tags page API ----------

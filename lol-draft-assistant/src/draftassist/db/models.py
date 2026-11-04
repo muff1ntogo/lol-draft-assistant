@@ -315,7 +315,9 @@ class ChampionTag(SQLModel, table=True):
     archetype2: str | None = None
     archetype_source: str | None = None
     kit: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))  # kit tag -> 1..3 (Stage 2)
-    reviewed: bool = False
+    reviewed: bool = False  # the 0-3 synergy tags
+    reviewed_kit: bool = False
+    reviewed_arch: bool = False
 
 
 class SynergyFit(SQLModel, table=True):

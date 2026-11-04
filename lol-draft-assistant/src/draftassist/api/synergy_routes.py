@@ -174,6 +174,7 @@ def _tag_row(svc: Services, champ: Champion, traits, prof=None, written=None, ki
     written = written if written is not None else load_archetypes(db_of(svc))
     kits = kits if kits is not None else load_kit(db_of(svc))
     kit = {r: dict(e.values) for (c, r), e in kits.items() if c == champ.champ_id}
+    kit_reviewed = {r: e.reviewed for (c, r), e in kits.items() if c == champ.champ_id}
     measured = {role: {k: (None if v is None else round(v, 3)) for k, v in m.items()}
                 for (c, role), m in traits.measured.items() if c == champ.champ_id}
     prof = prof if prof is not None else svc.profiles()
@@ -190,7 +191,8 @@ def _tag_row(svc: Services, champ: Champion, traits, prof=None, written=None, ki
     return {"champ_id": champ.champ_id, "champ": svc.catalog.card(champ.champ_id), "key": champ.key,
             "timing": timing, "identity": identity, "name": champ.name, "roles": champ.roles or [],
             "attack_range": champ.attack_range, "entries": entries, "measured": measured,
-            "untagged": not entries, "archetypes": _archetype_rows(champ, written, {*entries, *kit}), "kit": kit}
+            "untagged": not entries, "archetypes": _archetype_rows(champ, written, {*entries, *kit}), "kit": kit,
+            "kit_reviewed": kit_reviewed}
 
 def _tag_one(svc: Services, champ_id: int) -> dict:
     with Session(db_of(svc)) as s:
@@ -213,6 +215,9 @@ def get_tags(request: Request) -> dict:
     return {"tags": list(TAGS), "roles": list(ROLES), "role_labels": ROLE_LABELS, "styles": STYLE_LABELS,
             "archetypes": {r: list(words) for r, words in ARCHETYPES.items()}, "kit_tags": list(KIT_TAGS),
             "timings": TIMING_LABELS, "version": svc.catalog.patch, "champions": rows,
+            "review_counts": {"fight": {"reviewed": sum(e["reviewed"] for e in entries), "total": len(entries)},
+                              "kit": {"reviewed": sum(e.reviewed for e in kits.values()), "total": len(kits)},
+                              "arch": {"reviewed": sum(a.reviewed for a in written.values()), "total": len(written)}},
             "counts": {"champions": len(rows), "entries": len(entries),
                        "reviewed": sum(e["reviewed"] for e in entries),
                        "untagged": sum(r["untagged"] for r in rows)}}
@@ -220,11 +225,13 @@ def get_tags(request: Request) -> dict:
 @router.put("/api/tags/{champ_id}/{role}")
 def put_tag(request: Request, champ_id: int, role: str, values: dict[str, int] = Body(...),
             reviewed: bool = Body(...), archetype: str | None = Body(None),
-            archetype2: str | None = Body(None), kit: dict[str, int] | None = Body(None)) -> dict:
+            archetype2: str | None = Body(None), kit: dict[str, int] | None = Body(None),
+            reviewed_kit: bool | None = Body(None), reviewed_arch: bool | None = Body(None)) -> dict:
     svc: Services = request.app.state.services
     _tag_one(svc, champ_id)
     try:
-        update_tag(db_of(svc), svc.tags_path, champ_id, role, values, reviewed, archetype, archetype2, kit)
+        update_tag(db_of(svc), svc.tags_path, champ_id, role, values, reviewed, archetype, archetype2, kit,
+                   reviewed_kit, reviewed_arch)
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
     svc.invalidate_synergy()

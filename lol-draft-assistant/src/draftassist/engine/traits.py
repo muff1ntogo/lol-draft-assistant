@@ -93,6 +93,9 @@ class TagEntry:
     archetype2: str | None = None
     source: str | None = None
     kit: Mapping[str, int] = field(default_factory=dict)  # kit tag -> 1..3; left out = 0
+    # `reviewed` covers the 0-3 synergy tags only; each group's half weight applies to its own labels
+    reviewed_kit: bool = False
+    reviewed_arch: bool = False
 
     @property
     def rated(self) -> bool:
@@ -160,6 +163,7 @@ class ChampionTraits:
     measured: Mapping[Key, Mapping[str, float | None]]  # (champ, role) -> trait -> value
     tags: Mapping[Key, TagEntry]
     attack_range: Mapping[int, float | None]
+    kit: KitTraits | None = None  # kit tags (matchup model); terms rules may use later
 
     def __post_init__(self):
         by_champ: dict[int, TagEntry] = {}
@@ -199,6 +203,8 @@ class ChampionTraits:
         if term.startswith("not "):
             v = self.intensity(champ, role, term[4:])
             return None if v is None else 1.0 - v
+        if term in KIT_TAGS:
+            return None if self.kit is None else self.kit.intensity(champ, role, term)
         if term in TAGS:
             e = self.tag_entry(champ, role)
             return None if e is None else e.scaled(term, self.role_average(role, term))
@@ -216,7 +222,7 @@ class ChampionTraits:
         return m.get(term)
 
 
-KNOWN_TERMS = frozenset(TAGS) | frozenset(DERIVED_TERMS) | {
+KNOWN_TERMS = frozenset(TAGS) | frozenset(KIT_TAGS) | frozenset(DERIVED_TERMS) | {
     "cc", "frontline", "peel", "dmg_phys", "dmg_magic", "dmg_true", "power_curve", "lane_pressure", "ranged",
     "cc_all", "frontline_all", "peel_all"}
 

@@ -14,6 +14,7 @@ only an archetype isn't a tag rating: load_tags leaves it out, so it can't chang
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 
 import yaml
@@ -30,6 +31,7 @@ TAGS_FILE = PROJECT_ROOT / "data" / "champion_tags.yaml"
 HEADER = """\
 # Judgement traits per champion and role, 0-3 (docs/synergy-v2.md, Stage 1b). Missing tags are 0.
 # reviewed: false = drafted by Claude, not checked yet: counts at half weight in every model.
+# reviewed covers the synergy tags; reviewed_kit the kit tags; reviewed_arch the archetype (true is written, false isn't).
 # Edit here or on the Tags page (it writes this file). Keys are Data Dragon champion keys.
 # Tags: engage, disengage, poke, dive, pick, splitpush, enchanter, hypercarry
 # archetype / archetype2: the champion's archetype in that role (data/archetypes.py, docs/matchup-archetypes.md).
@@ -39,7 +41,7 @@ HEADER = """\
 """
 
 Raw = dict[str, dict[str, TagEntry]]  # champion key -> role -> entry
-_NOT_TAGS = ("reviewed", "archetype", "archetype2", "source")
+_NOT_TAGS = ("reviewed", "reviewed_kit", "reviewed_arch", "archetype", "archetype2", "source")
 
 
 def _entry(values: Mapping, where: str, role: str) -> TagEntry:
@@ -63,7 +65,8 @@ def _entry(values: Mapping, where: str, role: str) -> TagEntry:
             out[k] = v
         elif v:
             kit[k] = v
-    return TagEntry(out, reviewed, archetype, archetype2, source, kit)
+    return TagEntry(out, reviewed, archetype, archetype2, source, kit, bool(values.get("reviewed_kit", False)),
+                    bool(values.get("reviewed_arch", False)))
 
 
 def load_tags_yaml(path: Path = TAGS_FILE) -> Raw:
@@ -86,6 +89,7 @@ def _line(e: TagEntry) -> str:
                                        ("source", e.source)) if v]
     parts += [f"{t}: {e.kit[t]}" for t in KIT_TAGS if e.kit.get(t)]
     parts.append(f"reviewed: {'true' if e.reviewed else 'false'}")
+    parts += [f"{k}: true" for k, v in (("reviewed_kit", e.reviewed_kit), ("reviewed_arch", e.reviewed_arch)) if v]
     return "{" + ", ".join(parts) + "}"
 
 
@@ -117,7 +121,7 @@ def sync_tags(db: Engine, path: Path = TAGS_FILE) -> dict:
             for role, e in by_role.items():
                 s.add(ChampionTag(champ_id=ids[key], role=role, reviewed=e.reviewed, archetype=e.archetype,
                                   archetype2=e.archetype2, archetype_source=e.source, kit=dict(e.kit) or None,
-                                  **e.values))
+                                  reviewed_kit=e.reviewed_kit, reviewed_arch=e.reviewed_arch, **e.values))
                 loaded += 1
         s.commit()
     return {"loaded": loaded, "unknown": sorted(unknown)}
@@ -130,7 +134,7 @@ def load_tags(db: Engine) -> dict[tuple[int, str], TagEntry]:
     out = {}
     for r in rows:
         e = TagEntry({t: getattr(r, t) for t in TAGS}, r.reviewed, r.archetype, r.archetype2, r.archetype_source,
-                     r.kit or {})
+                     r.kit or {}, r.reviewed_kit, r.reviewed_arch)
         if e.rated:
             out[(r.champ_id, r.role)] = e
     return out
@@ -140,7 +144,7 @@ def load_archetypes(db: Engine) -> dict[tuple[int, str], Archetype]:
     """Written archetypes per (champ, role). Others use data/archetypes.resolve_archetype's fallback."""
     with Session(db) as s:
         rows = s.exec(select(ChampionTag).where(ChampionTag.archetype.is_not(None))).all()
-    return {(r.champ_id, r.role): Archetype(r.archetype, r.archetype2, r.reviewed, r.archetype_source)
+    return {(r.champ_id, r.role): Archetype(r.archetype, r.archetype2, r.reviewed_arch, r.archetype_source)
             for r in rows}
 
 
@@ -148,15 +152,17 @@ def load_kit(db: Engine) -> dict[tuple[int, str], KitEntry]:
     """Kit tags per (champ, role), for engine/traits.KitTraits. Lines without any aren't included."""
     with Session(db) as s:
         rows = s.exec(select(ChampionTag)).all()
-    return {(r.champ_id, r.role): KitEntry(dict(r.kit), r.reviewed) for r in rows if r.kit}
+    return {(r.champ_id, r.role): KitEntry(dict(r.kit), r.reviewed_kit) for r in rows if r.kit}
 
 
 def update_tag(db: Engine, path: Path, champ_id: int, role: str, values: Mapping[str, int],
                reviewed: bool, archetype: str | None = None, archetype2: str | None = None,
-               kit: Mapping[str, int] | None = None) -> TagEntry:
+               kit: Mapping[str, int] | None = None, reviewed_kit: bool | None = None,
+               reviewed_arch: bool | None = None) -> TagEntry:
     """Save one champion-role's tags (missing tags = 0) to the file and the table. `archetype` and `archetype2`:
     None keeps what's written, "" clears it. A changed archetype loses its source: it's no longer the guide's.
-    `kit`: None keeps what's written, otherwise replaces it."""
+    `kit`: None keeps what's written, otherwise replaces it. A kit rating belongs to the champion, so `kit` and
+    `reviewed_kit` apply to all of its lines. `reviewed` covers the synergy tags only; the other two flags: None keeps."""
     if role not in ROLES:
         raise ValueError(f"unknown role {role!r}")
     with Session(db) as s:
@@ -171,13 +177,22 @@ def update_tag(db: Engine, path: Path, champ_id: int, role: str, values: Mapping
         secondary = None
     source = old.source if old and old.archetype == primary else None
     where = f"{champ.key}.{role}"
-    kit_values = dict(old.kit if old else {}) if kit is None else dict(kit)
+    lines = raw.get(champ.key, {})
+    rated_kit = next((e for e in lines.values() if e.kit), None)
+    kit_values = dict(rated_kit.kit if rated_kit else {}) if kit is None else dict(kit)
+    if reviewed_kit is None:
+        reviewed_kit = bool(rated_kit and rated_kit.reviewed_kit)
+    if reviewed_arch is None:
+        reviewed_arch = bool(old and old.reviewed_arch)
     wrong = (set(values) & set(KIT_TAGS)) | (set(kit_values) - set(KIT_TAGS))
     if wrong:
         raise ValueError(f"{where}: unknown tags {sorted(wrong)}")
-    entry = _entry({**values, **kit_values, "reviewed": reviewed, "archetype": primary, "archetype2": secondary,
+    entry = _entry({**values, **kit_values, "reviewed": reviewed, "reviewed_kit": reviewed_kit,
+                    "reviewed_arch": reviewed_arch, "archetype": primary, "archetype2": secondary,
                     "source": source}, where, role)
     raw.setdefault(champ.key, {})[role] = entry
+    for r, e in raw[champ.key].items():
+        raw[champ.key][r] = replace(e, kit=entry.kit, reviewed_kit=entry.reviewed_kit)
     dump_tags_yaml(raw, path)
     sync_tags(db, path)
     return entry

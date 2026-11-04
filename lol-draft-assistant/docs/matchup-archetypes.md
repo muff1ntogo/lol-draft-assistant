@@ -20,9 +20,39 @@ What's wrong in our engine today:
 
 ---
 
+## How the new labels fit the existing ones (read before Stage 1)
+
+Today there is one tag vocabulary: 8 judgement tags (`engine/traits.py` `TAGS`) plus measured traits. They feed:
+- the pair style rules (synergy Style)
+- the team and cross-team rules (Team)
+- the five fight identities (`engine/comp.py` `IDENTITY_TERMS`), which drive badges and coherence
+
+Rules for the new labels:
+
+| New label | Kind | Feeds | Doesn't feed |
+| --- | --- | --- | --- |
+| `archetype` / `archetype2` | one categorical value per champion and role, **not** a 0–3 tag | lane matchup prior (Stage 3), bot 2v2 (Stage 5), Matchup tree UI, card badges | style rules, team rules, identities |
+| Kit traits (`auto_reliant` … `ability_range`) | 0–3 tags, added to `TAGS` and `KNOWN_TERMS` so rules *may* use them later | lane matchup kit interactions (Stage 3); `ability_range` and `escape` also feed blind safety | identities; no existing rule changes |
+| `setup`, `followup`, `needs_team` | 0–3 tags | team rules and the Live check strip (Stage 6) | identities (Engage stays `engage` + 0.5 `dive`) |
+| `behind_value` | measured trait (in `KNOWN_TERMS`) | blind safety | anything else for now |
+
+**Avoid double counting:**
+- `has_setup` overlaps the existing `has_engage` team rule: a hard engager is also a fight starter. Replace `has_engage` with **`has_fight_starter` = max over the comp of max(`engage`, `setup`)**, migrate its prior, and keep `layered_engage`. Show me the Team score for 5 fixture comps before and after.
+- Archetypes overlap some existing traits: ADC `scaler` vs the `hypercarry` tag and late `power_curve`; `lane_bully` vs `lane_pressure`; top/jungle `tank` vs measured `frontline`. That's fine because they answer different questions: **archetypes and kit traits are for lane matchups (vs the enemy laner); tags and traits are for synergy and teamfight (with teammates, comp vs comp).** Don't add archetypes as terms in style or team rules in this task.
+- Cross-team rules (our `engage` vs their `disengage`, …) are comp-level and stay as they are. Kit-trait interactions are lane-level, 1v1 or 2v2. If a kit trait is later added to a cross-team rule, check it isn't also counted in the lane matchup.
+
+**Review flags.** Split the one `reviewed` flag into three groups, so reviewing archetypes doesn't silently mark synergy tags as reviewed and the reverse:
+- `reviewed` (synergy and teamfight tags, including `setup` / `followup` / `needs_team`)
+- `reviewed_kit` (kit traits)
+- `reviewed_arch` (archetypes)
+
+Each group's half weight applies only to its own labels. The Tags page gets a filter per group.
+
+---
+
 ## Stage 1: archetype taxonomy
 
-Add `archetype` (primary) and optional `archetype2` per champion and role, in `data/champion_tags.yaml`. These are reviewed like other tags (`reviewed: false` = half weight; a dropdown on the Tags page). Keep the vocabulary in `data/archetypes.py`.
+Add `archetype` (primary) and optional `archetype2` per champion and role, in `data/champion_tags.yaml`. These carry their own review flag, `reviewed_arch` (unreviewed = half weight; a dropdown on the Tags page). Keep the vocabulary in `data/archetypes.py`.
 
 | Role | Archetypes | Source |
 | --- | --- | --- |
@@ -57,7 +87,7 @@ The top and mid videos stress that "a single champion ability can completely def
 - Vex, Lissandra, Malzahar and Annie punish assassins.
 - Vladimir out-sustains artillery poke.
 
-These are **kit traits**. Add them as judgement tags (0–3, reviewed like the others):
+These are **kit traits**. Add them as 0–3 tags with their own review flag, `reviewed_kit`:
 
 | Tag | Meaning |
 | --- | --- |
@@ -179,7 +209,7 @@ blind_safety(champ, player) = comfort(tier) + worst_plausible_counter + behind_v
 - `followup`: ends or cleans up fights (Orianna R, Yasuo R, Miss Fortune R, Katarina, Viktor W)
 
 Team rules in `data/team_rules.yaml`:
-- `has_setup` (+)
+- `has_fight_starter` (+), which replaces `has_engage` (see "How the new labels fit")
 - `followup_without_setup` (−)
 - `needs_followup`: the mid video says Ryze, Orianna and Azir are win conditions in pro play but lose value in solo queue without team follow-up. Add a tag `needs_team` and a rule `needs_team × (setup + dive)` (+), plus a penalty when absent.
 
@@ -240,15 +270,14 @@ Show what's present and what's missing. It's informational: no automatic changes
 3. **"Role share above 1%" (Stage 1).** Read as pick rate within the role, plus everything already tagged. Share of the champion's own games gives 539 champion-roles, mostly noise such as Aphelios top; the fallback covers those.
 4. **Archetype-only lines aren't tag ratings (Stage 1).** `load_tags` leaves them out (`TagEntry.rated`), so writing Karthus ADC's archetype can't make him "all tags 0" in the synergy models or change the tag borrowed from his other roles. `load_archetypes` reads archetypes.
 5. **No borrowing across roles (Stage 1).** Unlike tags, an archetype applies to its own role only; the vocabularies differ per role.
-6. **One `reviewed` flag per line (Stage 1).** Archetype and tags on a line are reviewed together.
+6. **Three review flags (user's updated doc, 4 Nov 2026).** `reviewed` (0-3 synergy tags), `reviewed_kit`, `reviewed_arch`. YAML writes the last two only when true. "Looks right" marks the group being viewed; Save marks the groups edited.
 7. **A changed archetype loses `source: video` (Stage 1).** It's no longer the guide's. Editing only the tags keeps it.
 8. **New releases (user, 4 Nov 2026).** Locke is assassin / skirmisher (mid and jungle), Zaahen is skirmisher / juggernaut (top), both reviewed. Zaahen jungle and mid stay on the fallback: juggernaut isn't in those vocabularies.
 9. **Top Rengar and Akali (user).** Diver / skirmisher: assassin types with some sustain. Top has no assassin archetype.
 10. **Patch 16.22 (user, 4 Nov 2026).** EUW moved to 16.22 on 4 Nov. Live uses the new patch (OP.GG blended with the crawl as it grows). Everything stable across patches pools the crawled patches with decay (`data/synergy.crawl_weights`): pairs, traits, Style and Team fits, damage and timing. Stage 3's E, K and `k_r` should use the same window; champion strength in its prior comes from the current patch.
-
-11. **Kit tags stay apart from the 8 synergy tags (Stage 2).** Same YAML line and `reviewed` flag, separate vocabulary (`KIT_TAGS`) and reader (`KitTraits`), so Style, Team and identities can't move. A line with only kit tags isn't a tag rating.
-12. **Kit tags are borrowed across roles (Stage 2),** like the 8 tags and unlike archetypes: a kit is about the champion. Unreviewed ones blend halfway towards the role's average.
-13. **Kit draft scope (Stage 2).** Pools, top 30 per role and the doc's named examples: 141 champions, 209 lines. Each champion has one rating, copied to all its lines, because Claude's judgement here is per kit, not per lane; edit a role on its own on the Tags page. Locke and Zaahen have no kit tags: Claude doesn't know their kits.
+11. **Kit tags are a separate tuple (Stage 2).** The doc says "added to `TAGS` and `KNOWN_TERMS`". They're in `KNOWN_TERMS` and readable through `ChampionTraits.intensity`, so rules may use them, but stay in `KIT_TAGS` rather than `TAGS`: `TAGS` also drives the synergy role averages, the table's columns and the Fight tags page. Same intent, and no existing rule changes (tested).
+12. **A kit rating belongs to the champion (user, 4 Nov 2026).** `update_tag` writes `kit` and `reviewed_kit` to all of a champion's lines, and a new line starts with its kit. Unreviewed ratings blend halfway towards the role's average.
+13. **Kit draft scope (Stage 2).** Pools, top 30 per role and the doc's named examples: 142 champions, 211 lines. Locke's ratings come from the ability list the user gave (reviewed_kit stays false: the numbers are Claude's reading of it). Zaahen has none yet.
 
 ## Built
 

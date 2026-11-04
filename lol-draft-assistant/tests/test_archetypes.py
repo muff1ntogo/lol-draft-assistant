@@ -38,7 +38,7 @@ USER_SET = {("Locke", "mid"): ("assassin", "skirmisher"), ("Locke", "jungle"): (
 
 YAML_TEXT = """\
 Leona:
-  support: {engage: 3, archetype: engage, source: video, reviewed: true}
+  support: {engage: 3, archetype: engage, source: video, reviewed: true, reviewed_arch: true}
 Karthus:
   jungle: {hypercarry: 2, archetype: farmer, reviewed: false}
   adc: {archetype: mage_bot, source: video, reviewed: false}
@@ -82,8 +82,8 @@ def test_shipped_archetypes_are_in_the_vocabulary():
             assert e.archetype in ARCHETYPES[role], (key, role, e.archetype)
             assert e.archetype2 is None or e.archetype2 in ARCHETYPES[role], (key, role, e.archetype2)
             assert e.archetype != e.archetype2, (key, role)
-            # drafted by Claude: the user reviews them. Archetype-only lines the user set themselves are reviewed.
-            assert not e.reviewed or (key, role) in USER_SET, (key, role)
+            # drafted by Claude: the user reviews them. The ones the user set themselves are reviewed.
+            assert not e.reviewed_arch or (key, role) in USER_SET, (key, role)
     assert seen >= 250
 
 
@@ -93,9 +93,10 @@ def test_archetypes_the_user_set():
             **USER_SET}
     for (key, role), pair in want.items():
         assert (raw[key][role].archetype, raw[key][role].archetype2) == pair, (key, role)
-    assert all(raw[k][r].reviewed and not raw[k][r].rated for k, r in USER_SET)
-    # their drafted 0-3 tags on the same line are still to review
-    assert not raw["Rengar"]["top"].reviewed and raw["Rengar"]["top"].rated
+    assert all(raw[k][r].reviewed_arch and not raw[k][r].rated and not raw[k][r].reviewed for k, r in USER_SET)
+    # a guide's or drafted archetype stays to review, and so do the 0-3 tags on the same line
+    assert not raw["Rengar"]["top"].reviewed and not raw["Rengar"]["top"].reviewed_arch
+    assert raw["Rengar"]["top"].rated
 
 
 @pytest.mark.parametrize("line", [

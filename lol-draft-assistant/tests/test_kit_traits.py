@@ -15,7 +15,7 @@ from draftassist.data.tags import (
     update_tag,
 )
 from draftassist.db.models import Champion
-from draftassist.engine.traits import KIT_TAGS, TAGS, KitEntry, KitTraits
+from draftassist.engine.traits import KIT_TAGS, TAGS, ChampionTraits, KitEntry, KitTraits, validate_term
 
 OUR_POOLS = {
     "top": ["Kayle", "Sion", "Jax", "Vayne", "Camille", "Ornn", "Aurora", "KSante"],
@@ -26,7 +26,7 @@ OUR_POOLS = {
 }
 YAML_TEXT = """\
 Shen:
-  top: {engage: 2, archetype: tank, auto_denial: 3, extend_fight: 2, reviewed: true}
+  top: {engage: 2, archetype: tank, auto_denial: 3, extend_fight: 2, reviewed: true, reviewed_kit: true}
 Jax:
   top: {dive: 2, archetype: skirmisher, auto_reliant: 3, auto_denial: 3, reviewed: false}
   jungle: {dive: 2, archetype: skirmisher, reviewed: false}
@@ -66,7 +66,7 @@ def test_kit_tags_load_and_round_trip(tag_file):
     assert raw["Lulu"]["support"].kit == {}
     dump_tags_yaml(raw, tag_file)
     first = tag_file.read_text(encoding="utf-8")
-    assert "top: {engage: 2, archetype: tank, auto_denial: 3, extend_fight: 2, reviewed: true}" in first
+    assert "top: {engage: 2, archetype: tank, auto_denial: 3, extend_fight: 2, reviewed: true, reviewed_kit: true}" in first
     assert "  top: {max_hp_damage: 3, reviewed: false}" in first
     dump_tags_yaml(load_tags_yaml(tag_file), tag_file)
     assert tag_file.read_text(encoding="utf-8") == first
@@ -125,6 +125,52 @@ def test_editing_keeps_the_kit_unless_given(tag_db, tag_file):
         update_tag(tag_db, tag_file, 98, "top", {}, reviewed=True, kit={"wombo": 1})
 
 
+def test_kit_rating_belongs_to_the_champion_not_the_lane(tag_db, tag_file):
+    # User, 4 Nov 2026: editing a champion's kit in one role changes it in all of its roles.
+    sync_tags(tag_db, tag_file)
+    update_tag(tag_db, tag_file, 24, "top", {"dive": 2}, reviewed=False, kit={"auto_reliant": 2}, reviewed_kit=True)
+    raw = load_tags_yaml(tag_file)
+    assert raw["Jax"]["top"].kit == raw["Jax"]["jungle"].kit == {"auto_reliant": 2}
+    assert raw["Jax"]["top"].reviewed_kit and raw["Jax"]["jungle"].reviewed_kit
+    update_tag(tag_db, tag_file, 24, "mid", {}, reviewed=False)  # a new line starts with the champion's kit
+    assert load_tags_yaml(tag_file)["Jax"]["mid"].kit == {"auto_reliant": 2}
+
+
+def test_review_flags_are_independent(tag_db, tag_file):
+    sync_tags(tag_db, tag_file)
+    update_tag(tag_db, tag_file, 24, "top", {"dive": 2}, reviewed=True)
+    e = load_tags_yaml(tag_file)["Jax"]["top"]
+    assert (e.reviewed, e.reviewed_kit, e.reviewed_arch) == (True, False, False)
+    update_tag(tag_db, tag_file, 24, "top", {"dive": 2}, reviewed=False, reviewed_arch=True)
+    e = load_tags_yaml(tag_file)["Jax"]["top"]
+    assert (e.reviewed, e.reviewed_kit, e.reviewed_arch) == (False, False, True)
+    assert load_archetypes(tag_db)[(24, "top")].reviewed and not load_kit(tag_db)[(24, "top")].reviewed
+    assert not load_tags(tag_db)[(24, "top")].reviewed
+    update_tag(tag_db, tag_file, 24, "top", {"dive": 2}, reviewed=False)  # omitted = kept
+    assert load_tags_yaml(tag_file)["Jax"]["top"].reviewed_arch
+
+
+def test_kit_tags_are_known_terms_rules_may_use_but_no_rule_does():
+    from draftassist.data.rules import STYLE_RULES_FILE, TEAM_RULES_FILE
+
+    kit = KitTraits({(1, "top"): KitEntry({"kite": 3}, reviewed=True)})
+    traits = ChampionTraits({}, {}, {}, kit)
+    assert validate_term("kite * not auto_denial") == "kite * not auto_denial"
+    assert traits.intensity(1, "top", "kite") == 1.0
+    assert traits.intensity(2, "top", "kite") is None
+    assert ChampionTraits({}, {}, {}).intensity(1, "top", "kite") is None
+    for f in (STYLE_RULES_FILE, TEAM_RULES_FILE):
+        text = f.read_text(encoding="utf-8")
+        assert not [t for t in KIT_TAGS if t in text], f
+
+
+def test_load_traits_attaches_the_kit(tag_db, tag_file):
+    from draftassist.data.traits import load_traits
+
+    sync_tags(tag_db, tag_file)
+    assert load_traits(tag_db).intensity(98, "top", "auto_denial") == 1.0
+
+
 # ---------- the shipped draft ----------
 def test_shipped_file_keeps_the_same_tag_ratings():
     raw = load_tags_yaml(TAGS_FILE)
@@ -139,7 +185,7 @@ def test_shipped_kit_tags_are_valid_and_unreviewed():
             n += bool(e.kit)
             assert set(e.kit) <= set(KIT_TAGS), (key, role)
             assert all(1 <= v <= 3 for v in e.kit.values()), (key, role)
-            assert not (e.kit and e.reviewed), (key, role)  # drafted by Claude: the user reviews them
+            assert not e.reviewed_kit, (key, role)  # drafted by Claude: the user reviews them
     assert n >= 100
 
 
@@ -147,6 +193,14 @@ def test_our_pools_have_kit_tags():
     raw = load_tags_yaml(TAGS_FILE)
     gaps = [(r, k) for r, keys in OUR_POOLS.items() for k in keys if not raw.get(k, {}).get(r) or not raw[k][r].kit]
     assert gaps == [], f"pool champions without kit tags: {gaps}"
+
+
+def test_locke_from_the_users_ability_list():
+    # blink E, on-hit passive with attack speed W, grey health W, execute R, heavy slows
+    kit = load_tags_yaml(TAGS_FILE)["Locke"]["mid"].kit
+    assert kit["hard_gap_close"] == 3 and kit["auto_reliant"] >= 2 and kit["sustain"] >= 1
+    assert kit["max_hp_damage"] >= 1 and kit["extend_fight"] >= 1 and kit["escape"] >= 2
+    assert load_tags_yaml(TAGS_FILE)["Locke"]["jungle"].kit == kit
 
 
 def test_the_docs_examples_are_seeded():
@@ -183,6 +237,10 @@ def test_tags_api_shows_and_edits_kit_tags(make_services, tag_db, tag_file):
         assert body["kit_tags"] == list(KIT_TAGS)
         rows = {r["champ_id"]: r for r in body["champions"]}
         assert rows[98]["kit"]["top"] == {"auto_denial": 3, "extend_fight": 2}
+        assert rows[98]["kit_reviewed"]["top"] is True and rows[24]["kit_reviewed"]["top"] is False
+        assert body["review_counts"]["kit"] == {"reviewed": 1, "total": 3}
+        assert body["review_counts"]["arch"] == {"reviewed": 0, "total": 3}
+        assert body["review_counts"]["fight"] == {"reviewed": 1, "total": 4}  # Shen, both Jax lines, Lulu
         assert rows[114]["kit"]["top"] == {"max_hp_damage": 3}
         assert "top" not in rows[114]["entries"]
         ok = c.put("/api/tags/98/top", json={"values": {"engage": 2}, "reviewed": True, "kit": {"sustain": 1}})
@@ -191,3 +249,5 @@ def test_tags_api_shows_and_edits_kit_tags(make_services, tag_db, tag_file):
         assert bad.status_code == 422
         keep = c.put("/api/tags/98/top", json={"values": {"engage": 2}, "reviewed": True})
         assert keep.json()["kit"]["top"] == {"sustain": 1}
+        flag = c.put("/api/tags/24/top", json={"values": {"dive": 2}, "reviewed": False, "reviewed_arch": True})
+        assert flag.json()["archetypes"]["top"]["reviewed"] is True and flag.json()["kit_reviewed"]["top"] is False
