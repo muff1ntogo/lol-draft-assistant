@@ -284,6 +284,8 @@ Show what's present and what's missing. It's informational: no automatic changes
 17. **Interactions (Stage 3).** The doc's four plus `sustain × ability_range` (its Vladimir example). An archetype side exists only where the role has that word: `max_hp_damage × tank` in top and jungle; `anti_dive ×` diver in top, assassin in jungle and mid.
 18. **`reviewed: false` on a written prior has no effect on its size (Stage 3).** The priors are already small and the data moves them. The flag is for the user's records.
 
+35. **`behind_value` (user, 4 Nov 2026).** Win rate in games 300+ gold behind at 15 minutes, labelled in exactly those words, with no "behind" verdict. Decision 30 still applies to everything else.
+36. **ADC-support rules (user, 4 Nov 2026).** The main-effect list below was reviewed; the rules stay as they are.
 19. **Kit tags are reviewed (user, 4 Nov 2026).** All of the draft, including Locke and Zaahen.
 20. **Crawl 16.21 first, 16.22 from 5 Nov (user, 4 Nov 2026).** Live stays on 16.22. `data.crawl --patch 16.21 --ids-per-queue 100` adds to the 16.21 slice and refreshes the 16.22 window Live and the fits read.
 
