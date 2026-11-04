@@ -22,7 +22,8 @@ from draftassist.data.settings_store import (
     settings_payload,
 )
 from draftassist.data.synergy_model import fit_synergy_model, load_synergy_model
-from draftassist.data.tags import remove_tag, update_tag
+from draftassist.data.archetypes import ARCHETYPES, resolve_archetype
+from draftassist.data.tags import load_archetypes, remove_tag, update_tag
 from draftassist.data.traits import load_traits
 from draftassist.db.models import Champion
 from draftassist.engine.comp import STYLE_LABELS, STYLES, TIMING_LABELS, badge
@@ -157,9 +158,20 @@ def put_synergy_bracket(request: Request, bracket: str = Body(..., embed=True)) 
     return {"synergy_bracket": bracket, "applied": True}
 
 # ---------- judgement tags (docs/synergy-v2.md, Stage 1b) ----------
-def _tag_row(svc: Services, champ: Champion, traits, prof=None) -> dict:
+def _archetype_rows(champ: Champion, written: dict, tagged_roles) -> dict:
+    """Roles the champion is played or tagged in, plus any with a written archetype (docs/matchup-archetypes.md)."""
+    roles = {*(champ.roles or []), *tagged_roles, *(r for c, r in written if c == champ.champ_id)}
+    out = {}
+    for role in roles:
+        a = resolve_archetype(written, champ.champ_id, role, champ.tags)
+        out[role] = {"archetype": a.primary, "archetype2": a.secondary, "source": a.source,
+                     "reviewed": a.reviewed, "untagged": a.untagged}
+    return out
+
+def _tag_row(svc: Services, champ: Champion, traits, prof=None, written=None) -> dict:
     entries = {role: {"values": dict(e.values), "reviewed": e.reviewed}
                for (c, role), e in traits.tags.items() if c == champ.champ_id}
+    written = written if written is not None else load_archetypes(db_of(svc))
     measured = {role: {k: (None if v is None else round(v, 3)) for k, v in m.items()}
                 for (c, role), m in traits.measured.items() if c == champ.champ_id}
     prof = prof if prof is not None else svc.profiles()
@@ -176,7 +188,7 @@ def _tag_row(svc: Services, champ: Champion, traits, prof=None) -> dict:
     return {"champ_id": champ.champ_id, "champ": svc.catalog.card(champ.champ_id), "key": champ.key,
             "timing": timing, "identity": identity, "name": champ.name, "roles": champ.roles or [],
             "attack_range": champ.attack_range, "entries": entries, "measured": measured,
-            "untagged": not entries}
+            "untagged": not entries, "archetypes": _archetype_rows(champ, written, entries)}
 
 def _tag_one(svc: Services, champ_id: int) -> dict:
     with Session(db_of(svc)) as s:
@@ -192,9 +204,11 @@ def get_tags(request: Request) -> dict:
     with Session(db_of(svc)) as s:
         champs = sorted(s.exec(select(Champion)).all(), key=lambda c: c.name)
     prof = svc.profiles()
-    rows = [_tag_row(svc, c, traits, prof) for c in champs]
+    written = load_archetypes(db_of(svc))
+    rows = [_tag_row(svc, c, traits, prof, written) for c in champs]
     entries = [e for r in rows for e in r["entries"].values()]
     return {"tags": list(TAGS), "roles": list(ROLES), "role_labels": ROLE_LABELS, "styles": STYLE_LABELS,
+            "archetypes": {r: list(words) for r, words in ARCHETYPES.items()},
             "timings": TIMING_LABELS, "version": svc.catalog.patch, "champions": rows,
             "counts": {"champions": len(rows), "entries": len(entries),
                        "reviewed": sum(e["reviewed"] for e in entries),
@@ -202,11 +216,12 @@ def get_tags(request: Request) -> dict:
 
 @router.put("/api/tags/{champ_id}/{role}")
 def put_tag(request: Request, champ_id: int, role: str, values: dict[str, int] = Body(...),
-            reviewed: bool = Body(...)) -> dict:
+            reviewed: bool = Body(...), archetype: str | None = Body(None),
+            archetype2: str | None = Body(None)) -> dict:
     svc: Services = request.app.state.services
     _tag_one(svc, champ_id)
     try:
-        update_tag(db_of(svc), svc.tags_path, champ_id, role, values, reviewed)
+        update_tag(db_of(svc), svc.tags_path, champ_id, role, values, reviewed, archetype, archetype2)
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
     svc.invalidate_synergy()

@@ -311,6 +311,9 @@ class ChampionTag(SQLModel, table=True):
     splitpush: int = 0
     enchanter: int = 0
     hypercarry: int = 0
+    archetype: str | None = None  # docs/matchup-archetypes.md, Stage 1
+    archetype2: str | None = None
+    archetype_source: str | None = None
     reviewed: bool = False
 
 

@@ -13,6 +13,7 @@
   let query = $state('');
   let roleFilter = $state('all');
   let edits = $state({}); // "champ:role" -> values
+  let archEdits = $state({}); // "champ:role" -> {archetype, archetype2}
   let error = $state({});
   let adding = $state({}); // champ id -> role being added
 
@@ -25,7 +26,9 @@
     const out = [];
     for (const c of data.champions) {
       if (q && !c.name.toLowerCase().includes(q)) continue;
-      const roles = Object.keys(c.entries);
+      // tagged roles, plus archetype-only ones (written or edited: no 0-3 ratings yet)
+      const roles = [...new Set([...Object.keys(c.entries),
+        ...Object.keys(c.archetypes).filter((r) => !c.archetypes[r].untagged)])];
       if (adding[c.champ_id] && !roles.includes(adding[c.champ_id])) roles.push(adding[c.champ_id]);
       if (!roles.length) {
         if (filter === 'untagged' || filter === 'all') out.push({ c, role: null, entry: null });
@@ -34,8 +37,9 @@
       for (const role of data.roles.filter((r) => roles.includes(r))) {
         if (roleFilter !== 'all' && role !== roleFilter) continue;
         const entry = c.entries[role] ?? null;
-        if (filter === 'review' && entry?.reviewed) continue;
-        if (filter === 'reviewed' && !entry?.reviewed) continue;
+        const reviewed = entry?.reviewed || c.archetypes[role]?.reviewed;
+        if (filter === 'review' && reviewed) continue;
+        if (filter === 'reviewed' && !reviewed) continue;
         if (filter === 'untagged') continue;
         out.push({ c, role, entry });
       }
@@ -52,8 +56,20 @@
   }
   const changed = (c, role, entry) => {
     const e = edits[key(c, role)];
-    return e && (!entry || data.tags.some((t) => e[t] !== entry.values[t]));
+    return (e && (!entry || data.tags.some((t) => e[t] !== entry.values[t]))) || archEdits[key(c, role)];
   };
+  // archetype and optional secondary, per role (docs/matchup-archetypes.md)
+  function arch(c, role) {
+    const a = c.archetypes[role];
+    const written = a && !a.untagged;
+    return archEdits[key(c, role)] ?? { archetype: written ? a.archetype : '', archetype2: written ? a.archetype2 ?? '' : '' };
+  }
+  function setArch(c, role, field, v) {
+    const next = { ...arch(c, role), [field]: v };
+    if (!next.archetype || next.archetype2 === next.archetype) next.archetype2 = '';
+    archEdits[key(c, role)] = next;
+  }
+  const archLabel = (a) => a.replaceAll('_', ' ');
 
   function replace(res) {
     const i = data.champions.findIndex((x) => x.champ_id === res.champ_id);
@@ -71,10 +87,11 @@
     if (!r.ok) { error[key(c, role)] = res.detail; return; }
     delete error[key(c, role)];
     delete edits[key(c, role)];
+    delete archEdits[key(c, role)];
     delete adding[c.champ_id];
     replace(res);
   }
-  const save = (c, role, entry, reviewed) => send(c, role, 'PUT', { values: values(c, role, entry), reviewed });
+  const save = (c, role, entry, reviewed) => send(c, role, 'PUT', { values: values(c, role, entry), reviewed, ...arch(c, role) });
   const remove = (c, role) => send(c, role, 'DELETE');
   const fmt = (v) => (v == null ? '—' : Math.round(v * 100));
 </script>
@@ -104,25 +121,43 @@
       Unreviewed tags count at half weight in the synergy and team models (labels read them as written); "Looks right"
       marks them reviewed. Untagged champions fall back to their Data Dragon classes. Timing (Early / Late) and the
       measured traits (percentile in the role, 0–100) come from crawled matches and aren't edited here.
+      Archetype is per role, for matchups; a blank one uses the suggestion from the champion's class, shown in the
+      list. "guide" marks one named in a matchup guide.
     </p>
     <table>
-      <thead><tr><th></th><th>Champion</th><th>Role</th>
+      <thead><tr><th></th><th>Champion</th><th>Role</th><th>Archetype</th>
         {#each data.tags as t}<th class="num">{LABELS[t]}</th>{/each}
         <th>Style</th><th>Measured</th><th></th></tr></thead>
       <tbody>
         {#each rows as { c, role, entry } (key(c, role))}
           {@const v = role ? values(c, role, entry) : null}
           {@const m = role ? c.measured[role] : null}
-          <tr class:reviewed={entry?.reviewed}>
+          {@const hasArch = role && c.archetypes[role] && !c.archetypes[role].untagged}
+          {@const isReviewed = !(entry || hasArch) || entry?.reviewed || (hasArch && c.archetypes[role].reviewed)}
+          <tr class:reviewed={(entry || hasArch) && isReviewed}>
             <td><Champ champ={c.champ} size={30} /></td>
             <td><strong>{c.name}</strong>
               {#if c.untagged && !role}<span class="tag untagged">untagged</span>{/if}
-              {#if entry && !entry.reviewed}<span class="tag">draft</span>{/if}</td>
+              {#if !isReviewed}<span class="tag">draft</span>{/if}</td>
             <td>{#if role}{data.role_labels[role]}{:else}
               <select onchange={(ev) => (adding[c.champ_id] = ev.target.value)}>
                 <option value="">Add role…</option>
                 {#each data.roles as r}<option value={r}>{data.role_labels[r]}</option>{/each}
               </select>{/if}</td>
+            <td class="arch">{#if role}
+              {@const a = arch(c, role)}
+              {@const fb = c.archetypes[role]?.untagged ? c.archetypes[role].archetype : null}
+              <select aria-label="Archetype" value={a.archetype} onchange={(ev) => setArch(c, role, 'archetype', ev.target.value)}>
+                <option value="">{fb ? `(${archLabel(fb)})` : '—'}</option>
+                {#each data.archetypes[role] as w}<option value={w}>{archLabel(w)}</option>{/each}
+              </select>
+              <select aria-label="Secondary archetype" value={a.archetype2} disabled={!a.archetype}
+                      onchange={(ev) => setArch(c, role, 'archetype2', ev.target.value)}>
+                <option value="">—</option>
+                {#each data.archetypes[role].filter((w) => w !== a.archetype) as w}<option value={w}>{archLabel(w)}</option>{/each}
+              </select>
+              {#if c.archetypes[role]?.source === 'video'}<span class="tag">guide</span>{/if}
+            {/if}</td>
             {#each data.tags as t}
               <td class="num">{#if role}
                 <select class="lvl l{v[t]}" value={v[t]} onchange={(ev) => setValue(c, role, entry, t, +ev.target.value)}>
@@ -148,16 +183,16 @@
               {#if role}
                 {#if changed(c, role, entry)}
                   <button class="primary" onclick={() => save(c, role, entry, true)}>Save</button>
-                {:else if entry && !entry.reviewed}
+                {:else if !isReviewed}
                   <button onclick={() => save(c, role, entry, true)}>Looks right</button>
                 {/if}
-                {#if entry}<button class="link" onclick={() => remove(c, role)}>Remove</button>{/if}
+                {#if entry || hasArch}<button class="link" onclick={() => remove(c, role)}>Remove</button>{/if}
               {/if}
               {#if error[key(c, role)]}<div class="err">{error[key(c, role)]}</div>{/if}
             </td>
           </tr>
         {:else}
-          <tr><td colspan={data.tags.length + 6} class="muted">Nothing here.</td></tr>
+          <tr><td colspan={data.tags.length + 7} class="muted">Nothing here.</td></tr>
         {/each}
       </tbody>
     </table>
@@ -196,6 +231,9 @@
   .tag.untagged { background: #3d2e0a; color: #e0a640; }
   .measured { white-space: nowrap; color: var(--muted); }
   .stylecol { white-space: nowrap; }
+  .arch { white-space: nowrap; }
+  .arch select { width: 128px; }
+  .arch select:disabled { opacity: 0.45; }
   .tm { margin-left: 6px; font-size: 11px; padding: 0 4px; border-radius: 3px; background: #2d3540; }
   .tm.early { color: #e0a640; }
   .tm.late { color: #79b8ff; }

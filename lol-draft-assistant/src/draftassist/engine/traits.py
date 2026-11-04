@@ -85,6 +85,15 @@ def ranged_long(attack_range: float | None) -> float | None:
 class TagEntry:
     values: Mapping[str, int]  # tag -> 0..3, every tag present
     reviewed: bool = False
+    archetype: str | None = None  # docs/matchup-archetypes.md, Stage 1; written next to the tags in the YAML
+    archetype2: str | None = None
+    source: str | None = None
+
+    @property
+    def rated(self) -> bool:
+        """False for an archetype-only line: it says nothing about the tags, so the models must not read it as
+        "all tags are 0". A line with no archetype and all zeros is a real rating."""
+        return self.archetype is None or any(self.values.values())
 
     @property
     def weight(self) -> float:

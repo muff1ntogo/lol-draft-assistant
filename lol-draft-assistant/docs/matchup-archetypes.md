@@ -170,7 +170,7 @@ blind_safety(champ, player) = comfort(tier) + worst_plausible_counter + behind_v
 **Comfort gates counter picks** ("lock in your main"):
 - A counter-pick suggestion's matchup term is multiplied by a comfort factor: main 1.0, comfortable 0.7, learning 0.2 (configurable).
 - Learning-tier champions can still appear, but never above a main with an even or slightly losing matchup, unless their matchup edge is more than 3pp. Add a reason when this rule decides the order: `"Your main Ahri (even) over Syndra (learning, +2.4pp)"`.
-- **Flag for me:** β (comfort) = 0.3 against α (meta) = 1.5 was set on purpose, but the videos argue comfort should dominate. Run `scripts/ban_audit.py --real` and the simulated draft with β = 0.3 and β = 1.0, show me both pick lists, and let me decide. Don't change the default yourself.
+- β (comfort) stays a manual Settings value (decided 4 Nov 2026): no comparison run, and the default doesn't change.
 
 **Pick order by slot:** early slots favour high `blind_safety`; late slots (when the enemy laner is known) favour the Lane-matchup counter, gated by comfort. This refines `engine/plan.py`'s contest / counter / flex ordering. Keep that formula and add `blind_safety` to the early-priority term.
 
@@ -230,3 +230,23 @@ Show what's present and what's missing. It's informational: no automatic changes
 - Support archetypes beyond the proposed vocabulary, until I've reviewed them (or a support video exists).
 - Item or rune advice per matchup.
 - In-game advice (when to gank, how to convert a lead).
+
+---
+
+## Decisions
+
+1. **Comfort weight (4 Nov 2026, user).** β stays manual in Settings; the Stage 6 comparison is dropped.
+2. **Crawl size.** About 3,100 matches per tier on 16.21 when this started, not the 800 quoted above.
+3. **"Role share above 1%" (Stage 1).** Read as pick rate within the role, plus everything already tagged. Share of the champion's own games gives 539 champion-roles, mostly noise such as Aphelios top; the fallback covers those.
+4. **Archetype-only lines aren't tag ratings (Stage 1).** `load_tags` leaves them out (`TagEntry.rated`), so writing Karthus ADC's archetype can't make him "all tags 0" in the synergy models or change the tag borrowed from his other roles. `load_archetypes` reads archetypes.
+5. **No borrowing across roles (Stage 1).** Unlike tags, an archetype applies to its own role only; the vocabularies differ per role.
+6. **One `reviewed` flag per line (Stage 1).** Archetype and tags on a line are reviewed together.
+7. **A changed archetype loses `source: video` (Stage 1).** It's no longer the guide's. Editing only the tags keeps it.
+8. **New releases (Stage 1).** Locke mid and Zaahen top stay on the fallback, as with the tags: Claude doesn't know their kits.
+
+## Built
+
+### Stage 1 (4 Nov 2026)
+- `data/archetypes.py`: `ARCHETYPES`, `FALLBACK`, `Archetype` (`weight` is 0.5 until reviewed, for Stage 3), `resolve_archetype`, `pool_gaps`.
+- `data/champion_tags.yaml`: 255 lines (247 rated, unchanged, plus 8 archetype-only), 75 marked `source: video`. Written archetypes cover 90–93% of games per role on 16.21; all 808 champion-roles resolve.
+- `champion_tags` gains `archetype`, `archetype2`, `archetype_source`. Tags page: two dropdowns per row, a "guide" chip, the class suggestion shown in brackets when blank. `PUT /api/tags` takes optional `archetype` and `archetype2` (omitted keeps, "" clears).
