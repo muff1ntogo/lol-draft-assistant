@@ -2,8 +2,9 @@
 
 Stats per bracket blend our crawl with the OP.GG bootstrap (all-tier): OP.GG is the prior each
 champion starts from, and the bracket's own games take over as they accumulate (bracket_stats).
-Matchups come from the crawl only; so does role-aware synergy (data/synergy.py, pooled over every
-bracket by default) and the damage profile. If neither source exists, everything falls back to
+Matchups come from the crawl, shrunk towards what strength, archetypes and kits predict once a model is fitted
+(data/matchup_model.py); so does role-aware synergy (data/synergy.py, pooled over every bracket by default) and the
+damage profile. If neither source exists, everything falls back to
 synthetic data over the real champion ids.
 
 Our team comes from imported pools (data/pools.py); before any import, each role gets placeholder
@@ -21,6 +22,7 @@ from sqlmodel import Session, select
 from draftassist.data.aggregate import PAIR_K, ROLE_K, shrink
 from draftassist.data.crawler import brackets_in_use
 from draftassist.data.ddragon import BASE_URL
+from draftassist.data.matchup_model import STRENGTH_K, load_matchup_model, smoothed_matchups
 from draftassist.data.pools import load_team
 from draftassist.data.profiles import load_profiles
 from draftassist.db.models import (
@@ -30,6 +32,7 @@ from draftassist.db.models import (
     ChampRoleStats,
     Matchup,
 )
+from draftassist.engine.mathx import logit
 from draftassist.engine.model import ROLES, BracketStats, EngineData, OurTeam, RoleStat
 from draftassist.engine.simulate import TEAM_BRACKETS, synthetic_data
 
@@ -96,13 +99,21 @@ def load_bootstrap(s: Session, patch: str) -> Bootstrap | None:
                      {(r.champ_id, r.role): r.pick_rate for r in rows}, {r.champ_id: r.ban_rate for r in rows})
 
 
-def bracket_stats(s: Session, patch: str, bracket: str, boot: Bootstrap | None) -> tuple[BracketStats | None, int]:
+def strength_win_rate(wins: float, games: float, prior: float) -> float:
+    """A champion's strength in the matchup prior: towards OP.GG's rate (else 50%) with far more weight than the
+    engine's role win rate gives it (data/matchup_model.py, STRENGTH_K)."""
+    return (wins + STRENGTH_K * prior) / (games + STRENGTH_K)
+
+
+def bracket_stats(s: Session, patch: str, bracket: str, boot: Bootstrap | None,
+                  model=None) -> tuple[BracketStats | None, int]:
     """One bracket's stats: our crawled games blended with the OP.GG prior. Returns (stats, crawled
     matches); stats is None when there is neither crawl data nor a bootstrap.
 
     win rate  = (wins + k * prior) / (games + k),   k = 50, prior = OP.GG win rate (else 50%)
     pick/ban  = (count + M * prior) / (matches + M), M = 1,000 matches
-    matchups come from the crawl only, shrunk towards 50% (k = 200)."""
+    matchups come from the crawl; with a fitted `model` they shrink towards its prediction (k_r per role), without
+    one towards 50% (k = 200)."""
     total = s.get(BracketTotal, (patch, bracket))
     n = total.matches if total else 0
     if n == 0 and boot is None:
@@ -112,6 +123,7 @@ def bracket_stats(s: Session, patch: str, bracket: str, boot: Bootstrap | None) 
     keys = set(crawl) | (set(boot.win_rate) | set(boot.pick_rate) if boot else set())
 
     meta: dict[int, dict[str, RoleStat]] = {}
+    strength: dict[tuple[int, str], float] = {}
     crawled_bans: dict[int, int] = {}
     for c, r in keys:
         row = crawl.get((c, r))
@@ -120,6 +132,7 @@ def bracket_stats(s: Session, patch: str, bracket: str, boot: Bootstrap | None) 
             crawled_bans[c] = row.bans
         prior_wr = boot.win_rate.get((c, r), 0.5) if boot else 0.5
         win_rate = (wins + ROLE_PRIOR_GAMES * prior_wr) / (games + ROLE_PRIOR_GAMES)
+        strength[(c, r)] = logit(strength_win_rate(wins, games, prior_wr))
         if boot:
             pick_rate = (picks + RATE_PRIOR_MATCHES * boot.pick_rate.get((c, r), 0.0)) / (n + RATE_PRIOR_MATCHES)
         else:
@@ -132,8 +145,11 @@ def bracket_stats(s: Session, patch: str, bracket: str, boot: Bootstrap | None) 
             bans[c] = (crawled_bans.get(c, 0) + RATE_PRIOR_MATCHES * boot.ban_rate.get(c, 0.0)) / (n + RATE_PRIOR_MATCHES)
         else:
             bans[c] = crawled_bans.get(c, 0) / n
-    matchups = {(m.role, m.champ_a, m.champ_b): shrink(m.wins_a, m.games, PAIR_K)
-                for m in s.exec(select(Matchup).where(Matchup.patch == patch, Matchup.bracket == bracket))}
+    rows = s.exec(select(Matchup).where(Matchup.patch == patch, Matchup.bracket == bracket)).all()
+    if model is not None:
+        matchups, games = smoothed_matchups(model, meta, rows, strength)
+        return BracketStats(meta, matchups, bans, True, games, {r: model.k(r) for r in ROLES}, strength), n
+    matchups = {(m.role, m.champ_a, m.champ_b): shrink(m.wins_a, m.games, PAIR_K) for m in rows}
     return BracketStats(meta, matchups, bans), n
 
 
@@ -161,7 +177,8 @@ def stats_version(db: Engine) -> tuple:
     return totals, tuple(boot), tuple(pools), players
 
 
-def load_engine_inputs(db: Engine) -> EngineInputs:
+def load_engine_inputs(db: Engine, use_matchup_model: bool = True) -> EngineInputs:
+    """`use_matchup_model=False`: the old 50% shrinkage, to compare (scripts/ban_audit.py)."""
     catalog = load_catalog(db)
     names = {c: name for c, (_, name) in catalog.champs.items()}
     if not names:
@@ -169,13 +186,14 @@ def load_engine_inputs(db: Engine) -> EngineInputs:
     patch = ".".join(catalog.patch.split(".")[:2]) if catalog.patch else None
 
     if patch:
+        model = load_matchup_model(db) if use_matchup_model else None
         with Session(db) as s:
             boot = load_bootstrap(s, patch)
             needed = brackets_in_use(db)
             brackets: dict[str, BracketStats] = {}
             crawled: dict[str, int] = {}
             for b in needed:
-                stats, crawled[b] = bracket_stats(s, patch, b, boot)
+                stats, crawled[b] = bracket_stats(s, patch, b, boot, model)
                 if stats is not None:
                     brackets[b] = stats
         if len(brackets) == len(needed):

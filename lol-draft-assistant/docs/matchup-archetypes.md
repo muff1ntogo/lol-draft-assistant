@@ -277,9 +277,39 @@ Show what's present and what's missing. It's informational: no automatic changes
 10. **Patch 16.22 (user, 4 Nov 2026).** EUW moved to 16.22 on 4 Nov. Live uses the new patch (OP.GG blended with the crawl as it grows). Everything stable across patches pools the crawled patches with decay (`data/synergy.crawl_weights`): pairs, traits, Style and Team fits, damage and timing. Stage 3's E, K and `k_r` should use the same window; champion strength in its prior comes from the current patch.
 11. **Kit tags are a separate tuple (Stage 2).** The doc says "added to `TAGS` and `KNOWN_TERMS`". They're in `KNOWN_TERMS` and readable through `ChampionTraits.intensity`, so rules may use them, but stay in `KIT_TAGS` rather than `TAGS`: `TAGS` also drives the synergy role averages, the table's columns and the Fight tags page. Same intent, and no existing rule changes (tested).
 12. **A kit rating belongs to the champion (user, 4 Nov 2026).** `update_tag` writes `kit` and `reviewed_kit` to all of a champion's lines, and a new line starts with its kit. Unreviewed ratings blend halfway towards the role's average.
-13. **Kit draft scope (Stage 2).** Pools, top 30 per role and the doc's named examples: 142 champions, 211 lines. Locke's ratings come from the ability list the user gave (reviewed_kit stays false: the numbers are Claude's reading of it). Zaahen has none yet.
+13. **Kit draft scope (Stage 2).** Pools, top 30 per role and the doc's named examples: 143 champions, 212 lines. Locke's and Zaahen's ratings come from the ability lists the user gave (reviewed_kit stays false: the numbers are Claude's reading of them).
+14. **Strength isn't counted twice (Stage 3).** The prior includes both champions' strength, but L already adds each champion's strength on its own. `BracketStats.matchup_edge` is the matchup minus that strength: P(win), threats, ban Comp, counter risk, plan counters and "counters their X" use it. This departs from "callers don't change". Lane ban `Resp` keeps the whole win rate, as `ban-score.md` defines it. Without a fitted model everything behaves as before.
+15. **Strength in the prior shrinks at k = 1,000, not 50 (Stage 3).** Tested on held-out lanes, 16.21, 18.8k matches, 5 folds; skill = (coin flip − log-loss) × 1000, summed over roles: k = 50 −2.75, 200 +0.55, 500 +1.86, 1000 +2.15, 2000 +1.89. Towards OP.GG's rate in the provider, 50% in the fit. The engine's own role win rates are unchanged.
+16. **Fit data (Stage 3).** Crawled matches only: we store OP.GG's role stats, not its matchups. E, K and `k_r` pool patches and brackets. A pair's own wins and games are the current patch and the player's bracket only, so early in a patch most matchups are archetype and kit estimates.
+17. **Interactions (Stage 3).** The doc's four plus `sustain × ability_range` (its Vladimir example). An archetype side exists only where the role has that word: `max_hp_damage × tank` in top and jungle; `anti_dive ×` diver in top, assassin in jungle and mid.
+18. **`reviewed: false` on a written prior has no effect on its size (Stage 3).** The priors are already small and the data moves them. The flag is for the user's records.
+
+## Findings
+
+**Stage 3, on 16.21 (held out, mean log-loss per lane; a coin flip is 0.6931):**
+
+| Role | Old (k = 200) | Strength | + E, K | + pair data |
+| --- | --- | --- | --- | --- |
+| Top | 0.6931 | 0.6931 | 0.6931 | 0.6930 |
+| Jungle | 0.6929 | 0.6920 | 0.6918 | 0.6917 |
+| Mid | 0.6934 | 0.6928 | 0.6927 | 0.6929 |
+| ADC | 0.6935 | 0.6927 | 0.6927 | 0.6930 |
+| Support | 0.6929 | 0.6930 | 0.6930 | 0.6929 |
+
+- The model beats the old formula, mostly through strength. E and K add little. These gains are small because one lane explains little of who wins a game.
+- **E only sees what strength can't explain.** A one-way effect (ranged beats everyone) is indistinguishable from "ranged is stronger", so only cycles show up.
+- **`k_r` is 400 (the ceiling) in every role.** On this data the spread of champion pairs around the prediction can't be told from noise, so the doc's expectation of a smaller `k_r` for top isn't visible yet. Re-check as the crawl grows.
+- Unreviewed labels blend towards the role's average, so reviewing them should sharpen E and K. Not measured.
 
 ## Built
+
+### Stage 3 (4 Nov 2026)
+- `engine/matchup_model.py`: `RoleFeatures`, `fit_role` (ridge on the residual, centred on the written priors), `empirical_k`, `smooth`. `data/matchup_model.py`: `fit_matchup_model` (run by every aggregation, stored in `matchup_fits`), `load_matchup_model`, `smoothed_matchups`, `format_matchup_report` (printed by `data.coverage`). `data/archetype_matchups.yaml`: the guides' directions.
+- `BracketStats`: `matchup_edge`, `matchup_confidence` (games / (games + k_r)), and every pair of real picks has an estimate. `load_engine_inputs(use_matchup_model=False)` gives the old formula.
+- `scripts/ban_audit.py --real --matchups`: before and after.
+- Crawler: lists games from a day before the patch's earliest stored game, not 14 days, so it stops paying to fetch old-patch matches after a new patch.
+- Measured on real data: fit 0.08 s, loading inputs 0.9 s, worst turn 16 ms.
+- Test 2's "within 0.5pp" holds at `k_r` = 200 for 2 wins in 3. The bound depends on `k_r`: 3 straight wins at 50 is 2.8pp.
 
 ### Stage 2 (4 Nov 2026)
 - `engine/traits.py`: `KIT_TAGS`, `KitEntry`, `KitTraits.intensity` (for Stage 3's interaction features). `data/tags.py`: `load_kit`; `update_tag` takes `kit` (None keeps, otherwise replaces). `champion_tags.kit` is a JSON column.

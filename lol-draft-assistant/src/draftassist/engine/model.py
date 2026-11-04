@@ -34,6 +34,11 @@ class BracketStats:
     meta: Mapping[int, Mapping[str, RoleStat]]  # champ -> role -> stats
     matchups: Mapping[tuple[str, int, int], float] = field(default_factory=dict)  # (role, a, b) -> a's lane WR
     ban_rates: Mapping[int, float] = field(default_factory=dict)  # champ -> share of games banned
+    # docs/matchup-archetypes.md, Stage 3: `matchups` shrink towards a prior that includes both champions' strength
+    strength_in_matchups: bool = False
+    matchup_games: Mapping[tuple[str, int, int], int] = field(default_factory=dict)  # (role, a, b), a < b
+    matchup_k: Mapping[str, float] = field(default_factory=dict)  # role -> k_r
+    matchup_strength: Mapping[tuple[int, str], float] = field(default_factory=dict)  # (champ, role) -> log-odds in the prior
 
     def role_stat(self, champ: int, role: str) -> RoleStat | None:
         return self.meta.get(champ, {}).get(role)
@@ -48,6 +53,28 @@ class BracketStats:
     def matchup_wr(self, role: str, a: int, b: int) -> float:
         wr = self.matchup_wr_or_none(role, a, b)
         return 0.5 if wr is None else wr
+
+    def matchup_edge(self, role: str, a: int, b: int) -> float:
+        """How much a beats b beyond their strength, in log-odds. P(win), threats and counter risk add it to each
+        champion's own strength: counting the whole matchup there would count strength twice."""
+        wr = self.matchup_wr_or_none(role, a, b)
+        if wr is None:
+            return 0.0
+        edge = logit(wr)
+        if self.strength_in_matchups:
+            edge -= self._strength(a, role) - self._strength(b, role)
+        return edge
+
+    def _strength(self, champ: int, role: str) -> float:
+        if (s := self.matchup_strength.get((champ, role))) is not None:
+            return s
+        stat = self.role_stat(champ, role)
+        return logit(stat.win_rate) if stat else 0.0
+
+    def matchup_confidence(self, role: str, a: int, b: int) -> float:
+        """games / (games + k_r): 0 = purely an archetype and kit estimate, near 1 = measured."""
+        games = self.matchup_games.get((role, min(a, b), max(a, b)), 0)
+        return games / (games + self.matchup_k.get(role, 200.0)) if games else 0.0
 
 
 @dataclass(frozen=True)

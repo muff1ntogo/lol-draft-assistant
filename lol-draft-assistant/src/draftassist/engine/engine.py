@@ -280,7 +280,7 @@ class DraftEngine:
         lane = 0.0
         for c, r in our_roles.items():
             if (opp := their_by_role.get(r)) is not None:
-                lane += logit(self._our_bracket(r).matchup_wr(r, c, opp))
+                lane += self._our_bracket(r).matchup_edge(r, c, opp)
         if self.data.synergy_v2 is not None:
             syn_us, syn_them, team = syn if syn is not None else self._syn_v2(ours, our_roles, theirs, their_roles)
             return Terms(meta_us, comfort, meta_them, syn_us, syn_them, lane, 0.0, team)
@@ -541,15 +541,15 @@ class DraftEngine:
             threat = sum(prob * logit(stat.win_rate) for r, prob in rp.items()
                          if (stat := enemy.role_stat(c, r)) is not None)
             matchup = cfg.lane_ban.pp_to_logodds * team_lane.get(c, 0.0)
-            comp, comp_target, comp_wr = 0.0, None, 0.5
+            comp, comp_target, comp_wr, comp_best = 0.0, None, 0.5, 0.0
             for o, r in locked:
                 wr = self._our_bracket(r).matchup_wr_or_none(r, c, o)
                 if wr is None:
                     continue
-                edge = (1 - filled[r]) * logit(wr)
+                edge = (1 - filled[r]) * self._our_bracket(r).matchup_edge(r, c, o)
                 comp += edge
-                if comp_target is None or edge > (1 - filled[r]) * logit(comp_wr):
-                    comp_target, comp_wr = o, wr
+                if comp_target is None or edge > comp_best:
+                    comp_target, comp_wr, comp_best = o, wr, edge
             comp_syn, comp_partner = 0.0, None
             if syn_on and p > 0:
                 # synergy X would add to their locked picks, in X's likely roles
@@ -759,7 +759,7 @@ class DraftEngine:
             if enemy_left and r_c in enemy_open:
                 lane = self._our_bracket(r_c)
                 for e in enemy_cands[r_c]:
-                    if e != c and (x := logit(lane.matchup_wr(r_c, e, c))) > risk:
+                    if e != c and (x := lane.matchup_edge(r_c, e, c)) > risk:
                         risk, counter = x, e
                 risk *= min(1.0, enemy_left / cfg.risk_horizon)
 
@@ -875,7 +875,7 @@ class DraftEngine:
             meta = self._m(c, r, enemy)
             opp = our_by_role.get(r)
             lane_wr = 1 - self._our_bracket(r).matchup_wr(r, opp, c) if opp is not None else 0.5
-            lane = logit(lane_wr)
+            lane = -self._our_bracket(r).matchup_edge(r, opp, c) if opp is not None else 0.0
             partners = [(self.pair_synergy(r, c, ro, o)[0], o) for o, ro in ev.their_roles.items() if o != c]
             best_syn = max(partners, default=(0.0, None))
             syn = sum(s for s, _ in partners) / 2
@@ -918,7 +918,7 @@ class DraftEngine:
             terms.append((_LO_TO_PROB * self.cfg.alpha * logit(stat.win_rate), f"{stat.win_rate:.0%} WR in {bracket_name.title()}"))
         opp = next((o for o, r in their_roles.items() if r == role), None)
         if opp is not None:
-            terms.append((_LO_TO_PROB * logit(bracket.matchup_wr(role, c, opp)), f"counters their {self.data.name(opp)}"))
+            terms.append((_LO_TO_PROB * bracket.matchup_edge(role, c, opp), f"counters their {self.data.name(opp)}"))
         for o, r_o in our_roles.items():
             if o != c:
                 syn = self.pair_synergy(role, c, r_o, o)[0]

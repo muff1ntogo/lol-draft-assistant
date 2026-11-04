@@ -320,6 +320,19 @@ class ChampionTag(SQLModel, table=True):
     reviewed_arch: bool = False
 
 
+class MatchupFit(SQLModel, table=True):
+    """Fitted matchup model (docs/matchup-archetypes.md, Stage 3), refitted by aggregation. param: `E:a>b` or `K:g*h`
+    (log-odds, pooled over patches and brackets) or `k_r` (the role's shrinkage in games)."""
+    __tablename__ = "matchup_fits"
+
+    window: str = Field(primary_key=True)
+    role: str = Field(primary_key=True)
+    param: str = Field(primary_key=True)
+    value: float = 0.0
+    prior_pp: float | None = None
+    support: int = 0  # weighted games the role was fitted on
+
+
 class SynergyFit(SQLModel, table=True):
     """Fitted synergy v2 rules (docs/synergy-v2.md, Stage 2), refitted by aggregation and on prior edits.
     model: style | team (coefficients, log-odds, pooled over brackets) | team_side (blue-side intercept;

@@ -92,7 +92,21 @@ def aggregate(db: Engine, patch: str) -> dict[str, int]:
                          {"roles": json.dumps(keep), "champ": champ})
         s.commit()
     _fit_synergy(db, patch)
+    _fit_matchups(db, patch)
     return totals
+
+
+def _fit_matchups(db: Engine, patch: str) -> None:
+    """Refit the matchup model (docs/matchup-archetypes.md, Stage 3). As with the synergy fits, a broken file must not
+    stop the stats from refreshing."""
+    import logging
+
+    from draftassist.data.matchup_model import fit_matchup_model
+
+    try:
+        fit_matchup_model(db, patch)
+    except (OSError, ValueError, ArithmeticError):
+        logging.getLogger(__name__).exception("matchup fit failed; keeping the previous fit")
 
 
 def _fit_synergy(db: Engine, patch: str) -> None:

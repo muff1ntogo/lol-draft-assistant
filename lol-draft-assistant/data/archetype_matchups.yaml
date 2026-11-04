@@ -1,0 +1,61 @@
+# Who beats whom, by archetype (docs/matchup-archetypes.md, Stage 3). Directions only, from the TheRealRaven matchup
+# guides: every effect size comes from our data. These are starting points the fit moves away from.
+#
+# row, col: archetypes of that role (data/archetypes.py). dir: + = row favoured, = = even.
+# target: game (win rate), lane (laning phase, used from Stage 4) or both.
+# slight: true = half size ("slightly", ">=" in the guides).
+# size_pp: the role's prior size (default 0.5). Support has no guide yet.
+
+top:
+  priors:
+    - {row: juggernaut, col: tank, dir: "+", target: game, source: video, reviewed: false}
+    - {row: ranged, col: juggernaut, dir: "+", target: game, source: video, reviewed: false}
+    - {row: diver, col: ranged, dir: "+", target: game, source: video, reviewed: false}
+    - {row: tank, col: diver, dir: "+", target: game, source: video, reviewed: false}
+    - {row: tank, col: ranged, dir: "+", target: game, source: video, reviewed: false}
+    - {row: skirmisher, col: tank, dir: "+", target: game, source: video, reviewed: false}
+    # "a tank never really wins lane, but that's not their job"
+    - {row: juggernaut, col: tank, dir: "+", target: lane, source: video, reviewed: false}
+    - {row: diver, col: tank, dir: "+", target: lane, source: video, reviewed: false}
+    - {row: skirmisher, col: tank, dir: "+", target: lane, source: video, reviewed: false}
+    - {row: ranged, col: tank, dir: "+", target: lane, source: video, reviewed: false}
+
+mid:
+  priors:  # each archetype beats two, as a cycle
+    - {row: artillery, col: control_mage, dir: "+", target: both, source: video, reviewed: false}
+    - {row: artillery, col: battle_mage, dir: "+", target: both, source: video, reviewed: false}
+    - {row: control_mage, col: battle_mage, dir: "+", target: both, source: video, reviewed: false}
+    - {row: control_mage, col: skirmisher, dir: "+", target: both, source: video, reviewed: false}
+    - {row: battle_mage, col: skirmisher, dir: "+", target: both, source: video, reviewed: false}
+    - {row: battle_mage, col: assassin, dir: "+", target: both, source: video, reviewed: false}
+    - {row: skirmisher, col: assassin, dir: "+", target: both, source: video, reviewed: false}
+    - {row: skirmisher, col: artillery, dir: "+", target: both, source: video, reviewed: false}
+    - {row: assassin, col: artillery, dir: "+", target: both, source: video, reviewed: false}
+    - {row: assassin, col: control_mage, dir: "+", target: both, source: video, reviewed: false}
+
+adc:
+  priors:
+    - {row: lane_bully, col: scaler, dir: "+", target: lane, source: video, reviewed: false}
+    - {row: lane_bully, col: skirmisher, dir: "+", target: lane, source: video, reviewed: false}
+    - {row: poke, col: scaler, dir: "+", target: lane, source: video, reviewed: false}
+    - {row: poke, col: skirmisher, dir: "+", target: lane, source: video, reviewed: false}
+    - {row: poke, col: lane_bully, dir: "+", slight: true, target: lane, source: video, reviewed: false}
+    - {row: scaler, col: skirmisher, dir: "=", target: lane, source: video, reviewed: false}
+    - {row: mage_bot, col: scaler, dir: "+", target: lane, source: video, reviewed: false}
+    - {row: mage_bot, col: lane_bully, dir: "+", target: lane, source: video, reviewed: false}
+    - {row: mage_bot, col: poke, dir: "+", target: lane, source: video, reviewed: false}
+    - {row: mage_bot, col: skirmisher, dir: "+", target: lane, source: video, reviewed: false}
+    # Jinx is behind at 15 minutes either way, yet wins as often
+    - {row: scaler, col: lane_bully, dir: "=", target: game, source: video, reviewed: false}
+
+jungle:
+  size_pp: 0.25  # "the least important" matchups
+  priors:
+    - {row: tempo_ganker, col: farmer, dir: "+", target: game, source: video, reviewed: false}
+    - {row: tempo_ganker, col: tank, dir: "+", target: game, source: video, reviewed: false}
+    - {row: skirmisher, col: farmer, dir: "+", target: game, source: video, reviewed: false}
+    - {row: skirmisher, col: assassin, dir: "+", target: game, source: video, reviewed: false}
+    - {row: skirmisher, col: tank, dir: "+", target: game, source: video, reviewed: false}
+    - {row: tempo_ganker, col: skirmisher, dir: "+", slight: true, target: game, source: video, reviewed: false}
+    - {row: assassin, col: farmer, dir: "+", target: game, source: video, reviewed: false}
+    - {row: assassin, col: tank, dir: "+", target: game, source: video, reviewed: false}  # "tank < most"

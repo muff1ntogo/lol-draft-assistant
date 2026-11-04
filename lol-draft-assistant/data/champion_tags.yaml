@@ -418,7 +418,7 @@ Yunara:
 Yuumi:
   support: {enchanter: 3, archetype: enchanter, anti_dive: 1, reviewed: false}
 Zaahen:
-  top: {archetype: skirmisher, archetype2: juggernaut, reviewed: false, reviewed_arch: true}
+  top: {archetype: skirmisher, archetype2: juggernaut, auto_reliant: 2, max_hp_damage: 2, hard_gap_close: 2, escape: 1, extend_fight: 3, sustain: 3, ability_range: 1, reviewed: false, reviewed_arch: true}
 Zac:
   top: {engage: 3, dive: 2, archetype: tank, max_hp_damage: 1, hard_gap_close: 3, extend_fight: 1, sustain: 2, reviewed: false}
   jungle: {engage: 3, dive: 2, archetype: tank, source: video, max_hp_damage: 1, hard_gap_close: 3, extend_fight: 1, sustain: 2, reviewed: false}

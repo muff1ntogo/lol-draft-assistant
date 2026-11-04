@@ -323,7 +323,7 @@ def _counter(c: PlanContext, champ: int, role: str) -> tuple[int | None, float]:
     for e in eng.champion_ids:
         if e == champ or e in c.unavailable or e in c.plan_champs or not enemy.role_stat(e, role):
             continue
-        if (x := logit(lane.matchup_wr(role, e, champ))) > best:
+        if (x := lane.matchup_edge(role, e, champ)) > best:
             best, who = x, e
     return who, best
 

@@ -9,6 +9,15 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
+
+import yaml
+
+from draftassist.config import PROJECT_ROOT
+
+PRIORS_FILE = PROJECT_ROOT / "data" / "archetype_matchups.yaml"
+DEFAULT_PRIOR_PP = 0.5
+TARGETS = {"lane": ("lane",), "game": ("game",), "both": ("lane", "game")}
 
 ARCHETYPES: dict[str, tuple[str, ...]] = {
     "top": ("juggernaut", "diver", "skirmisher", "tank", "ranged"),
@@ -64,6 +73,51 @@ def validate_archetypes(role: str, primary: str | None, secondary: str | None, s
             raise ValueError(f"{where}: archetype2 repeats the archetype")
     if source is not None and source not in SOURCES:
         raise ValueError(f"{where}: unknown source {source!r}")
+
+
+def load_archetype_priors(path: Path = PRIORS_FILE) -> dict[str, list[dict]]:
+    """Who beats whom, as written (data/archetype_matchups.yaml): role -> entries, each with its size in pp."""
+    if not path.is_file():
+        return {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    out: dict[str, list[dict]] = {}
+    for role, body in data.items():
+        words = ARCHETYPES.get(role)
+        if words is None:
+            raise ValueError(f"{path.name}: unknown role {role!r}")
+        size = float(body.get("size_pp", DEFAULT_PRIOR_PP))
+        seen: dict[tuple[str, frozenset], float] = {}
+        entries = []
+        for e in body.get("priors") or []:
+            row, col, direction, target = e.get("row"), e.get("col"), e.get("dir"), e.get("target")
+            where = f"{path.name}: {role} {row} v {col}"
+            if row not in words or col not in words or row == col:
+                raise ValueError(f"{where}: needs two different {role} archetypes")
+            if direction not in ("+", "="):
+                raise ValueError(f"{where}: dir must be + or =, got {direction!r}")
+            if target not in TARGETS:
+                raise ValueError(f"{where}: target must be lane, game or both, got {target!r}")
+            pp = 0.0 if direction == "=" else size * (0.5 if e.get("slight") else 1.0)
+            for t in TARGETS[target]:
+                key = (t, frozenset((row, col)))
+                signed = pp if row < col else -pp  # the same pair written twice must agree, either way round
+                if key in seen and seen[key] != signed:
+                    raise ValueError(f"{where}: contradicts an earlier {t} entry")
+                seen[key] = signed
+            entries.append({"row": row, "col": col, "pp": pp, "target": target,
+                            "source": e.get("source"), "reviewed": bool(e.get("reviewed", False))})
+        out[role] = entries
+    return out
+
+
+def priors_for(priors: Mapping[str, list[dict]], role: str, target: str) -> dict[tuple[str, str], float]:
+    """(a, b) -> pp favouring a, in both directions, for one target (lane or game)."""
+    out: dict[tuple[str, str], float] = {}
+    for e in priors.get(role, []):
+        if target in TARGETS[e["target"]]:
+            out[(e["row"], e["col"])] = e["pp"]
+            out[(e["col"], e["row"])] = -e["pp"]
+    return out
 
 
 def fallback_archetype(role: str, classes: Sequence[str] | None) -> str:

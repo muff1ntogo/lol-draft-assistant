@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy import Engine
-from sqlmodel import Session, col, select
+from sqlmodel import Session, col, func, select
 
 from draftassist.data.riot import RiotClient
 from draftassist.data.traits_map import parse_match_traits
@@ -35,6 +35,7 @@ QUEUES = (420, 440)  # ranked Solo/Duo, ranked Flex
 POSITIONS = {"TOP": "top", "JUNGLE": "jungle", "MIDDLE": "mid", "BOTTOM": "adc", "UTILITY": "support"}
 MIN_DURATION_S = 300  # shorter games are remakes
 LOOKBACK_S = 14 * 86_400
+PATCH_START_SLACK_S = 86_400  # list games from a day before the patch's earliest stored game
 
 
 def brackets_in_use(db: Engine, enemy_bracket: str = "gold") -> tuple[str, ...]:
@@ -153,7 +154,7 @@ class Crawler:
         """Crawl until max_matches are stored, the deadline (epoch seconds) passes, or seeds run out.
         `checkpoint(stats)` is called every `checkpoint_every_s` seconds (e.g. to aggregate)."""
         stats = CrawlStats(stored=dict.fromkeys(self.brackets, 0))
-        start_time = int(self._clock() - LOOKBACK_S)
+        start_time = self._start_time()
 
         def done() -> bool:
             return (max_matches is not None and stats.total_stored >= max_matches) or (
@@ -176,6 +177,14 @@ class Crawler:
                 checkpoint(stats)
                 last_checkpoint = self._clock()
         return stats
+
+    def _start_time(self) -> int:
+        """How far back to list games. Older games are on another patch: fetching one to find that out costs a request,
+        which after a new patch is most of the budget. So stop at the patch's earliest stored game, less a day."""
+        with Session(self.db) as s:
+            first = s.exec(select(func.min(CrawledMatch.game_start_ms)).where(CrawledMatch.patch == self.patch)).one()
+        lookback = int(self._clock() - LOOKBACK_S)
+        return lookback if not first else max(lookback, first // 1000 - PATCH_START_SLACK_S)
 
     def _crawl_player(self, player: SeedPlayer, bracket: str, start_time: int, ids_per_queue: int,
                       stats: CrawlStats, done) -> None:

@@ -97,11 +97,14 @@ def format_report(db: Engine, patch: str, report: dict[str, BracketCoverage], to
 
 def main() -> None:
     from draftassist.config import load_settings
+    from draftassist.data.matchup_model import format_matchup_report
     from draftassist.db.session import init_db
 
     db = init_db(load_settings().db_path)
     patch = current_patch(db)
     print(format_report(db, patch, coverage(db, patch)))
+    print()
+    print(format_matchup_report(db))
 
 
 if __name__ == "__main__":

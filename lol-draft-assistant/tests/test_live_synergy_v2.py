@@ -1,5 +1,6 @@
 """Synergy v2 in Live scoring: the engine's synergy term is Stat + Style (pairs) and Team vs enemy, replacing
 the v1 Stat-only term and the 85% damage penalty. See docs/synergy-v2.md ("Live scoring")."""
+import gc
 import random
 import time
 from dataclasses import replace
@@ -121,7 +122,17 @@ def live(st):
     return LiveDraft(st, (), (), "BAN_PICK", 20.0, None, None, 1)
 
 
-def test_live_budgets_with_synergy_v2_on_full_size_data():
+@pytest.fixture
+def no_gc():
+    """Time the engine, not a collection over everything earlier tests left behind: in a full run the same turn
+    measured 230 ms against 18 ms alone, all of it one garbage collection (4 Nov 2026)."""
+    gc.collect()
+    gc.disable()
+    yield
+    gc.enable()
+
+
+def test_live_budgets_with_synergy_v2_on_full_size_data(no_gc):
     eng, full, team = full_engine()
     catalog = ChampionCatalog("16.21.1", {c: (str(c), str(c)) for c in full.names})
     rng = random.Random(5)

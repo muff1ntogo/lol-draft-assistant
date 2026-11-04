@@ -280,7 +280,7 @@
 </main>
 
 <style>
-  .page { max-width: 1500px; margin: 0 auto; padding: 20px 28px 60px; }
+  .page { max-width: 1700px; margin: 0 auto; padding: 20px 28px 60px; }
   h1 { font-size: 30px; margin: 8px 0 12px; }
   h1 small { font-size: 16px; color: var(--muted); font-weight: 400; }
   .back { font-size: 14px; font-weight: 400; color: var(--muted); margin-left: 12px; }
