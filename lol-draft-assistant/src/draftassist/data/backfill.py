@@ -108,6 +108,11 @@ def main() -> int:
     result = backfill_traits(db, settings.cache_dir)
     print(f"Trait sources backfilled for {result['updated']} matches; {result['missing']} not in the cache")
     patch = current_patch(db)
+    with db.connect() as conn:  # older patches' slices too: the columns they gained, and what the window pools
+        older = [r[0] for r in conn.execute(text("SELECT DISTINCT patch FROM crawled_matches WHERE patch <> :p"),
+                                            {"p": patch})]
+    for old in older:
+        print(f"Re-aggregated {old}: {aggregate(db, old, window=patch)}")
     totals = aggregate(db, patch)
     print(f"Re-aggregated {patch}: {totals}")
     return 0

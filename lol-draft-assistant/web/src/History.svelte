@@ -164,7 +164,7 @@
           <div class="matchup">
             <div class="role">{p.role_label}</div>
             {#if b}
-              <div class="track" title="{signed(p.matchup.delta_pp)} for {ours === 'blue' ? 'blue (us)' : 'red (us)'} · {p.matchup.games} games">
+              <div class="track" title="{signed(p.matchup.delta_pp)} for {ours === 'blue' ? 'blue (us)' : 'red (us)'} · {p.matchup.games} games{p.matchup.lane_gold != null ? ` · ${signed(p.matchup.lane_gold)} gold at 15, game ${signed(p.matchup.game_pp)}` : ''}">
                 <span class="axis"></span>
                 <span class="fill {b.band} {b.toward}" style="width:{b.width}%"></span>
               </div>

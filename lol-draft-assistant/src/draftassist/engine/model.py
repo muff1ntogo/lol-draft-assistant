@@ -39,6 +39,9 @@ class BracketStats:
     matchup_games: Mapping[tuple[str, int, int], int] = field(default_factory=dict)  # (role, a, b), a < b
     matchup_k: Mapping[str, float] = field(default_factory=dict)  # role -> k_r
     matchup_strength: Mapping[tuple[int, str], float] = field(default_factory=dict)  # (champ, role) -> log-odds in the prior
+    # docs/matchup-archetypes.md, Stage 4: the lane matchup, the mean gold lead at 15 minutes
+    lane_gold: Mapping[tuple[str, int, int], float] = field(default_factory=dict)  # (role, a, b), a < b: a's lead
+    lane_slope: Mapping[tuple[int, str], float] = field(default_factory=dict)  # (champ, role) -> log-odds per 1,000 gold
 
     def role_stat(self, champ: int, role: str) -> RoleStat | None:
         return self.meta.get(champ, {}).get(role)
@@ -70,6 +73,36 @@ class BracketStats:
             return s
         stat = self.role_stat(champ, role)
         return logit(stat.win_rate) if stat else 0.0
+
+    def lane_gold_of(self, role: str, a: int, b: int) -> float | None:
+        """a's expected gold lead over b at 15 minutes. None with no lane data."""
+        if (gold := self.lane_gold.get((role, a, b))) is not None:
+            return gold
+        return None if (gold := self.lane_gold.get((role, b, a))) is None else -gold
+
+    def lane_logodds(self, role: str, a: int, b: int) -> float | None:
+        """What the lane is worth to a, in log-odds: the lead x the mean of both champions' slopes per 1,000 gold."""
+        gold = self.lane_gold_of(role, a, b)
+        if gold is None:
+            return None
+        return gold / 1000 * (self.lane_slope.get((a, role), 1.0) + self.lane_slope.get((b, role), 1.0)) / 2
+
+    def lane_wr(self, role: str, a: int, b: int) -> float | None:
+        x = self.lane_logodds(role, a, b)
+        return None if x is None else sigmoid(x)
+
+    def blended_wr(self, role: str, a: int, b: int, lane_weight: float) -> float | None:
+        """Lane ban Resp and History: the lane and game matchups, weighted. Either one alone if the other is missing."""
+        game, lane = self.matchup_wr_or_none(role, a, b), self.lane_wr(role, a, b)
+        if lane is None or game is None:
+            return game if lane is None else lane
+        return lane_weight * lane + (1 - lane_weight) * game
+
+    def counter_term(self, role: str, a: int, b: int, lane_weight: float) -> float:
+        """How hard a counters b, in log-odds, for counter risk: the same blend, beyond strength."""
+        lane = self.lane_logodds(role, a, b)
+        edge = self.matchup_edge(role, a, b)
+        return edge if lane is None else lane_weight * lane + (1 - lane_weight) * edge
 
     def matchup_confidence(self, role: str, a: int, b: int) -> float:
         """games / (games + k_r): 0 = purely an archetype and kit estimate, near 1 = measured."""
@@ -183,6 +216,9 @@ class EngineConfig:
     # Next 2 picks: cost each time a pair's champion was already shown (log-odds, ~3pp). Real data (16.21,
     # 120 turns): one champion in all 3 pairs 13% -> 1%; the 3rd pair ends ~1.1pp further from the best.
     pair_repeat_margin: float = 0.12
+    # docs/matchup-archetypes.md, Stage 4
+    lane_weight: float = 0.5  # lane vs game matchup in lane ban Resp, counter risk and History (1 = lane only)
+    role_weights: Mapping[str, float] | None = None  # role -> how much its matchups count (None = all 1)
     ban_comp_synergy: bool = False  # ban phase 2: Comp also counts synergy with the enemy's locked picks
     min_ban_relevance: float = 0.10  # bans below this share of still-open roles are wasted
     role_share_floor: float = 0.001  # P(champ in role) for roles with no data, when inferring filled roles

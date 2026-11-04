@@ -36,6 +36,8 @@ from draftassist.engine.synergy import to_pp
 log = logging.getLogger(__name__)
 
 US, THEM = "us", "them"
+_LANE_REASON_GOLD = 50  # lane lead, and game pp, below which lane and game aren't said to disagree
+_GAME_REASON_PP = 0.25
 _LO_TO_PROB = 0.25  # d sigmoid / dx at 0.5: converts small log-odds terms to win-prob units
 
 
@@ -161,7 +163,7 @@ class DraftEngine:
         self.cfg = config or EngineConfig()
         self.data, self.team = data, _with_known_brackets(team, data, self.cfg.enemy_bracket)
         self._champs = sorted(data.champions())
-        self._lane_data = BracketLaneData(data, self.team, self.cfg.enemy_bracket)
+        self._lane_data = BracketLaneData(data, self.team, self.cfg.enemy_bracket, self.cfg.lane_weight)
         self._role_shares = self._enemy_role_shares()
         self._assign_cache: dict[tuple, tuple[float, dict[int, str]]] = {}
         self._last_tables: dict[str, RoleBanTable] = {}
@@ -280,7 +282,7 @@ class DraftEngine:
         lane = 0.0
         for c, r in our_roles.items():
             if (opp := their_by_role.get(r)) is not None:
-                lane += self._our_bracket(r).matchup_edge(r, c, opp)
+                lane += self.role_weight(r) * self._our_bracket(r).matchup_edge(r, c, opp)
         if self.data.synergy_v2 is not None:
             syn_us, syn_them, team = syn if syn is not None else self._syn_v2(ours, our_roles, theirs, their_roles)
             return Terms(meta_us, comfort, meta_them, syn_us, syn_them, lane, 0.0, team)
@@ -520,7 +522,7 @@ class DraftEngine:
         relevance = self.ban_relevance(state)
         filled = self.role_filled_probs(state)
         tables = self._lane_ban_tables(state, ev, plan)
-        team_lane = team_lane_ban(tables.values())
+        team_lane = team_lane_ban(tables.values(), cfg.role_weights)
         enemy = self._enemy()
         blind = state.format.simultaneous_bans and state.step is not None and state.step.kind == "ban"
         locked = [(o, r) for o, r in ev.our_roles.items()]
@@ -759,9 +761,9 @@ class DraftEngine:
             if enemy_left and r_c in enemy_open:
                 lane = self._our_bracket(r_c)
                 for e in enemy_cands[r_c]:
-                    if e != c and (x := lane.matchup_edge(r_c, e, c)) > risk:
+                    if e != c and (x := lane.counter_term(r_c, e, c, cfg.lane_weight)) > risk:
                         risk, counter = x, e
-                risk *= min(1.0, enemy_left / cfg.risk_horizon)
+                risk *= min(1.0, enemy_left / cfg.risk_horizon) * self.role_weight(r_c)
 
             flex_roles = [r for r in open_roles if self.team.entry(c, r)]
             flex = cfg.flex_bonus * max(len(flex_roles) - 1, 0)
@@ -904,6 +906,25 @@ class DraftEngine:
         out.sort(key=lambda s: (-s.value, s.champ_id))
         return validate_suggestions(state, "enemy_pick", out[:k])
 
+    def role_weight(self, role: str) -> float:
+        return self.cfg.role_weights.get(role, 1.0) if self.cfg.role_weights else 1.0
+
+    def _matchup_term(self, bracket: BracketStats, role: str, c: int, opp: int) -> tuple[float, str]:
+        """A reason's (value, text) for the lane opponent: both numbers when lane and game disagree."""
+        name = self.data.name(opp)
+        game = bracket.matchup_edge(role, c, opp)
+        gold = bracket.lane_gold_of(role, c, opp)
+        default = (_LO_TO_PROB * game, f"counters their {name}")
+        if gold is None:
+            return default
+        game_pp = 25 * game
+        if abs(gold) < _LANE_REASON_GOLD or abs(game_pp) < _GAME_REASON_PP or gold * game_pp > 0:
+            return default
+        lead = f"{'+' if gold > 0 else '\u2212'}{abs(gold):.0f} gold"
+        text = (f"{'Wins' if gold > 0 else 'Loses'} lane vs {name} {lead}, "
+                f"{'wins' if game_pp > 0 else 'loses'} game {_pp(game_pp)}")
+        return _LO_TO_PROB * max(game, bracket.lane_logodds(role, c, opp)), text
+
     def _pick_reason(self, c: int, role: str, our_roles: dict[int, str], their_roles: dict[int, str],
                      flex_roles: list[str], flex: float, risk: float, counter: int | None,
                      fit: tuple[float, str | None] = (0.0, None)) -> str:
@@ -918,7 +939,7 @@ class DraftEngine:
             terms.append((_LO_TO_PROB * self.cfg.alpha * logit(stat.win_rate), f"{stat.win_rate:.0%} WR in {bracket_name.title()}"))
         opp = next((o for o, r in their_roles.items() if r == role), None)
         if opp is not None:
-            terms.append((_LO_TO_PROB * bracket.matchup_edge(role, c, opp), f"counters their {self.data.name(opp)}"))
+            terms.append(self._matchup_term(bracket, role, c, opp))
         for o, r_o in our_roles.items():
             if o != c:
                 syn = self.pair_synergy(role, c, r_o, o)[0]

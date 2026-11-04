@@ -10,6 +10,9 @@
   let banSynergy = $state(false);
   let compCoherence = $state(true);
   let compWeight = $state(0.15);
+  let laneWeight = $state(0.5);
+  let roleFitted = $state({});
+  let roleOverride = $state({}); // role -> number, blank = use the fitted weight
   let message = $state('');
   let syn = $state({ w_stat: 0.5, w_style: 0.25, w_team: 0.25, conf_k: 200, prior_sd_pp: 1, ban_teamfight_d: 1,
                      plan_ban_bonus: 0.3, plan_pick_bonus: 0.3 });
@@ -27,6 +30,9 @@
     banSynergy = s.ban_comp_synergy;
     compCoherence = s.comp_coherence;
     compWeight = s.comp_weight;
+    laneWeight = s.lane_weight;
+    roleFitted = s.role_weights_fitted;
+    roleOverride = { ...s.role_weight_override };
     if (s.synergy_v2) syn = { ...s.synergy_v2 };
   });
 
@@ -52,7 +58,9 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ban_weights: weights, ban_declared_intents: declared, alpha, beta, comfort_games_cap: cap,
                              damage_balance: damageBalance, damage_penalty: damagePenalty, ban_comp_synergy: banSynergy,
-                             comp_coherence: compCoherence, comp_weight: compWeight }),
+                             comp_coherence: compCoherence, comp_weight: compWeight, lane_weight: laneWeight,
+                             role_weight_override: Object.fromEntries(Object.entries(roleOverride)
+                               .filter(([, v]) => v !== '' && v != null).map(([r, v]) => [r, +v])) }),
     });
     const body = await res.json();
     if (res.ok) {
@@ -128,6 +136,16 @@
         It ranks picks but isn't counted in the win %.
       </p>
     {/if}
+
+    <label class="row">Lane vs game matchup (0 = game only, 1 = lane only)
+      <input type="number" min="0" max="1" step="0.1" bind:value={laneWeight} /></label>
+    <p class="muted">Used for ban "best answers", counter risk and History's lane bars. The win % always uses the game matchup.</p>
+    <div class="row roles">How much each role's matchups count
+      {#each Object.keys(roleFitted) as r}
+        <label>{r} <input type="number" min="0" max="3" step="0.1" placeholder={roleFitted[r] ?? '1'} bind:value={roleOverride[r]} /></label>
+      {/each}
+    </div>
+    <p class="muted">The greyed number is fitted from crawled games; these average 1. Type a number to override it, or clear it to go back.</p>
 
     <label class="check">
       <input type="checkbox" bind:checked={banSynergy} />

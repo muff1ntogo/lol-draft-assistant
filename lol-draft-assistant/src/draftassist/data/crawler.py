@@ -118,8 +118,9 @@ class CrawlStats:
 
 class Crawler:
     def __init__(self, riot: RiotClient, db: Engine, patch: str, brackets: Iterable[str] = BRACKETS,
-                 clock=time.time):
+                 clock=time.time, timelines: bool = False):
         self.riot, self.db, self.patch = riot, db, patch
+        self.timelines = timelines  # one more request per match, for gold leads (data/timelines.py)
         self.brackets = tuple(brackets)
         self._clock = clock
 
@@ -222,6 +223,10 @@ class Crawler:
                 stats.skipped_other_patch += 1
                 continue
             self._store(parsed, bracket)
+            if self.timelines:
+                from draftassist.data.timelines import lane_diffs, store_leads
+
+                store_leads(self.db, match_id, lane_diffs(self.riot.timeline(match_id), raw))
             known.add(match_id)
             stats.stored[bracket] += 1
         with Session(self.db) as s:

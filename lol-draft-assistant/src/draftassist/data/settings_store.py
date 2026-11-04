@@ -8,7 +8,7 @@ from sqlalchemy import Engine
 from sqlmodel import Session
 
 from draftassist.db.models import AppSetting
-from draftassist.engine.model import BanWeights, EngineConfig
+from draftassist.engine.model import ROLES, BanWeights, EngineConfig
 
 BAN_KEY = "ban"
 
@@ -59,13 +59,16 @@ def get_engine_settings(db: Engine) -> dict:
             "damage_penalty": float(v.get("damage_penalty", d.damage_penalty)),
             "ban_comp_synergy": bool(v.get("ban_comp_synergy", d.ban_comp_synergy)),
             "comp_coherence": bool(v.get("comp_coherence", d.comp_coherence)),
-            "comp_weight": float(v.get("comp_weight", d.comp_weight))}
+            "comp_weight": float(v.get("comp_weight", d.comp_weight)),
+            "lane_weight": float(v.get("lane_weight", d.lane_weight)),
+            "role_weight_override": dict(v.get("role_weight_override") or {})}
 
 
 def save_engine_settings(db: Engine, alpha: float | None = None, beta: float | None = None,
                          comfort_games_cap: int | None = None, damage_balance: bool | None = None,
                          damage_penalty: float | None = None, ban_comp_synergy: bool | None = None,
-                         comp_coherence: bool | None = None, comp_weight: float | None = None) -> None:
+                         comp_coherence: bool | None = None, comp_weight: float | None = None,
+                         lane_weight: float | None = None, role_weight_override: dict | None = None) -> None:
     """Update only the values given; the others keep what was saved."""
     current = get_engine_settings(db)
     for name, value, hi in (("alpha", alpha, 5), ("beta", beta, 5)):
@@ -77,18 +80,34 @@ def save_engine_settings(db: Engine, alpha: float | None = None, beta: float | N
         raise ValueError("damage penalty must be between -1 and 0 (log-odds)")
     if comp_weight is not None and not 0 <= comp_weight <= 1:
         raise ValueError("comp coherence weight must be between 0 and 1 (log-odds)")
+    if lane_weight is not None and not 0 <= lane_weight <= 1:
+        raise ValueError("lane weight must be between 0 and 1")
+    for role, w in (role_weight_override or {}).items():
+        if role not in ROLES:
+            raise ValueError(f"unknown role {role!r}")
+        if not 0 <= w <= 3:
+            raise ValueError(f"{role} matchup weight must be between 0 and 3")
     merged = {"alpha": current["alpha"] if alpha is None else alpha,
               "beta": current["beta"] if beta is None else beta,
               "comfort_games_cap": current["comfort_games_cap"] if comfort_games_cap is None else comfort_games_cap}
     for name, value in (("damage_balance", damage_balance), ("damage_penalty", damage_penalty),
                         ("ban_comp_synergy", ban_comp_synergy), ("comp_coherence", comp_coherence),
-                        ("comp_weight", comp_weight)):
+                        ("comp_weight", comp_weight), ("lane_weight", lane_weight),
+                        ("role_weight_override", role_weight_override)):
         merged[name] = current[name] if value is None else value
     with Session(db) as s:
         row = s.get(AppSetting, ENGINE_KEY) or AppSetting(key=ENGINE_KEY, value="{}")
         row.value = json.dumps(merged)
         s.add(row)
         s.commit()
+
+
+def role_weights(db: Engine, override: dict | None = None) -> dict[str, float] | None:
+    """Each role's fitted matchup weight, with the Settings override on top. None before any fit or override."""
+    from draftassist.data.matchup_model import load_role_weights
+
+    merged = {**load_role_weights(db), **(override or {})}
+    return merged or None
 
 
 def engine_config(db: Engine) -> EngineConfig:
@@ -99,7 +118,8 @@ def engine_config(db: Engine) -> EngineConfig:
     return EngineConfig(alpha=e["alpha"], beta=e["beta"], ban_weights=weights, ban_declared_intents=declared,
                         damage_balance=e["damage_balance"], damage_penalty=e["damage_penalty"],
                         ban_comp_synergy=e["ban_comp_synergy"], comp_coherence=e["comp_coherence"],
-                        comp_weight=e["comp_weight"], comp_target=get_hand_style(db))
+                        comp_weight=e["comp_weight"], comp_target=get_hand_style(db),
+                        lane_weight=e["lane_weight"], role_weights=role_weights(db, e["role_weight_override"]))
 
 
 def settings_payload(db: Engine) -> dict:
@@ -113,7 +133,16 @@ def settings_payload(db: Engine) -> dict:
             "comfort_games_cap": engine["comfort_games_cap"], "damage_balance": engine["damage_balance"],
             "damage_penalty": engine["damage_penalty"], "ban_comp_synergy": engine["ban_comp_synergy"],
             "comp_coherence": engine["comp_coherence"], "comp_weight": engine["comp_weight"],
+            "lane_weight": engine["lane_weight"], "role_weight_override": engine["role_weight_override"],
+            "role_weights_fitted": _fitted_role_weights(db),
             "synergy_v2": get_synergy_v2_settings(db)}
+
+
+def _fitted_role_weights(db: Engine) -> dict[str, float | None]:
+    from draftassist.data.matchup_model import load_role_weights
+
+    fitted = load_role_weights(db)
+    return {r: (round(fitted[r], 2) if r in fitted else None) for r in ROLES}
 
 
 SYNERGY_KEY = "synergy"

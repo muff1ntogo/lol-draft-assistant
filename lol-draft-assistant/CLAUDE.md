@@ -26,6 +26,7 @@ Personal, local pick/ban assistant for one 5-stack on EUW. Read `docs/SPEC.md` b
 | Champion names/icons (each patch) | `uv run python -m draftassist.data.ddragon` |
 | OP.GG bootstrap stats (each patch) | `uv run python -m draftassist.data.opgg` |
 | Crawl (overnight; resumable) | `uv run python -m draftassist.data.crawl --hours 8` (~1,800 matches/h) |
+| Crawl an older patch, gold leads first (resumable) | `uv run python -m draftassist.data.crawl --patch 16.21 --ids-per-queue 100 --timelines-first --hours 8` |
 | Crawl coverage / Phase 3 acceptance | `uv run python -m draftassist.data.coverage` |
 | Learning job (link players, history, comfort) | `uv run python -m draftassist.learning.jobs` |
 | Confirm logged games via match-v5 | `uv run python -m draftassist.data.postgame` |
@@ -79,5 +80,6 @@ Open points:
 - Riot encrypts PUUIDs per app: PUUIDs fetched with one key get 400 from another. Cache entries carry a key fingerprint (`riot.key_id`, a one-way hash) and `riot.sync_api_key` drops ladder seeds and players' `api_puuid` when the key changes (the crawl re-seeds; the learning job re-resolves Riot IDs). The client's PUUIDs are unaffected.
 - `data.ddragon` sets the current patch for everything. On a new patch, Live's win rates and matchups fall back to OP.GG until the crawl catches up, and the crawl only keeps the new patch's matches. So run it deliberately, stop the crawl first, and follow it with `data.opgg`.
 - Modules imported inside functions load when first called: a long-running crawl picks up whatever is on disk at its first aggregation (15 min in). Preload `data.synergy_model`, `data.tags`, `data.profiles` and friends before editing code during a crawl, or restart it after.
+- `challenges.laningPhaseGoldExpAdvantage` is only ever 0 or 1, not a gold figure. Real leads come from match-v5 timelines (about 800 KB each, so not cached): `data/timelines.py`. One rate limiter per process: run them inside the crawl, not beside it.
 - Playwright MCP saves screenshots relative to the workspace root (`Draft/`), not this project: pass `lol-draft-assistant/tests/screenshots/...`. It also writes page snapshots (with player names) to `.playwright-mcp/`; delete it after a session. Replay mode logs drafts: point `DRAFTASSIST_DB` at a scratch copy first.
 - When editing files that contain non-ASCII characters (⚠, −, ·), use the Edit/Write tools; shell heredocs and nested escaping have broken these several times.

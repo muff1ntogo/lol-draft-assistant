@@ -54,6 +54,10 @@ class Matchup(SQLModel, table=True):
     champ_b: int = Field(primary_key=True)
     games: int = 0
     wins_a: int = 0
+    # docs/matchup-archetypes.md, Stage 4: a's gold and XP leads at 15 minutes, summed, over lane_n games
+    lane_gold_sum: float = 0.0
+    lane_xp_sum: float = 0.0
+    lane_n: int = 0
 
 
 class SynergyPair(SQLModel, table=True):
@@ -176,6 +180,7 @@ class CrawledMatch(SQLModel, table=True):
     queue_id: int
     game_start_ms: int
     game_duration_s: int | None = None  # None for matches stored before it was recorded (data.backfill)
+    timeline_done: bool = False  # data/timelines.py: leads stored, or there are none
 
 
 class MatchParticipant(SQLModel, table=True):
@@ -196,7 +201,9 @@ class MatchParticipant(SQLModel, table=True):
     dmg_taken_share: float | None = None  # share of the team's damage taken
     self_mitigated: float | None = None  # damageSelfMitigated
     heal_shield: float | None = None  # heals + shields on teammates
-    lane_adv: float | None = None  # challenges.laningPhaseGoldExpAdvantage (or the early-laning key)
+    lane_adv: float | None = None  # challenges.laningPhaseGoldExpAdvantage (or the early-laning key): only 0 or 1
+    lane_gold_15: float | None = None  # lead over the enemy in the same position at 15 minutes (data/timelines.py)
+    lane_xp_15: float | None = None
 
 
 class MatchBan(SQLModel, table=True):

@@ -68,8 +68,10 @@ def aggregate(db: Engine, patch: str, window: str | None = None) -> dict[str, in
                 GROUP BY mp.champ_id, mp.role"""), {**p, "short_s": SHORT_S, "long_s": LONG_S})
 
             conn.execute(text(f"""
-                INSERT INTO matchups (patch, bracket, role, champ_a, champ_b, games, wins_a)
-                SELECT :patch, :bracket, a.role, a.champ_id, b.champ_id, COUNT(*), SUM(a.win)
+                INSERT INTO matchups (patch, bracket, role, champ_a, champ_b, games, wins_a,
+                                      lane_gold_sum, lane_xp_sum, lane_n)
+                SELECT :patch, :bracket, a.role, a.champ_id, b.champ_id, COUNT(*), SUM(a.win),
+                       COALESCE(SUM(a.lane_gold_15), 0), COALESCE(SUM(a.lane_xp_15), 0), COUNT(a.lane_gold_15)
                 FROM match_participants a {_SLICE.format(alias='a')}
                 JOIN match_participants b ON b.match_id = a.match_id AND b.role = a.role
                      AND b.team_id <> a.team_id AND a.champ_id < b.champ_id

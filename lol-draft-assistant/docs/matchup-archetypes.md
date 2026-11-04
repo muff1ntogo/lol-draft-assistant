@@ -287,6 +287,15 @@ Show what's present and what's missing. It's informational: no automatic changes
 19. **Kit tags are reviewed (user, 4 Nov 2026).** All of the draft, including Locke and Zaahen.
 20. **Crawl 16.21 first, 16.22 from 5 Nov (user, 4 Nov 2026).** Live stays on 16.22. `data.crawl --patch 16.21 --ids-per-queue 100` adds to the 16.21 slice and refreshes the 16.22 window Live and the fits read.
 
+21. **`lane_adv` is a yes/no flag, so the lane matchup uses timelines (user, 4 Nov 2026).** `laningPhaseGoldExpAdvantage` is only ever 0 or 1 in our data, never 1 for both laners. It can't give "−310 gold" or `< −300`. Stage 4 reads the gold and XP leads at 15 minutes from match-v5 timelines (frame timestamp ≥ 15:00). `lane_adv` stays for the `lane_pressure` trait only.
+22. **Timelines aren't cached (Stage 4).** About 800 KB each against 300 bytes used: 20k matches would be 16 GB. Only the 15-minute leads are stored, so another minute means fetching again.
+23. **Timelines run inside the crawl process (Stage 4).** One rate limiter per process, so a separate backfill would fight the crawl. `data.crawl --timelines-first` clears the backlog, newest first, then crawls with one more request per match.
+24. **The lane matchup is linear, in gold (Stage 4).** The same shape as Stage 3 with means instead of win rates: strength = each champion's own mean lead (shrunk by 100 lanes), E and K in gold, `k_r` by the same method of moments with the role's measured variance. Written lane priors: 0.5pp = 50 gold, prior SD 150 gold.
+25. **The lane matchup pools every patch and bracket (Stage 4).** A champion's lane strength is stable, and per-bracket pairs would be too thin. So one table is shared by every bracket and stays filled on a new patch.
+26. **What a lead is worth (Stage 4).** `lane_logodds` = lead / 1000 × the mean of both champions' slopes, which keeps it antisymmetric. A slope comes from the champion's main archetype. It is an association within the same game, not pure cause: a lead also marks the better player and a game going well.
+27. **Where each number goes (Stage 4).** Game matchup: P(win). Blend (`lane_weight`, default 0.5): lane ban `Resp`, Win-lane bans, counter risk, History bars. The doc's "pick value" uses P(win), so the game matchup, and it also subtracts counter risk, which uses the blend. Counter risk blends the lane log-odds with the game edge, beyond strength.
+28. **Role weights (Stage 4).** Scale the P(win) lane term, each role's lane ban scores and counter risk. Fitted on leave-one-out edges, so a game can't predict itself, prior 1 with SD 0.5, floored at 0, averaging 1. A Settings override replaces single roles.
+
 ## Findings
 
 **Stage 3, on 16.21 (held out, mean log-loss per lane; a coin flip is 0.6931):**
@@ -305,6 +314,13 @@ Show what's present and what's missing. It's informational: no automatic changes
 - Unreviewed labels blend towards the role's average, so reviewing them should sharpen E and K. Not measured.
 
 ## Built
+
+### Stage 4 (4 Nov 2026)
+- `data/timelines.py`: `lane_diffs`, `store_leads`, `backfill_timelines` (resumable, newest first). `RiotClient.timeline` isn't cached. `match_participants.lane_gold_15`, `lane_xp_15`; `crawled_matches.timeline_done`; `matchups.lane_gold_sum`, `lane_xp_sum`, `lane_n`.
+- `engine/matchup_model.py`: `fit_lane_gold`, `empirical_k_gold`, `fit_lane_slopes`, `fit_role_weights`. `data/matchup_model.py`: stored as `lane:*`, `slope:*`, `role_weight` in `matchup_fits`; `MatchupModel.lane_table`; the report prints lane figures, slopes and weights.
+- `BracketStats`: `lane_gold_of`, `lane_logodds`, `lane_wr`, `blended_wr`, `counter_term`. Reasons show both when they disagree: `Loses lane vs X −310 gold, wins game +1.2pp`.
+- Settings: lane vs game weight, a matchup weight per role (fitted shown, override optional). History bars blend both; the tooltip shows gold.
+- Until a pair of champions has gold data, it has no lane matchup and everything reads the game matchup.
 
 ### Stage 3 (4 Nov 2026)
 - `engine/matchup_model.py`: `RoleFeatures`, `fit_role` (ridge on the residual, centred on the written priors), `empirical_k`, `smooth`. `data/matchup_model.py`: `fit_matchup_model` (run by every aggregation, stored in `matchup_fits`), `load_matchup_model`, `smoothed_matchups`, `format_matchup_report` (printed by `data.coverage`). `data/archetype_matchups.yaml`: the guides' directions.

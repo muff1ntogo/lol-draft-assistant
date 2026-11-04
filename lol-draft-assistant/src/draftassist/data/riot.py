@@ -144,12 +144,14 @@ class RiotClient:
     def _cache_path(self, host: str, path: str, params: dict | None) -> Path:
         return cache_path(self._cache, host, path, params)
 
-    def get(self, host: str, path: str, params: dict | None = None, ttl: float | None = None) -> Any:
+    def get(self, host: str, path: str, params: dict | None = None, ttl: float | None = None,
+            cache_body: bool = True) -> Any:
         """GET https://{host}.api.riotgames.com{path}. Returns parsed JSON, or None for 404.
         Cached responses are reused forever (ttl=None) or while younger than ttl seconds, if fetched
-        with the same key (bodies hold PUUIDs, which are encrypted per app)."""
+        with the same key (bodies hold PUUIDs, which are encrypted per app). `cache_body=False`: neither read nor
+        written, for responses too large to keep."""
         cache = self._cache_path(host, path, params)
-        if cache.is_file():
+        if cache_body and cache.is_file():
             entry = json.loads(cache.read_text(encoding="utf-8"))
             if entry.get("key") == self.key_id and (ttl is None or self._clock() - entry["fetched_at"] < ttl):
                 self.cache_hits += 1
@@ -184,6 +186,8 @@ class RiotClient:
             else:
                 resp.raise_for_status()
                 body = resp.json()
+            if not cache_body:
+                return body
             cache.parent.mkdir(parents=True, exist_ok=True)
             cache.write_text(json.dumps({"fetched_at": self._clock(), "key": self.key_id, "body": body}),
                              encoding="utf-8")
@@ -211,6 +215,10 @@ class RiotClient:
 
     def match(self, match_id: str) -> dict | None:
         return self.get(REGION, match_path(match_id))
+
+    def timeline(self, match_id: str) -> dict | None:
+        """The minute-by-minute frames of a match, about 800 KB each: not cached (data/timelines.py)."""
+        return self.get(REGION, match_path(match_id) + "/timeline", cache_body=False)
 
     def account_puuid(self, riot_id: str) -> str | None:
         """'Name#TAG' -> PUUID (account-v1), None if no such account."""

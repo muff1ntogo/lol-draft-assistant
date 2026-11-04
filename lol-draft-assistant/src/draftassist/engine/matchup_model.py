@@ -140,3 +140,83 @@ def empirical_k(games: np.ndarray, wins: np.ndarray, predicted: np.ndarray) -> f
     if tau2 <= 0:
         return K_MAX
     return float(min(max(float(np.average(pq, weights=n)) / tau2 - 1, K_MIN), K_MAX))
+
+
+# The lane matchup: the mean gold lead at 15 minutes, in the same shape as the game matchup but linear.
+GOLD_PER_PP = 100.0  # a written prior of 0.5pp = 50 gold
+LANE_PRIOR_SD_GOLD = 150.0
+
+
+def fit_lane_gold(feats: RoleFeatures, a: np.ndarray, b: np.ndarray, games: np.ndarray, mean: np.ndarray,
+                  strength: np.ndarray, prior: np.ndarray, sigma2: float,
+                  prior_sd: float = LANE_PRIOR_SD_GOLD) -> np.ndarray:
+    """Ridge on each pair's mean lead minus the difference of the two champions' own mean leads, weighted by
+    games / sigma2 (sigma2: one lane's variance). Coefficients in gold."""
+    if len(a) == 0:
+        return np.asarray(prior, dtype=float).copy()
+    x = feats.pair_features(a, b)
+    xtw = x.T * (games / sigma2)
+    penalty = 1.0 / prior_sd ** 2
+    return np.linalg.solve(xtw @ x + penalty * np.eye(len(prior)), xtw @ (mean - (strength[a] - strength[b])) + penalty * prior)
+
+
+def empirical_k_gold(games: np.ndarray, mean: np.ndarray, predicted: np.ndarray, sigma2: float) -> float:
+    """As empirical_k: k = noise variance of one lane / true variance of pairs around the prediction."""
+    if len(games) == 0 or games.sum() <= 0:
+        return DEFAULT_K
+    seen = games > 0
+    n = games[seen]
+    tau2 = float(np.sum(n * ((mean[seen] - predicted[seen]) ** 2 - sigma2 / n)) / n.sum())
+    if tau2 <= 0:
+        return K_MAX
+    return float(min(max(sigma2 / tau2, K_MIN), K_MAX))
+
+
+DEFAULT_SLOPE = 1.0  # log-odds per 1,000 gold
+SLOPE_PRIOR_SD = 0.5  # log-odds, around the role's own slope
+ROLE_WEIGHT_PRIOR_SD = 0.5
+
+
+def _logistic(x: np.ndarray, won: np.ndarray, offset: np.ndarray, prior: np.ndarray, sd: float) -> np.ndarray:
+    """MAP logistic regression with a Gaussian prior, by Newton's method. The coefficients."""
+    beta = prior.astype(float).copy()
+    penalty = 1.0 / sd ** 2
+    for _ in range(25):
+        eta = offset + x @ beta
+        p = 1 / (1 + np.exp(-eta))
+        grad = x.T @ (won - p) - penalty * (beta - prior)
+        hess = (x.T * (p * (1 - p))) @ x + penalty * np.eye(len(beta))
+        step = np.linalg.solve(hess, grad)
+        beta += step
+        if np.abs(step).max() < 1e-6:
+            break
+    return beta
+
+
+def fit_lane_slopes(arch: np.ndarray, lead: np.ndarray, offset: np.ndarray, won: np.ndarray, n_arch: int) -> np.ndarray:
+    """What a lane lead is worth, per archetype: logit(win) = offset + slope[arch] * lead, with the lead from
+    the champion's own side, in thousands of gold. Pulled towards the role's overall slope. This is an association within the same game, not
+    pure cause: being ahead also marks the better player and the game being won."""
+    if len(arch) == 0:
+        return np.full(n_arch, DEFAULT_SLOPE)
+    decided = lead != 0
+    won_f = won.astype(float)
+    overall = _logistic(lead[decided, None], won_f[decided], offset[decided], np.array([DEFAULT_SLOPE]), 10.0)[0]
+    x = np.zeros((int(decided.sum()), n_arch))
+    x[np.arange(len(x)), arch[decided]] = lead[decided]
+    return _logistic(x, won_f[decided], offset[decided], np.full(n_arch, overall), SLOPE_PRIOR_SD)
+
+
+def fit_role_weights(edges: np.ndarray, offset: np.ndarray, won: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """How much each role's game matchup predicts wins: the coefficients of logit(blue wins) = offset + sum w_r * edge_r,
+    from 1 with a Gaussian prior, floored at 0, normalised so the roles average 1. Returns (weights, standard errors)."""
+    q = edges.shape[1]
+    if len(edges) == 0:
+        return np.ones(q), np.full(q, ROLE_WEIGHT_PRIOR_SD)
+    beta = _logistic(edges, won.astype(float), offset, np.ones(q), ROLE_WEIGHT_PRIOR_SD)
+    p = 1 / (1 + np.exp(-(offset + edges @ beta)))
+    hess = (edges.T * (p * (1 - p))) @ edges + np.eye(q) / ROLE_WEIGHT_PRIOR_SD ** 2
+    se = np.sqrt(np.diag(np.linalg.inv(hess)))
+    beta = np.maximum(beta, 0.0)
+    scale = beta.mean()
+    return (beta / scale, se / scale) if scale > 0 else (np.ones(q), se)

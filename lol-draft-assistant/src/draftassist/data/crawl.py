@@ -25,6 +25,7 @@ from draftassist.data.coverage import coverage, format_report
 from draftassist.data.crawler import LEAGUE_TIERS, Crawler, CrawlStats, brackets_in_use, current_patch
 from draftassist.data.riot import RiotAuthError, RiotClient, sync_api_key
 from draftassist.data.tags import sync_tags
+from draftassist.data.timelines import backfill_timelines
 from draftassist.db.models import SeedPlayer
 from draftassist.db.session import init_db
 
@@ -42,6 +43,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--patch", help="crawl this older patch instead of the current one, e.g. 16.21")
     parser.add_argument("--ids-per-queue", type=int, default=20, metavar="N",
                         help="match ids per player and queue, newest first (default 20, Riot's maximum is 100)")
+    parser.add_argument("--no-timelines", action="store_true",
+                        help="skip the extra request per match for gold leads at 15 minutes")
+    parser.add_argument("--timelines-first", action="store_true",
+                        help="first fetch gold leads for matches stored without them (resumable)")
     parser.add_argument("--aggregate-every", type=float, default=15, metavar="MINUTES",
                         help="rebuild the stats tables this often while crawling (default 15)")
     args = parser.parse_args(argv)
@@ -63,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
         riot = RiotClient(settings.riot_api_key, settings.cache_dir)
         if sync_api_key(db, settings.riot_api_key):
             print("New Riot API key: ladder seeds from the old key were dropped (PUUIDs are encrypted per app)")
-        crawler = Crawler(riot, db, patch, brackets)
+        crawler = Crawler(riot, db, patch, brackets, timelines=not args.no_timelines)
         with Session(db) as s:
             seeds = s.exec(select(func.count()).select_from(SeedPlayer)).one()
         if args.reseed or seeds == 0:
@@ -77,6 +82,18 @@ def main(argv: list[str] | None = None) -> int:
                   f"({', '.join(f'{b} {n}' for b, n in totals.items())}); this run +{progress.total_stored}",
                   flush=True)
 
+        if args.timelines_first:
+            def timelines_done() -> bool:
+                return deadline is not None and time.time() >= deadline
+
+            def timeline_checkpoint(n: int) -> None:
+                aggregate(db, patch, window=window)
+                print(f"{time.strftime('%H:%M')} gold leads: {n} matches so far, stats refreshed", flush=True)
+
+            result = backfill_timelines(db, riot, settings.cache_dir, timelines_done, timeline_checkpoint,
+                                        args.aggregate_every * 60)
+            print(f"{time.strftime('%H:%M')} gold leads: {result['updated']} matches done, {result['left']} left",
+                  flush=True)
         stats = crawler.run(max_matches=args.max_matches, deadline=deadline, ids_per_queue=args.ids_per_queue,
                             checkpoint=checkpoint,
                             checkpoint_every_s=args.aggregate_every * 60)

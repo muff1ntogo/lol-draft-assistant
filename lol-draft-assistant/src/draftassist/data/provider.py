@@ -106,7 +106,7 @@ def strength_win_rate(wins: float, games: float, prior: float) -> float:
 
 
 def bracket_stats(s: Session, patch: str, bracket: str, boot: Bootstrap | None,
-                  model=None) -> tuple[BracketStats | None, int]:
+                  model=None, lane_slopes: Mapping | None = None) -> tuple[BracketStats | None, int]:
     """One bracket's stats: our crawled games blended with the OP.GG prior. Returns (stats, crawled
     matches); stats is None when there is neither crawl data nor a bootstrap.
 
@@ -147,8 +147,10 @@ def bracket_stats(s: Session, patch: str, bracket: str, boot: Bootstrap | None,
             bans[c] = crawled_bans.get(c, 0) / n
     rows = s.exec(select(Matchup).where(Matchup.patch == patch, Matchup.bracket == bracket)).all()
     if model is not None:
+        lane_slopes = lane_slopes if lane_slopes is not None else model.lane_slopes()
         matchups, games = smoothed_matchups(model, meta, rows, strength)
-        return BracketStats(meta, matchups, bans, True, games, {r: model.k(r) for r in ROLES}, strength), n
+        return BracketStats(meta, matchups, bans, True, games, {r: model.k(r) for r in ROLES}, strength,
+                            model.lane_table(), lane_slopes), n
     matchups = {(m.role, m.champ_a, m.champ_b): shrink(m.wins_a, m.games, PAIR_K) for m in rows}
     return BracketStats(meta, matchups, bans), n
 
@@ -187,13 +189,14 @@ def load_engine_inputs(db: Engine, use_matchup_model: bool = True) -> EngineInpu
 
     if patch:
         model = load_matchup_model(db) if use_matchup_model else None
+        lane_slopes = model.lane_slopes() if model is not None else None
         with Session(db) as s:
             boot = load_bootstrap(s, patch)
             needed = brackets_in_use(db)
             brackets: dict[str, BracketStats] = {}
             crawled: dict[str, int] = {}
             for b in needed:
-                stats, crawled[b] = bracket_stats(s, patch, b, boot, model)
+                stats, crawled[b] = bracket_stats(s, patch, b, boot, model, lane_slopes)
                 if stats is not None:
                     brackets[b] = stats
         if len(brackets) == len(needed):

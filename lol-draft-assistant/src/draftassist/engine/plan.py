@@ -150,7 +150,7 @@ def _finish(c: PlanContext, bans: list[PlanBan], k: int) -> list[PlanBan]:
 def win_lane_bans(c: PlanContext, k: int = K) -> list[PlanBan]:
     eng = c.engine
     tables = c.lane_tables()
-    lane = team_lane_ban(tables.values())
+    lane = team_lane_ban(tables.values(), eng.cfg.role_weights)
     out = []
     for x, total_pp in lane.items():
         if x in c.unavailable or x in c.plan_champs:
@@ -323,7 +323,7 @@ def _counter(c: PlanContext, champ: int, role: str) -> tuple[int | None, float]:
     for e in eng.champion_ids:
         if e == champ or e in c.unavailable or e in c.plan_champs or not enemy.role_stat(e, role):
             continue
-        if (x := lane.matchup_edge(role, e, champ)) > best:
+        if (x := eng.role_weight(role) * lane.counter_term(role, e, champ, eng.cfg.lane_weight)) > best:
             best, who = x, e
     return who, best
 

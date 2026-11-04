@@ -15,8 +15,10 @@ from sqlalchemy import Engine
 from sqlmodel import Session, col, select
 
 from draftassist.data.aggregate import PAIR_K, shrink
+from draftassist.data.matchup_model import load_lane_slope
 from draftassist.data.pools import list_players
 from draftassist.data.provider import ChampionCatalog
+from draftassist.data.settings_store import get_engine_settings
 from draftassist.db.models import Draft, DraftAction, Matchup
 from draftassist.engine.engine import DraftEngine
 from draftassist.engine.formats import get_format
@@ -126,6 +128,10 @@ def history_filters(rows: list[dict]) -> dict:
 
 
 # ---------- lane matchups ----------
+LANE_RECAP_K = 50  # a past game's lane figure: shrunk towards even, like its game figure
+LANE_RECAP_VERSION = 2
+
+
 def lane_matchup(db: Engine, patch: str | None, bracket: str, role: str, ours: int, theirs: int) -> dict:
     """Favourability of our champion vs theirs in pp (shrunk towards 50%), or no data."""
     if not patch:
@@ -136,9 +142,18 @@ def lane_matchup(db: Engine, patch: str | None, bracket: str, role: str, ours: i
     if m is None or m.games < MIN_MATCHUP_GAMES:
         return {"delta_pp": None, "games": m.games if m else 0, "band": "no-data"}
     wins_ours = m.wins_a if ours == a else m.games - m.wins_a
-    delta = 100 * (shrink(wins_ours, m.games, PAIR_K) - 0.5)
+    game = 100 * (shrink(wins_ours, m.games, PAIR_K) - 0.5)
+    delta, gold, xp = game, None, None
+    if m.lane_n:  # the lane and game matchups, weighted as in Settings (docs/matchup-archetypes.md, Stage 4)
+        sign = 1 if ours == a else -1
+        shrunk = sign * m.lane_gold_sum / (m.lane_n + LANE_RECAP_K)
+        lane = 100 * (sigmoid(shrunk / 1000 * load_lane_slope(db, role)) - 0.5)
+        weight = get_engine_settings(db)["lane_weight"]
+        delta = weight * lane + (1 - weight) * game
+        gold, xp = round(sign * m.lane_gold_sum / m.lane_n), round(sign * m.lane_xp_sum / m.lane_n)
     band = "even" if abs(delta) <= EVEN_PP else ("ours" if delta > 0 else "theirs")
-    return {"delta_pp": round(delta, 1), "games": m.games, "band": band}
+    return {"delta_pp": round(delta, 1), "game_pp": round(game, 1), "lane_gold": gold, "lane_xp": xp,
+            "games": m.games, "band": band}
 
 
 # ---------- recap ----------
@@ -187,6 +202,9 @@ def _lane_matchups(db: Engine, draft: Draft, by_role: dict[str, dict[str, int]],
     if backfilled:
         cache["backfilled"] = True
         cache.pop("lane_matchups", None)
+    if cache.get("lane_version") != LANE_RECAP_VERSION:  # worked out before lane and game were separate
+        cache.pop("lane_matchups", None)
+        cache["lane_version"] = LANE_RECAP_VERSION
     if "lane_matchups" not in cache:
         brackets = {p["role"]: p["bracket"] for p in list_players(db)}
         cache["lane_matchups"] = {

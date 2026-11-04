@@ -158,11 +158,13 @@ def role_ban_table(
     return RoleBanTable(role, expected_quality(w, resp), tuple(rows), enemy_filled)
 
 
-def team_lane_ban(tables: Iterable[RoleBanTable]) -> dict[int, float]:
+def team_lane_ban(tables: Iterable[RoleBanTable], role_weights: Mapping[str, float] | None = None) -> dict[int, float]:
+    """`role_weights`: how much each role's matchups count (docs/matchup-archetypes.md, Stage 4)."""
     total: dict[int, float] = {}
     for table in tables:
+        weight = role_weights.get(table.role, 1.0) if role_weights else 1.0
         for row in table.rows:
-            total[row.opp] = total.get(row.opp, 0.0) + row.ban
+            total[row.opp] = total.get(row.opp, 0.0) + weight * row.ban
     return total
 
 
@@ -199,7 +201,8 @@ class BracketLaneData:
     """Provider over the engine's stats: opponents and their pick/ban rates from the enemy
     bracket; matchups and our champions' averages from our player's bracket for the role."""
 
-    def __init__(self, data: EngineData, team: OurTeam, enemy_bracket: str):
+    def __init__(self, data: EngineData, team: OurTeam, enemy_bracket: str, lane_weight: float = 0.0):
+        self._lane_weight = lane_weight
         self._enemy: BracketStats = data.brackets[enemy_bracket]
         self._ours = {r: data.brackets[b] for r, b in team.brackets.items()}
         self._opponents = {r: sorted(c for c, roles in self._enemy.meta.items()
@@ -216,7 +219,7 @@ class BracketLaneData:
         return self._enemy.ban_rates.get(champ, 0.0)
 
     def matchup_wr(self, role: str, ours: int, theirs: int) -> float | None:
-        return self._ours[role].matchup_wr_or_none(role, ours, theirs)
+        return self._ours[role].blended_wr(role, ours, theirs, self._lane_weight)
 
     def role_wr(self, champ: int, role: str) -> float | None:
         stat = self._ours[role].role_stat(champ, role)
