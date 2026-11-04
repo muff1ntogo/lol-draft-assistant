@@ -13,7 +13,7 @@
   const pct = (x) => `${Math.round(x * 100)}%`;
   async function unpin() {
     await fetch('/api/plan/pin', { method: 'DELETE' });
-    hidden = true; // gone everywhere from the next champ select event
+    hidden = true; // at once here; the server re-publishes the Live screen without the plan
   }
 </script>
 

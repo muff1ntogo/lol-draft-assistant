@@ -430,6 +430,17 @@ class LiveService:
         self._resolved_for: int | None = None  # game id whose teammates were already matched to players
         self.current: LiveDraft | None = None  # latest parsed champ select (Prep page: "Use current draft")
         self.pin_provider: Callable[[], dict | None] | None = None  # the pinned plan (docs/synergy-v2.md, Stage 6)
+        self._session: dict | None = None  # latest champ select session, to rebuild the view on a pin change
+
+    def refresh(self) -> None:
+        """Re-publish the current screen (after a pin or unpin) without waiting for the next client event.
+        Doesn't log: the draft record keeps the plan pinned when the champ select started."""
+        latest = self.hub.latest
+        if latest.get("status") == "champ_select":
+            if self._session is not None:
+                self.hub.publish_threadsafe(self._build(self._session)[0])
+        else:
+            self.hub.publish_threadsafe(self._waiting())
 
     def _waiting(self) -> dict:
         pin = self.pin_provider() if self.pin_provider else None
@@ -468,6 +479,7 @@ class LiveService:
         latest = self.hub.latest
         if session is None and latest.get("status") == "champ_select" and latest.get("phase") == "Locked in":
             return latest  # game is loading: keep win % and threats up until the client goes idle
+        self._session = session
         payload, live = self._build(session)
         self.hub.publish_threadsafe(payload)
         if live is not None:

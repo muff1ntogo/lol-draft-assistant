@@ -131,15 +131,17 @@ def post_pin(request: Request, locks: dict[str, int] = Body(..., embed=True)) ->
     svc.pinned = pin
     if svc.db is not None:
         save_pinned(svc.db, pin)
+    svc.live.refresh()
     return {"pinned": pin}
 
 @router.delete("/api/plan/pin")
 def delete_pin(request: Request) -> dict:
-    """Unpin (one click on the Live screen). Takes effect from the next champ select event."""
+    """Unpin (one click on the Live screen). The Live screen updates at once."""
     svc: Services = request.app.state.services
     svc.pinned = None
     if svc.db is not None:
         save_pinned(svc.db, None)
+    svc.live.refresh()
     return {"pinned": None}
 
 @router.put("/api/synergy/bracket")

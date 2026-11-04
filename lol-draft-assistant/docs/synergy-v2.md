@@ -159,7 +159,7 @@ Tests: Win lane uses only the plan champion; a planted disengage champion ranks 
 
 ## Stage 6: pin a plan into the live draft
 
-"Pin for next game" saves the plan (champions with roles, pick order per side, ban lists). Live: banner `Plan: … — intact / at risk / broken` (with the backup once broken); plan Combined bans get `plan_ban_bonus = 0.3` log-odds and a `plan` tag; plan champions due at the current slot get `plan_pick_bonus = 0.3` and a `plan` tag; guardrails still win; one-click unpin. The pinned plan is stored on the draft record; History shows "plan followed? yes / partly / no".
+"Pin for next game" saves the plan (champions with roles, pick order per side, ban lists). Live: banner `Plan: … — intact / at risk / broken` (with the backup once broken); plan Combined bans get `plan_ban_bonus = 0.3` log-odds and a `plan` tag; plan champions due at the current slot get `plan_pick_bonus = 0.3` and a `plan` tag; guardrails still win; one-click unpin. Pin and unpin re-publish the Live screen at once (waiting or mid-draft), not at the next client event. The pinned plan is stored on the draft record; History shows "plan followed? yes / partly / no".
 
 Tests: banner states in a replayed draft; bonuses only for plan champions at their slot, guardrails still win; History plan adherence.
 

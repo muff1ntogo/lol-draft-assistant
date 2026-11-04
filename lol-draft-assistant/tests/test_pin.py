@@ -304,3 +304,27 @@ def test_plan_bar_while_waiting(svc):
     assert bar["summary"]["now"] is None and bar["summary"]["plan"]["picks"] == 2
     svc.pinned = None
     assert svc.live.handle_session(None).get("plan") is None
+
+
+def test_pin_and_unpin_update_the_live_screen_at_once(svc):
+    # no client event after the pin: the screen is re-published by the pin routes (LiveService.refresh)
+    team = svc.engine.team
+    plan = {}
+    for r in ("jungle", "mid"):
+        plan[r] = next(c for c in sorted(team.pools[r]) if c not in plan.values())
+    svc.live.handle_session(None)
+    assert svc.hub.latest.get("plan") is None
+    svc.pinned = build_pin(svc.engine, svc.synergy_v2(), plan)
+    svc.live.refresh()
+    assert svc.hub.latest["status"] == "waiting" and svc.hub.latest["plan"]["champs"]
+    # in champ select: rebuilt from the latest session
+    svc.pinned = None
+    svc.live.handle_phase("ChampSelect", None)
+    svc.live.handle_session(demo_sessions(svc.engine, TOURNAMENT, "blue", game_id=7_200_000_009)[0])
+    assert svc.hub.latest["status"] == "champ_select" and svc.hub.latest["plan"] is None
+    svc.pinned = build_pin(svc.engine, svc.synergy_v2(), plan)
+    svc.live.refresh()
+    assert svc.hub.latest["status"] == "champ_select" and svc.hub.latest["plan"]["state"] == "intact"
+    svc.pinned = None
+    svc.live.refresh()
+    assert svc.hub.latest["plan"] is None
