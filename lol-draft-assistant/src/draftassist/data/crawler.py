@@ -154,7 +154,7 @@ class Crawler:
         """Crawl until max_matches are stored, the deadline (epoch seconds) passes, or seeds run out.
         `checkpoint(stats)` is called every `checkpoint_every_s` seconds (e.g. to aggregate)."""
         stats = CrawlStats(stored=dict.fromkeys(self.brackets, 0))
-        start_time = self._start_time()
+        start_time, end_time = self._start_time(), self._end_time()
 
         def done() -> bool:
             return (max_matches is not None and stats.total_stored >= max_matches) or (
@@ -172,7 +172,7 @@ class Crawler:
             if not open_brackets:
                 break
             bracket = min(open_brackets, key=lambda b: (have[b] + stats.stored[b], self.brackets.index(b)))
-            self._crawl_player(queues[bracket].pop(0), bracket, start_time, ids_per_queue, stats, done)
+            self._crawl_player(queues[bracket].pop(0), bracket, start_time, ids_per_queue, stats, done, end_time)
             if checkpoint is not None and self._clock() - last_checkpoint >= checkpoint_every_s:
                 checkpoint(stats)
                 last_checkpoint = self._clock()
@@ -186,10 +186,20 @@ class Crawler:
         lookback = int(self._clock() - LOOKBACK_S)
         return lookback if not first else max(lookback, first // 1000 - PATCH_START_SLACK_S)
 
+    def _end_time(self) -> int | None:
+        """Crawling an older patch: nothing after the next patch's earliest stored game. None on the newest."""
+        with Session(self.db) as s:
+            rows = s.exec(select(CrawledMatch.patch, func.min(CrawledMatch.game_start_ms))
+                          .group_by(CrawledMatch.patch)).all()
+        mine = tuple(int(x) for x in self.patch.split("."))
+        later = [ms for p, ms in rows if tuple(int(x) for x in p.split(".")) > mine and ms]
+        return min(later) // 1000 if later else None
+
     def _crawl_player(self, player: SeedPlayer, bracket: str, start_time: int, ids_per_queue: int,
-                      stats: CrawlStats, done) -> None:
+                      stats: CrawlStats, done, end_time: int | None = None) -> None:
         try:
-            ids = [m for q in QUEUES for m in self.riot.match_ids(player.puuid, q, start_time, ids_per_queue)]
+            ids = [m for q in QUEUES
+                   for m in self.riot.match_ids(player.puuid, q, start_time, ids_per_queue, end_time=end_time)]
         except httpx.HTTPStatusError as e:
             if e.response.status_code != 400:
                 raise

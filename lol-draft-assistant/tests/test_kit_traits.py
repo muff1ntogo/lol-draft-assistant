@@ -185,7 +185,7 @@ def test_shipped_kit_tags_are_valid_and_unreviewed():
             n += bool(e.kit)
             assert set(e.kit) <= set(KIT_TAGS), (key, role)
             assert all(1 <= v <= 3 for v in e.kit.values()), (key, role)
-            assert not e.reviewed_kit, (key, role)  # drafted by Claude: the user reviews them
+            assert e.reviewed_kit == bool(e.kit), (key, role)  # the user approved the draft, 4 Nov 2026
     assert n >= 100
 
 
@@ -193,6 +193,13 @@ def test_our_pools_have_kit_tags():
     raw = load_tags_yaml(TAGS_FILE)
     gaps = [(r, k) for r, keys in OUR_POOLS.items() for k in keys if not raw.get(k, {}).get(r) or not raw[k][r].kit]
     assert gaps == [], f"pool champions without kit tags: {gaps}"
+
+
+def test_zaahen_from_the_users_ability_list():
+    # double-strike autos and a heal on Q, pull and knock-up, dash with max-health damage, revive
+    kit = load_tags_yaml(TAGS_FILE)["Zaahen"]["top"].kit
+    assert kit["extend_fight"] == 3 and kit["sustain"] == 3 and kit["auto_reliant"] >= 2
+    assert kit["max_hp_damage"] >= 2 and kit["hard_gap_close"] >= 2
 
 
 def test_locke_from_the_users_ability_list():

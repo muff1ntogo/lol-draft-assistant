@@ -314,8 +314,8 @@ class _Riot:
     def __init__(self):
         self.start = None
 
-    def match_ids(self, puuid, queue, start_time, count):
-        self.start = start_time
+    def match_ids(self, puuid, queue, start_time, count, end_time=None):
+        self.start, self.end, self.count = start_time, end_time, count
         return []
 
 
@@ -339,6 +339,68 @@ def test_crawler_stops_listing_games_older_than_the_patch(engine):
     riot = _Riot()
     Crawler(riot, engine, "16.22", brackets=("gold",), clock=lambda: now).run(max_matches=1)
     assert riot.start == start_ms // 1000 - PATCH_START_SLACK_S
+
+
+def test_crawling_an_older_patch_stops_where_the_next_one_starts(engine):
+    from draftassist.data.crawler import Crawler
+    from draftassist.db.models import SeedPlayer
+
+    now = 1_793_000_000
+    new_start = (now - 86_400) * 1000
+    with Session(engine) as s:
+        s.add(SeedPlayer(puuid="p", bracket="gold", tier="GOLD", division="I"))
+        s.add(CrawledMatch(match_id="EUW1_2", patch="16.22", bracket="gold", queue_id=420, game_start_ms=new_start))
+        s.add(CrawledMatch(match_id="EUW1_3", patch="16.22", bracket="gold", queue_id=420, game_start_ms=new_start + 9))
+        s.commit()
+    riot = _Riot()
+    Crawler(riot, engine, "16.21", brackets=("gold",), clock=lambda: now).run(max_matches=1, ids_per_queue=100)
+    assert riot.end == new_start // 1000 and riot.count == 100
+    riot = _Riot()
+    Crawler(riot, engine, "16.22", brackets=("gold",), clock=lambda: now).run(max_matches=1)
+    assert riot.end is None  # the newest patch has no end
+
+
+def test_riot_client_sends_the_end_time(tmp_path):
+    from draftassist.data.riot import RiotClient
+
+    sent = {}
+
+    class Client(RiotClient):
+        def get(self, host, path, params=None, ttl=None):
+            sent.update(params)
+            return []
+
+    riot = Client.__new__(Client)
+    riot.match_ids("p", 420, 100, 20, end_time=200)
+    assert sent["startTime"] == 100 and sent["endTime"] == 200
+    sent.clear()
+    riot.match_ids("p", 420, 100, 20)
+    assert "endTime" not in sent
+
+
+def test_aggregating_an_old_patch_refreshes_the_window_live_reads(crawled):
+    from draftassist.data.aggregate import aggregate
+    from draftassist.data.synergy import latest_window
+    from draftassist.db.models import ChampRoleStats, MatchupFit, SynergyRoleStats
+
+    with Session(crawled) as s:
+        _store_match(s, "EUW1_extra", (1, 10, 11, 12, 13), (3, 14, 15, 16, 17), True)
+        s.commit()
+    aggregate(crawled, "16.21", window="16.22")
+    assert latest_window(crawled) == "16.22"
+    with Session(crawled) as s:
+        # the slice of the patch that was crawled
+        assert s.get(ChampRoleStats, ("16.21", "gold", 1, "top")).games > 0
+        assert not s.exec(select(ChampRoleStats).where(ChampRoleStats.patch == "16.22")).all()
+        # the pooled tables of the window, not rebuilt for the old patch
+        pooled = s.exec(select(SynergyRoleStats).where(SynergyRoleStats.window == "16.22",
+                                                       SynergyRoleStats.bracket == "all",
+                                                       SynergyRoleStats.champ_id == 1)).one()
+        old = s.exec(select(SynergyRoleStats).where(SynergyRoleStats.window == "16.21",
+                                                    SynergyRoleStats.bracket == "all",
+                                                    SynergyRoleStats.champ_id == 1)).one()
+        assert pooled.games == old.games + 1
+        assert s.exec(select(MatchupFit).where(MatchupFit.window == "16.22")).first() is not None
 
 
 # ---------- budgets ----------

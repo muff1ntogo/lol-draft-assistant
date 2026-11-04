@@ -30,10 +30,12 @@ _DAMAGE_SHARE = "AVG(CAST(mp.{col} AS REAL) / NULLIF(mp.dmg_phys + mp.dmg_magic 
 _SLICE = "JOIN crawled_matches cm ON cm.match_id = {alias}.match_id AND cm.patch = :patch AND cm.bracket = :bracket"
 
 
-def aggregate(db: Engine, patch: str) -> dict[str, int]:
+def aggregate(db: Engine, patch: str, window: str | None = None) -> dict[str, int]:
     """Rebuild champ_role_stats (with damage profile), matchups and bracket_totals for every
     bracket crawled on `patch`, and the role-aware synergy and trait window ending at `patch` (data/synergy.py);
-    refresh champions.roles. Returns matches per bracket."""
+    refresh champions.roles. Returns matches per bracket. `window`: the pooled tables and fits to rebuild, when `patch`
+    is an older patch being crawled and Live reads a newer window (default: `patch`)."""
+    window = window or patch
     with Session(db) as s:
         conn = s.connection()
         brackets = [r[0] for r in conn.execute(
@@ -73,9 +75,9 @@ def aggregate(db: Engine, patch: str) -> dict[str, int]:
                      AND b.team_id <> a.team_id AND a.champ_id < b.champ_id
                 GROUP BY a.role, a.champ_id, b.champ_id"""), p)
 
-        window = crawl_weights(conn, patch)  # every crawled patch up to this one, decayed
-        aggregate_synergy(conn, patch, window)
-        aggregate_traits(conn, patch, window)  # same window as synergy (docs/synergy-v2.md, Stage 1)
+        weights = crawl_weights(conn, window)  # every crawled patch up to this one, decayed
+        aggregate_synergy(conn, window, weights)
+        aggregate_traits(conn, window, weights)  # same window as synergy (docs/synergy-v2.md, Stage 1)
 
         # champions.roles: roles with a meaningful share of the champion's games, all brackets pooled
         rows = conn.execute(text(
@@ -91,8 +93,8 @@ def aggregate(db: Engine, patch: str) -> dict[str, int]:
             conn.execute(text("UPDATE champions SET roles = :roles WHERE champ_id = :champ"),
                          {"roles": json.dumps(keep), "champ": champ})
         s.commit()
-    _fit_synergy(db, patch)
-    _fit_matchups(db, patch)
+    _fit_synergy(db, window)
+    _fit_matchups(db, window)
     return totals
 
 

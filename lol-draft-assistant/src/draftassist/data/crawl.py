@@ -2,6 +2,7 @@
 
     uv run python -m draftassist.data.crawl --hours 8            # overnight
     uv run python -m draftassist.data.crawl --max-matches 50     # smoke test
+    uv run python -m draftassist.data.crawl --patch 16.21 --ids-per-queue 100 --hours 8   # deepen an older patch
 
 Stats are re-aggregated every 15 minutes while it runs (--aggregate-every), so a running app picks
 them up between drafts.
@@ -23,6 +24,7 @@ from draftassist.data.aggregate import aggregate
 from draftassist.data.coverage import coverage, format_report
 from draftassist.data.crawler import LEAGUE_TIERS, Crawler, CrawlStats, brackets_in_use, current_patch
 from draftassist.data.riot import RiotAuthError, RiotClient, sync_api_key
+from draftassist.data.tags import sync_tags
 from draftassist.db.models import SeedPlayer
 from draftassist.db.session import init_db
 
@@ -37,6 +39,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="default: every tier up to Emerald, plus any bracket a player is set to")
     parser.add_argument("--seed-pages", type=int, default=1, help="league-v4 pages per division when seeding")
     parser.add_argument("--reseed", action="store_true", help="fetch ladder seeds even if some exist")
+    parser.add_argument("--patch", help="crawl this older patch instead of the current one, e.g. 16.21")
+    parser.add_argument("--ids-per-queue", type=int, default=20, metavar="N",
+                        help="match ids per player and queue, newest first (default 20, Riot's maximum is 100)")
     parser.add_argument("--aggregate-every", type=float, default=15, metavar="MINUTES",
                         help="rebuild the stats tables this often while crawling (default 15)")
     args = parser.parse_args(argv)
@@ -44,7 +49,9 @@ def main(argv: list[str] | None = None) -> int:
 
     settings = load_settings()
     db = init_db(settings.db_path)
-    patch = current_patch(db)
+    sync_tags(db)  # labels for the fits: the file is the source of truth, and the app may not have restarted
+    window = current_patch(db)  # what Live reads, whichever patch is being crawled
+    patch = args.patch or window
     brackets = tuple(args.brackets) if args.brackets else brackets_in_use(db)
     seconds = (args.hours or 0) * 3600 + (args.minutes or 0) * 60
     deadline = time.time() + seconds if seconds else None
@@ -65,12 +72,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Crawling patch {patch}... (stats refresh every {args.aggregate_every:g} min)")
 
         def checkpoint(progress: CrawlStats) -> None:
-            totals = aggregate(db, patch)
+            totals = aggregate(db, patch, window=window)
             print(f"{time.strftime('%H:%M')} stats refreshed: {sum(totals.values())} matches "
                   f"({', '.join(f'{b} {n}' for b, n in totals.items())}); this run +{progress.total_stored}",
                   flush=True)
 
-        stats = crawler.run(max_matches=args.max_matches, deadline=deadline, checkpoint=checkpoint,
+        stats = crawler.run(max_matches=args.max_matches, deadline=deadline, ids_per_queue=args.ids_per_queue,
+                            checkpoint=checkpoint,
                             checkpoint_every_s=args.aggregate_every * 60)
     except RiotAuthError as e:
         print(f"\n{e}", file=sys.stderr)
@@ -78,7 +86,7 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nInterrupted; aggregating what was stored.")
     finally:
-        totals = aggregate(db, patch)
+        totals = aggregate(db, patch, window=window)
     print(f"\nStored this run: {stats.stored} | other patch: {stats.skipped_other_patch} | "
           f"invalid/remake: {stats.skipped_invalid} | players: {stats.players_crawled} (rejected {stats.players_rejected})")
     print(f"Matches per bracket for {patch}: {totals}\n")
