@@ -24,7 +24,7 @@ from draftassist.config import PROJECT_ROOT
 from draftassist.data.archetypes import Archetype, validate_archetypes
 from draftassist.db.models import Champion, ChampionTag
 from draftassist.engine.model import ROLES
-from draftassist.engine.traits import TAG_MAX, TAGS, TagEntry
+from draftassist.engine.traits import KIT_TAGS, TAG_MAX, TAGS, KitEntry, TagEntry
 
 TAGS_FILE = PROJECT_ROOT / "data" / "champion_tags.yaml"
 HEADER = """\
@@ -33,7 +33,9 @@ HEADER = """\
 # Edit here or on the Tags page (it writes this file). Keys are Data Dragon champion keys.
 # Tags: engage, disengage, poke, dive, pick, splitpush, enchanter, hypercarry
 # archetype / archetype2: the champion's archetype in that role (data/archetypes.py, docs/matchup-archetypes.md).
-# source: video = named in a matchup guide. A line with only an archetype isn't a tag rating.
+# source: video = named in a matchup guide. A line with only an archetype or kit tags isn't a tag rating.
+# Kit tags, 0-3 (docs/matchup-archetypes.md, Stage 2): auto_reliant, auto_denial, max_hp_damage, hard_gap_close,
+# kite, escape, extend_fight, anti_dive, sustain, ability_range
 """
 
 Raw = dict[str, dict[str, TagEntry]]  # champion key -> role -> entry
@@ -46,16 +48,22 @@ def _entry(values: Mapping, where: str, role: str) -> TagEntry:
     reviewed = bool(values.get("reviewed", False))
     archetype, archetype2, source = values.get("archetype"), values.get("archetype2"), values.get("source")
     validate_archetypes(role, archetype, archetype2, source, where)
-    tags = {k: v for k, v in values.items() if k not in _NOT_TAGS}
+    tags = {k: v for k, v in values.items() if k not in _NOT_TAGS and k not in KIT_TAGS}
     unknown = set(tags) - set(TAGS)
     if unknown:
         raise ValueError(f"{where}: unknown tags {sorted(unknown)}")
     out = dict.fromkeys(TAGS, 0)
-    for k, v in tags.items():
+    kit = {}
+    for k, v in values.items():
+        if k in _NOT_TAGS:
+            continue
         if not isinstance(v, int) or isinstance(v, bool) or not 0 <= v <= TAG_MAX:
             raise ValueError(f"{where}: {k} must be an integer 0-{TAG_MAX}, got {v!r}")
-        out[k] = v
-    return TagEntry(out, reviewed, archetype, archetype2, source)
+        if k in TAGS:
+            out[k] = v
+        elif v:
+            kit[k] = v
+    return TagEntry(out, reviewed, archetype, archetype2, source, kit)
 
 
 def load_tags_yaml(path: Path = TAGS_FILE) -> Raw:
@@ -76,6 +84,7 @@ def _line(e: TagEntry) -> str:
     parts = [f"{t}: {e.values[t]}" for t in TAGS if e.values.get(t)]
     parts += [f"{k}: {v}" for k, v in (("archetype", e.archetype), ("archetype2", e.archetype2),
                                        ("source", e.source)) if v]
+    parts += [f"{t}: {e.kit[t]}" for t in KIT_TAGS if e.kit.get(t)]
     parts.append(f"reviewed: {'true' if e.reviewed else 'false'}")
     return "{" + ", ".join(parts) + "}"
 
@@ -107,7 +116,8 @@ def sync_tags(db: Engine, path: Path = TAGS_FILE) -> dict:
                 continue
             for role, e in by_role.items():
                 s.add(ChampionTag(champ_id=ids[key], role=role, reviewed=e.reviewed, archetype=e.archetype,
-                                  archetype2=e.archetype2, archetype_source=e.source, **e.values))
+                                  archetype2=e.archetype2, archetype_source=e.source, kit=dict(e.kit) or None,
+                                  **e.values))
                 loaded += 1
         s.commit()
     return {"loaded": loaded, "unknown": sorted(unknown)}
@@ -119,7 +129,8 @@ def load_tags(db: Engine) -> dict[tuple[int, str], TagEntry]:
         rows = s.exec(select(ChampionTag)).all()
     out = {}
     for r in rows:
-        e = TagEntry({t: getattr(r, t) for t in TAGS}, r.reviewed, r.archetype, r.archetype2, r.archetype_source)
+        e = TagEntry({t: getattr(r, t) for t in TAGS}, r.reviewed, r.archetype, r.archetype2, r.archetype_source,
+                     r.kit or {})
         if e.rated:
             out[(r.champ_id, r.role)] = e
     return out
@@ -133,10 +144,19 @@ def load_archetypes(db: Engine) -> dict[tuple[int, str], Archetype]:
             for r in rows}
 
 
+def load_kit(db: Engine) -> dict[tuple[int, str], KitEntry]:
+    """Kit tags per (champ, role), for engine/traits.KitTraits. Lines without any aren't included."""
+    with Session(db) as s:
+        rows = s.exec(select(ChampionTag)).all()
+    return {(r.champ_id, r.role): KitEntry(dict(r.kit), r.reviewed) for r in rows if r.kit}
+
+
 def update_tag(db: Engine, path: Path, champ_id: int, role: str, values: Mapping[str, int],
-               reviewed: bool, archetype: str | None = None, archetype2: str | None = None) -> TagEntry:
+               reviewed: bool, archetype: str | None = None, archetype2: str | None = None,
+               kit: Mapping[str, int] | None = None) -> TagEntry:
     """Save one champion-role's tags (missing tags = 0) to the file and the table. `archetype` and `archetype2`:
-    None keeps what's written, "" clears it. A changed archetype loses its source: it's no longer the guide's."""
+    None keeps what's written, "" clears it. A changed archetype loses its source: it's no longer the guide's.
+    `kit`: None keeps what's written, otherwise replaces it."""
     if role not in ROLES:
         raise ValueError(f"unknown role {role!r}")
     with Session(db) as s:
@@ -150,8 +170,13 @@ def update_tag(db: Engine, path: Path, champ_id: int, role: str, values: Mapping
     if primary is None:
         secondary = None
     source = old.source if old and old.archetype == primary else None
-    entry = _entry({**values, "reviewed": reviewed, "archetype": primary, "archetype2": secondary, "source": source},
-                   f"{champ.key}.{role}", role)
+    where = f"{champ.key}.{role}"
+    kit_values = dict(old.kit if old else {}) if kit is None else dict(kit)
+    wrong = (set(values) & set(KIT_TAGS)) | (set(kit_values) - set(KIT_TAGS))
+    if wrong:
+        raise ValueError(f"{where}: unknown tags {sorted(wrong)}")
+    entry = _entry({**values, **kit_values, "reviewed": reviewed, "archetype": primary, "archetype2": secondary,
+                    "source": source}, where, role)
     raw.setdefault(champ.key, {})[role] = entry
     dump_tags_yaml(raw, path)
     sync_tags(db, path)

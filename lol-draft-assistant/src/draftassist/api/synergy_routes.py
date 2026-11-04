@@ -23,14 +23,14 @@ from draftassist.data.settings_store import (
 )
 from draftassist.data.synergy_model import fit_synergy_model, load_synergy_model
 from draftassist.data.archetypes import ARCHETYPES, resolve_archetype
-from draftassist.data.tags import load_archetypes, remove_tag, update_tag
+from draftassist.data.tags import load_archetypes, load_kit, remove_tag, update_tag
 from draftassist.data.traits import load_traits
 from draftassist.db.models import Champion
 from draftassist.engine.comp import STYLE_LABELS, STYLES, TIMING_LABELS, badge
 from draftassist.engine.formats import TOURNAMENT
 from draftassist.engine.model import ROLE_LABELS, ROLES
 from draftassist.engine.state import DraftState
-from draftassist.engine.traits import TAGS
+from draftassist.engine.traits import KIT_TAGS, TAGS
 
 if TYPE_CHECKING:
     from draftassist.api.main import Services
@@ -168,10 +168,12 @@ def _archetype_rows(champ: Champion, written: dict, tagged_roles) -> dict:
                      "reviewed": a.reviewed, "untagged": a.untagged}
     return out
 
-def _tag_row(svc: Services, champ: Champion, traits, prof=None, written=None) -> dict:
+def _tag_row(svc: Services, champ: Champion, traits, prof=None, written=None, kits=None) -> dict:
     entries = {role: {"values": dict(e.values), "reviewed": e.reviewed}
                for (c, role), e in traits.tags.items() if c == champ.champ_id}
     written = written if written is not None else load_archetypes(db_of(svc))
+    kits = kits if kits is not None else load_kit(db_of(svc))
+    kit = {r: dict(e.values) for (c, r), e in kits.items() if c == champ.champ_id}
     measured = {role: {k: (None if v is None else round(v, 3)) for k, v in m.items()}
                 for (c, role), m in traits.measured.items() if c == champ.champ_id}
     prof = prof if prof is not None else svc.profiles()
@@ -188,7 +190,7 @@ def _tag_row(svc: Services, champ: Champion, traits, prof=None, written=None) ->
     return {"champ_id": champ.champ_id, "champ": svc.catalog.card(champ.champ_id), "key": champ.key,
             "timing": timing, "identity": identity, "name": champ.name, "roles": champ.roles or [],
             "attack_range": champ.attack_range, "entries": entries, "measured": measured,
-            "untagged": not entries, "archetypes": _archetype_rows(champ, written, entries)}
+            "untagged": not entries, "archetypes": _archetype_rows(champ, written, {*entries, *kit}), "kit": kit}
 
 def _tag_one(svc: Services, champ_id: int) -> dict:
     with Session(db_of(svc)) as s:
@@ -205,10 +207,11 @@ def get_tags(request: Request) -> dict:
         champs = sorted(s.exec(select(Champion)).all(), key=lambda c: c.name)
     prof = svc.profiles()
     written = load_archetypes(db_of(svc))
-    rows = [_tag_row(svc, c, traits, prof, written) for c in champs]
+    kits = load_kit(db_of(svc))
+    rows = [_tag_row(svc, c, traits, prof, written, kits) for c in champs]
     entries = [e for r in rows for e in r["entries"].values()]
     return {"tags": list(TAGS), "roles": list(ROLES), "role_labels": ROLE_LABELS, "styles": STYLE_LABELS,
-            "archetypes": {r: list(words) for r, words in ARCHETYPES.items()},
+            "archetypes": {r: list(words) for r, words in ARCHETYPES.items()}, "kit_tags": list(KIT_TAGS),
             "timings": TIMING_LABELS, "version": svc.catalog.patch, "champions": rows,
             "counts": {"champions": len(rows), "entries": len(entries),
                        "reviewed": sum(e["reviewed"] for e in entries),
@@ -217,11 +220,11 @@ def get_tags(request: Request) -> dict:
 @router.put("/api/tags/{champ_id}/{role}")
 def put_tag(request: Request, champ_id: int, role: str, values: dict[str, int] = Body(...),
             reviewed: bool = Body(...), archetype: str | None = Body(None),
-            archetype2: str | None = Body(None)) -> dict:
+            archetype2: str | None = Body(None), kit: dict[str, int] | None = Body(None)) -> dict:
     svc: Services = request.app.state.services
     _tag_one(svc, champ_id)
     try:
-        update_tag(db_of(svc), svc.tags_path, champ_id, role, values, reviewed, archetype, archetype2)
+        update_tag(db_of(svc), svc.tags_path, champ_id, role, values, reviewed, archetype, archetype2, kit)
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
     svc.invalidate_synergy()

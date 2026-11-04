@@ -6,6 +6,19 @@
 
   const LABELS = { engage: 'Engage', disengage: 'Disengage', poke: 'Poke', dive: 'Dive', pick: 'Pick',
                    splitpush: 'Split', enchanter: 'Enchanter', hypercarry: 'Hypercarry' };
+  // kit interactions for matchups (docs/matchup-archetypes.md, Stage 2)
+  const KIT_LABELS = {
+    auto_reliant: ['Autos', 'Damage mainly from auto attacks'],
+    auto_denial: ['Anti-auto', 'Blocks, dodges or slows auto attacks'],
+    max_hp_damage: ['Max HP', '% max-health or true damage that shreds tanks'],
+    hard_gap_close: ['Gap close', 'Reliable gap close through minions or kites'],
+    kite: ['Kite', 'Can fight at range and move while doing it'],
+    escape: ['Escape', 'Reliable disengage or escape'],
+    extend_fight: ['Long fight', 'Forces long fights: pulls, sticky damage'],
+    anti_dive: ['Anti-dive', 'Kit built to punish divers or assassins'],
+    sustain: ['Sustain', 'Out-heals poke'],
+    ability_range: ['Range', 'Long ability range and wave clear'],
+  };
   const MEASURED = [['cc', 'CC'], ['frontline', 'Front'], ['peel', 'Peel'], ['power_curve', 'Scaling'],
                     ['lane_pressure', 'Lane']];
   let data = $state(null);
@@ -14,6 +27,8 @@
   let roleFilter = $state('all');
   let edits = $state({}); // "champ:role" -> values
   let archEdits = $state({}); // "champ:role" -> {archetype, archetype2}
+  let kitEdits = $state({}); // "champ:role" -> kit tag -> 0..3
+  let view = $state('fight'); // which tag columns: fight (synergy) or kit (matchups)
   let error = $state({});
   let adding = $state({}); // champ id -> role being added
 
@@ -27,7 +42,7 @@
     for (const c of data.champions) {
       if (q && !c.name.toLowerCase().includes(q)) continue;
       // tagged roles, plus archetype-only ones (written or edited: no 0-3 ratings yet)
-      const roles = [...new Set([...Object.keys(c.entries),
+      const roles = [...new Set([...Object.keys(c.entries), ...Object.keys(c.kit),
         ...Object.keys(c.archetypes).filter((r) => !c.archetypes[r].untagged)])];
       if (adding[c.champ_id] && !roles.includes(adding[c.champ_id])) roles.push(adding[c.champ_id]);
       if (!roles.length) {
@@ -56,8 +71,13 @@
   }
   const changed = (c, role, entry) => {
     const e = edits[key(c, role)];
-    return (e && (!entry || data.tags.some((t) => e[t] !== entry.values[t]))) || archEdits[key(c, role)];
+    return (e && (!entry || data.tags.some((t) => e[t] !== entry.values[t]))) || archEdits[key(c, role)]
+      || kitEdits[key(c, role)];
   };
+  const kitValues = (c, role) => kitEdits[key(c, role)] ?? c.kit[role] ?? {};
+  function setKit(c, role, tag, v) {
+    kitEdits[key(c, role)] = { ...kitValues(c, role), [tag]: v };
+  }
   // archetype and optional secondary, per role (docs/matchup-archetypes.md)
   function arch(c, role) {
     const a = c.archetypes[role];
@@ -88,10 +108,12 @@
     delete error[key(c, role)];
     delete edits[key(c, role)];
     delete archEdits[key(c, role)];
+    delete kitEdits[key(c, role)];
     delete adding[c.champ_id];
     replace(res);
   }
-  const save = (c, role, entry, reviewed) => send(c, role, 'PUT', { values: values(c, role, entry), reviewed, ...arch(c, role) });
+  const save = (c, role, entry, reviewed) => send(c, role, 'PUT', { values: values(c, role, entry), reviewed,
+    ...arch(c, role), kit: kitValues(c, role) });
   const remove = (c, role) => send(c, role, 'DELETE');
   const fmt = (v) => (v == null ? '—' : Math.round(v * 100));
 </script>
@@ -109,6 +131,10 @@
           <button class:on={filter === k} onclick={() => (filter = k)}>{l}</button>
         {/each}
       </div>
+      <div class="group">
+        <button class:on={view === 'fight'} onclick={() => (view = 'fight')}>Fight tags</button>
+        <button class:on={view === 'kit'} onclick={() => (view = 'kit')}>Kit tags</button>
+      </div>
       <select bind:value={roleFilter}>
         <option value="all">All roles</option>
         {#each data.roles as r}<option value={r}>{data.role_labels[r]}</option>{/each}
@@ -122,12 +148,17 @@
       marks them reviewed. Untagged champions fall back to their Data Dragon classes. Timing (Early / Late) and the
       measured traits (percentile in the role, 0–100) come from crawled matches and aren't edited here.
       Archetype is per role, for matchups; a blank one uses the suggestion from the champion's class, shown in the
-      list. "guide" marks one named in a matchup guide.
+      list. "guide" marks one named in a matchup guide. Kit tags feed the matchup model; hover a column for its meaning.
+      A champion's kit tags in one role also count for its other roles until you rate those.
     </p>
     <table>
       <thead><tr><th></th><th>Champion</th><th>Role</th><th>Archetype</th>
-        {#each data.tags as t}<th class="num">{LABELS[t]}</th>{/each}
-        <th>Style</th><th>Measured</th><th></th></tr></thead>
+        {#if view === 'kit'}
+          {#each data.kit_tags as t}<th class="num" title={KIT_LABELS[t][1]}>{KIT_LABELS[t][0]}</th>{/each}
+        {:else}
+          {#each data.tags as t}<th class="num">{LABELS[t]}</th>{/each}
+        {/if}
+        {#if view !== 'kit'}<th>Style</th><th>Measured</th>{/if}<th></th></tr></thead>
       <tbody>
         {#each rows as { c, role, entry } (key(c, role))}
           {@const v = role ? values(c, role, entry) : null}
@@ -158,12 +189,23 @@
               </select>
               {#if c.archetypes[role]?.source === 'video'}<span class="tag">guide</span>{/if}
             {/if}</td>
-            {#each data.tags as t}
-              <td class="num">{#if role}
-                <select class="lvl l{v[t]}" value={v[t]} onchange={(ev) => setValue(c, role, entry, t, +ev.target.value)}>
-                  {#each [0, 1, 2, 3] as n}<option value={n}>{n}</option>{/each}
-                </select>{/if}</td>
-            {/each}
+            {#if view === 'kit'}
+              {#each data.kit_tags as t}
+                {@const kv = role ? kitValues(c, role)[t] ?? 0 : 0}
+                <td class="num">{#if role}
+                  <select class="lvl l{kv}" aria-label={KIT_LABELS[t][0]} value={kv} onchange={(ev) => setKit(c, role, t, +ev.target.value)}>
+                    {#each [0, 1, 2, 3] as n}<option value={n}>{n}</option>{/each}
+                  </select>{/if}</td>
+              {/each}
+            {:else}
+              {#each data.tags as t}
+                <td class="num">{#if role}
+                  <select class="lvl l{v[t]}" value={v[t]} onchange={(ev) => setValue(c, role, entry, t, +ev.target.value)}>
+                    {#each [0, 1, 2, 3] as n}<option value={n}>{n}</option>{/each}
+                  </select>{/if}</td>
+              {/each}
+            {/if}
+            {#if view !== 'kit'}
             <td class="stylecol small">
               {#if role && c.identity[role]}
                 {@const id = c.identity[role]}
@@ -179,6 +221,7 @@
                 {#each MEASURED as [k, l]}<span title="{l}: percentile in role">{l} {fmt(m[k])}</span>{/each}
               {:else if role}<span class="muted">no data</span>{/if}
             </td>
+            {/if}
             <td class="actions">
               {#if role}
                 {#if changed(c, role, entry)}
@@ -192,7 +235,7 @@
             </td>
           </tr>
         {:else}
-          <tr><td colspan={data.tags.length + 7} class="muted">Nothing here.</td></tr>
+          <tr><td colspan={view === 'kit' ? data.kit_tags.length + 5 : data.tags.length + 7} class="muted">Nothing here.</td></tr>
         {/each}
       </tbody>
     </table>

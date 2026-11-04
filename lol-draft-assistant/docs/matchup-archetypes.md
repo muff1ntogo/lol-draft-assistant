@@ -246,7 +246,16 @@ Show what's present and what's missing. It's informational: no automatic changes
 9. **Top Rengar and Akali (user).** Diver / skirmisher: assassin types with some sustain. Top has no assassin archetype.
 10. **Patch 16.22 (user, 4 Nov 2026).** EUW moved to 16.22 on 4 Nov. Live uses the new patch (OP.GG blended with the crawl as it grows). Everything stable across patches pools the crawled patches with decay (`data/synergy.crawl_weights`): pairs, traits, Style and Team fits, damage and timing. Stage 3's E, K and `k_r` should use the same window; champion strength in its prior comes from the current patch.
 
+11. **Kit tags stay apart from the 8 synergy tags (Stage 2).** Same YAML line and `reviewed` flag, separate vocabulary (`KIT_TAGS`) and reader (`KitTraits`), so Style, Team and identities can't move. A line with only kit tags isn't a tag rating.
+12. **Kit tags are borrowed across roles (Stage 2),** like the 8 tags and unlike archetypes: a kit is about the champion. Unreviewed ones blend halfway towards the role's average.
+13. **Kit draft scope (Stage 2).** Pools, top 30 per role and the doc's named examples: 141 champions, 209 lines. Each champion has one rating, copied to all its lines, because Claude's judgement here is per kit, not per lane; edit a role on its own on the Tags page. Locke and Zaahen have no kit tags: Claude doesn't know their kits.
+
 ## Built
+
+### Stage 2 (4 Nov 2026)
+- `engine/traits.py`: `KIT_TAGS`, `KitEntry`, `KitTraits.intensity` (for Stage 3's interaction features). `data/tags.py`: `load_kit`; `update_tag` takes `kit` (None keeps, otherwise replaces). `champion_tags.kit` is a JSON column.
+- Tags page: a Fight tags / Kit tags switch; column meanings on hover. `GET /api/tags` adds `kit_tags` and each champion's `kit`; `PUT` takes optional `kit`.
+- Kit tags cover 89–99% of games per role on 16.21, counting borrowed ones. Nothing reads them yet: Stage 3 does.
 
 ### Stage 1 (4 Nov 2026)
 - `data/archetypes.py`: `ARCHETYPES`, `FALLBACK`, `Archetype` (`weight` is 0.5 until reviewed, for Stage 3), `resolve_archetype`, `pool_gaps`.

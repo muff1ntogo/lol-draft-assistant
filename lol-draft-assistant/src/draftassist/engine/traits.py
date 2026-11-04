@@ -13,12 +13,16 @@ It returns None when nothing is known (no tag, no data); the models then treat t
 from __future__ import annotations
 
 from collections.abc import Hashable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from draftassist.engine.mathx import logit
 
 TAGS = ("engage", "disengage", "poke", "dive", "pick", "splitpush", "enchanter", "hypercarry")
 TAG_MAX = 3
+# Kit-interaction traits for the matchup model (docs/matchup-archetypes.md, Stage 2). Kept apart from TAGS: the
+# synergy models, identities and team rules read TAGS only.
+KIT_TAGS = ("auto_reliant", "auto_denial", "max_hp_damage", "hard_gap_close", "kite", "escape", "extend_fight",
+            "anti_dive", "sustain", "ability_range")
 UNREVIEWED_WEIGHT = 0.5
 
 # Power curve: win rate in three game-length buckets (< 25, 25-32, > 32 min), each shrunk towards the
@@ -88,12 +92,13 @@ class TagEntry:
     archetype: str | None = None  # docs/matchup-archetypes.md, Stage 1; written next to the tags in the YAML
     archetype2: str | None = None
     source: str | None = None
+    kit: Mapping[str, int] = field(default_factory=dict)  # kit tag -> 1..3; left out = 0
 
     @property
     def rated(self) -> bool:
-        """False for an archetype-only line: it says nothing about the tags, so the models must not read it as
-        "all tags are 0". A line with no archetype and all zeros is a real rating."""
-        return self.archetype is None or any(self.values.values())
+        """False for a line with only an archetype or kit tags: it says nothing about these tags, so the models
+        must not read it as "all tags are 0". A bare line with all zeros is a real rating."""
+        return any(self.values.values()) or (self.archetype is None and not self.kit)
 
     @property
     def weight(self) -> float:
@@ -108,6 +113,46 @@ class TagEntry:
 
 
 Key = tuple[int, str]  # (champ, role)
+
+
+@dataclass(frozen=True)
+class KitEntry:
+    values: Mapping[str, int]  # kit tag -> 0..3; left out = 0
+    reviewed: bool = False
+
+    def raw(self, tag: str) -> float:
+        return self.values.get(tag, 0) / TAG_MAX
+
+
+@dataclass(frozen=True)
+class KitTraits:
+    """Kit tags read like the other tags: 0-1, unreviewed halfway towards the role's average, borrowed from another
+    role when this one has none (a kit is about the champion). None when the champion has no kit tags at all."""
+    entries: Mapping[Key, KitEntry]
+
+    def __post_init__(self):
+        by_champ: dict[int, KitEntry] = {}
+        for (c, _), entry in sorted(self.entries.items(), key=lambda kv: kv[0][1], reverse=True):
+            by_champ[c] = entry  # alphabetically first role wins
+        object.__setattr__(self, "_by_champ", by_champ)
+        sums: dict[tuple[str, str], list[float]] = {}
+        for (_, role), entry in self.entries.items():
+            for tag in KIT_TAGS:
+                sums.setdefault((role, tag), []).append(entry.raw(tag))
+        object.__setattr__(self, "_role_avg", {k: sum(v) / len(v) for k, v in sums.items()})
+
+    def role_average(self, role: str, tag: str) -> float:
+        return self._role_avg.get((role, tag), 0.0)
+
+    def intensity(self, champ: int, role: str, tag: str) -> float | None:
+        if tag not in KIT_TAGS:
+            raise KeyError(f"unknown kit tag: {tag}")
+        e = self.entries.get((champ, role)) or self._by_champ.get(champ)
+        if e is None:
+            return None
+        if e.reviewed:
+            return e.raw(tag)
+        return UNREVIEWED_WEIGHT * e.raw(tag) + (1 - UNREVIEWED_WEIGHT) * self.role_average(role, tag)
 
 
 @dataclass(frozen=True)

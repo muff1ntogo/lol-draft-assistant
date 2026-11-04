@@ -314,6 +314,7 @@ class ChampionTag(SQLModel, table=True):
     archetype: str | None = None  # docs/matchup-archetypes.md, Stage 1
     archetype2: str | None = None
     archetype_source: str | None = None
+    kit: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))  # kit tag -> 1..3 (Stage 2)
     reviewed: bool = False
 
 
