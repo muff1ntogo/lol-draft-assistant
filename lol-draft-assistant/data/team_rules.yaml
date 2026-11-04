@@ -71,9 +71,9 @@
   prior_pp: +0.5
   note: "The four can hold while one splits"
 - id: poke_without_engage
-  feature: {all: [{sum: poke, cap: 2.0}, {max: not engage}]}
+  feature: {sum: ability_range * not cc_all, cap: 2.0}
   prior_pp: +0.3
-  note: "Poke comp that doesn't need to force fights"
+  note: "Long-range champions with no CC of their own"
 # ---------- ours vs theirs ----------
 - id: engage_vs_disengage
   ours: {max: engage}

@@ -240,19 +240,6 @@ class BootstrapRoleStats(SQLModel, table=True):
     fetched_at: datetime  # timezone-aware (UTC)
 
 
-class ChampionStyle(SQLModel, table=True):
-    """The user's review of a champion's team-fight style (docs/comp-style.md). Overrides the seed file;
-    weights None = the seed confirmed as is."""
-    __tablename__ = "champion_styles"
-
-    champ_id: int = Field(primary_key=True)
-    front_to_back: float | None = None
-    dive: float | None = None
-    poke: float | None = None
-    frontline: bool | None = None
-    updated_at: datetime  # timezone-aware (UTC)
-
-
 class AppSetting(SQLModel, table=True):
     """Small JSON settings edited on the Settings page (e.g. ban value weights)."""
     __tablename__ = "app_settings"

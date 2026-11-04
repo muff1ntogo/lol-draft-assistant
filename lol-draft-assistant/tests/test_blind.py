@@ -1,6 +1,8 @@
 """Stage 6 of docs/matchup-archetypes.md: blind picks, counter picks, who starts the fight, pool health."""
 from __future__ import annotations
 
+import itertools
+
 import pytest
 
 from draftassist.data.rules import TEAM_RULES_FILE, load_team_rules
@@ -9,10 +11,27 @@ from draftassist.engine.blind import blind_safety, blind_table, pool_health
 from draftassist.engine.engine import DraftEngine
 from draftassist.engine.formats import TOURNAMENT
 from draftassist.engine.mathx import sigmoid
-from draftassist.engine.model import ROLES, BracketStats, EngineConfig, EngineData, OurTeam, RoleStat
+from draftassist.engine.model import (
+    ROLES,
+    BracketStats,
+    EngineConfig,
+    EngineData,
+    OurTeam,
+    PoolChamp,
+    RoleStat,
+    comfort_gate,
+    tier_comfort,
+)
 from draftassist.engine.state import SKIPPED, DraftState
 from draftassist.engine.team import TeamModel, parse_team_rules
-from draftassist.engine.traits import IDENTITY_FREE_TAGS, TAGS, ChampionTraits, KitEntry, KitTraits, TagEntry
+from draftassist.engine.traits import (
+    IDENTITY_FREE_TAGS,
+    TAGS,
+    ChampionTraits,
+    KitEntry,
+    KitTraits,
+    TagEntry,
+)
 
 BRACKETS = dict.fromkeys(ROLES, "gold")
 
@@ -128,14 +147,54 @@ def test_the_gate_changes_pick_value_not_the_win_chance():
     assert picks[2].win_prob > picks[1].win_prob  # P(win) itself isn't gated
 
 
-def test_the_gate_shrinks_a_positive_matchup_by_the_tier_factor():
-    wide_open = {"main": 1.0, "comfortable": 1.0, "learning": 1.0}
+def test_the_gate_shrinks_a_positive_matchup_by_the_curve():
     state = _state_they_locked_mid(_gate_engine(5.0))
-    def value(gate):
+    def value(tau):
         e = _gate_engine(5.0)
-        e = DraftEngine(e.data, e.team, EngineConfig(beta=0.0, comfort_gate=gate))
+        e = DraftEngine(e.data, e.team, EngineConfig(beta=0.0, gate_tau=tau))
         return next(p for p in e.suggest_picks(state, k=2, role="mid") if p.champ_id == 2).value
-    assert value(wide_open) - value({"main": 1.0, "comfortable": 0.7, "learning": 0.2}) == pytest.approx(0.25 * 0.8 * 0.2)
+    kept = comfort_gate(tier_comfort("learning"), 0)
+    assert value(1e-9) - value(0.75) == pytest.approx(0.25 * (1 - kept) * 0.2)  # tau near 0: everything kept
+
+
+def test_the_curve_rises_fast_then_levels_off():
+    shares = [comfort_gate(0.5, games) for games in (0, 5, 10, 20, 40, 80)]
+    assert shares == sorted(shares)
+    gains = [b - a for a, b in itertools.pairwise(shares)]
+    per_game = [g / n for g, n in zip(gains, (5, 5, 10, 20, 40))]
+    assert per_game == sorted(per_game, reverse=True)  # each game adds less than the one before
+    assert comfort_gate(2.0, 40) > 0.97 and comfort_gate(2.0, 40) < 1.0
+    assert comfort_gate(-0.24, 0) < 0.1  # a new learning champion
+    assert comfort_gate(-5.0, 0) == 0.0  # no experience at all: nothing, and never negative
+    assert comfort_gate(0.0, 0) > comfort_gate(-0.24, 0)
+    assert comfort_gate(0.5, 10) > comfort_gate(0.5, 0)  # games count on top of the comfort score
+    assert comfort_gate(1.0, 0) > comfort_gate(0.5, 0)  # and the comfort score on top of games
+
+
+def test_tau_sets_how_soon_it_opens():
+    assert comfort_gate(0.0, 0, tau=0.25) > comfort_gate(0.0, 0, tau=0.75) > comfort_gate(0.0, 0, tau=2.0)
+
+
+def test_a_comfortable_champion_is_protected_too():
+    meta = {c: {"mid": RoleStat(0.5, 0.1)} for c in (1, 2, 3)}
+    wr = lambda pp: sigmoid(pp / 25)
+    stats = BracketStats(meta, {("mid", 1, 3): wr(-0.5), ("mid", 2, 3): wr(2.0)})
+    pool = {1: PoolChamp("comfortable", 0.8, 12), 2: PoolChamp("learning", -0.24, 0)}
+    team = OurTeam({"mid": pool}, BRACKETS)
+    engine = DraftEngine(EngineData({"gold": stats}, {1: "Ahri", 2: "Syndra", 3: "Zed"}), team, EngineConfig(beta=0.0))
+    picks = engine.suggest_picks(_state_they_locked_mid(engine), k=2, role="mid")
+    assert [p.champ_id for p in picks] == [1, 2]
+    assert "Your comfortable Ahri" in picks[0].reason and "Syndra (learning, +2.0pp)" in picks[0].reason
+
+
+def test_two_equally_comfortable_champions_are_left_to_the_matchup():
+    meta = {c: {"mid": RoleStat(0.5, 0.1)} for c in (1, 2, 3)}
+    wr = lambda pp: sigmoid(pp / 25)
+    stats = BracketStats(meta, {("mid", 1, 3): wr(-0.5), ("mid", 2, 3): wr(2.0)})
+    pool = {1: PoolChamp("comfortable", 0.8, 12), 2: PoolChamp("comfortable", 0.8, 12)}
+    engine = DraftEngine(EngineData({"gold": stats}, {1: "Ahri", 2: "Syndra", 3: "Zed"}), OurTeam({"mid": pool}, BRACKETS),
+                         EngineConfig(beta=0.0))
+    assert engine.suggest_picks(_state_they_locked_mid(engine), k=2, role="mid")[0].champ_id == 2
 
 
 # ---------- pick order ----------
@@ -143,8 +202,8 @@ def test_early_slots_favour_blind_safety():
     from draftassist.engine.plan import _PickCosts, our_slots
 
     slots = our_slots(TOURNAMENT, "blue")
-    base = dict(role="mid", loss=0.0, counter=None, edge=0.0, roles=1, ban_q=0.0, presence=0.0, risk_weight=0.1,
-                risk_horizon=3, flex_bonus=0.02)
+    base = {"role": "mid", "loss": 0.0, "counter": None, "edge": 0.0, "roles": 1, "ban_q": 0.0, "presence": 0.0, "risk_weight": 0.1,
+                "risk_horizon": 3, "flex_bonus": 0.02}
     safe, risky = _PickCosts(1, blind=3.0, **base), _PickCosts(2, blind=-3.0, **base)
     assert safe.score(slots[0]) > safe.score(slots[-1])
     assert risky.score(slots[0]) < risky.score(slots[-1])
@@ -194,6 +253,22 @@ def test_needs_team_is_rewarded_with_help_and_penalised_without():
     helped = {**alone, (2, "jungle"): tag(dive=3)}
     assert _team_model(alone).team(_comp(COMP_FOLLOW)) < _team_model(plain).team(_comp(COMP_FOLLOW))
     assert _team_model(helped).team(_comp(COMP_FOLLOW)) > _team_model(alone).team(_comp(COMP_FOLLOW))
+
+
+def test_poke_without_engage_fires_only_for_long_range_champions_with_no_cc():
+    kit = KitTraits({(1, "mid"): KitEntry({"ability_range": 3}, True), (2, "mid"): KitEntry({"ability_range": 3}, True),
+                     (3, "mid"): KitEntry({}, True)})
+    measured = {(1, "mid"): {"cc_all": 0.0}, (2, "mid"): {"cc_all": 1.0}, (3, "mid"): {"cc_all": 0.0}}
+    rules = [r for r in load_team_rules(TEAM_RULES_FILE) if r.id == "poke_without_engage"]
+    assert len(rules) == 1
+
+    def fires(champ):
+        model = TeamModel(rules, ChampionTraits(measured, {}, {}, kit), {"poke_without_engage": 1.0})
+        return float(model.features([[(champ, "mid")]])[0, 0])
+
+    assert fires(1) > 0  # long range, no CC
+    assert fires(2) == 0  # long range, but has CC
+    assert fires(3) == 0  # no CC, but short range
 
 
 def test_the_new_tags_stay_out_of_identities():
@@ -249,7 +324,6 @@ def test_an_empty_pool_is_handled():
 # ---------- behind value ----------
 def test_behind_value_is_the_win_rate_when_300_gold_behind(engine):
     from sqlmodel import Session
-
     from test_lane_matchup import FILLER_BLUE, FILLER_RED, _store
 
     from draftassist.data.aggregate import aggregate

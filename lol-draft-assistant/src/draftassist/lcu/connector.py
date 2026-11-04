@@ -48,7 +48,9 @@ class LcuConnector:
         self._thread.start()
 
     def _run(self) -> None:
-        from lcu_driver import Connector  # imported here so tests and demo mode don't need a client
+        from lcu_driver import (
+            Connector,  # imported here so tests and demo mode don't need a client
+        )
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)

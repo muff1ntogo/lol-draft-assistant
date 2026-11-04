@@ -10,13 +10,12 @@ from draftassist.engine.engine import DraftEngine
 from draftassist.engine.formats import DraftFormat, Side
 from draftassist.engine.model import ROLES
 from draftassist.engine.simulate import run_draft
-from draftassist.engine.state import DraftState
 
 LCU_POSITION = {"top": "top", "jungle": "jungle", "mid": "middle", "adc": "bottom", "support": "utility"}
 
 
 def _cells(side: Side) -> list[int]:
-    return list(range(0, 5)) if side == "blue" else list(range(5, 10))
+    return list(range(5)) if side == "blue" else list(range(5, 10))
 
 
 def _turns(fmt: DraftFormat) -> list[list[int]]:
@@ -106,10 +105,3 @@ def demo_sessions(engine: DraftEngine, fmt: DraftFormat, our_side: Side, game_id
     return events
 
 
-def expected_states(events: list[dict], fmt: DraftFormat, our_side: Side) -> list[DraftState]:
-    """Actions encoded in each event (for round-trip tests)."""
-    out = []
-    for e in events:
-        done = sorted((a for turn in e["actions"] for a in turn if a["completed"]), key=lambda a: a["id"])
-        out.append(DraftState(fmt, our_side, tuple(a["championId"] for a in done)))
-    return out

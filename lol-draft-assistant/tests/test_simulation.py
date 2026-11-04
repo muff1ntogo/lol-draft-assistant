@@ -63,6 +63,6 @@ def test_simulation_is_deterministic(synthetic):
 def test_cli_runs_on_a_non_utf8_console():
     env = {**os.environ, "PYTHONIOENCODING": "cp950"}
     out = subprocess.run([sys.executable, "-m", "draftassist.engine.simulate", "--format", "tournament"],
-                         capture_output=True, env=env, timeout=60)
+                         capture_output=True, env=env, timeout=60, check=False)
     assert out.returncode == 0, out.stderr.decode(errors="replace")
     assert b"Model P(win)" in out.stdout

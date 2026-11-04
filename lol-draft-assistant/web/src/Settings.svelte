@@ -16,7 +16,9 @@
   const BLIND_LABELS = { comfort: 'Comfort', matchup: 'Vs likely opponents', synergy: 'With our pools', worst: 'Worst counter',
                          behind: 'Win rate 300+ gold behind', kit: 'Range and escape' };
   let blindWeights = $state({ comfort: 1, matchup: 1, synergy: 1, worst: 1, behind: 1, kit: 1 });
-  let comfortGate = $state({ main: 1, comfortable: 0.7, learning: 0.2 });
+  let gateTau = $state(0.75);
+  // engine/model.py comfort_gate: the share of a counter pick's edge a player keeps
+  const gateShare = (comfort, games) => Math.round(100 * (1 - Math.exp(-(Math.max(comfort + 0.3, 0) + games / 20) / gateTau)));
   let message = $state('');
   let syn = $state({ w_stat: 0.5, w_style: 0.25, w_team: 0.25, conf_k: 200, prior_sd_pp: 1, ban_teamfight_d: 1,
                      plan_ban_bonus: 0.3, plan_pick_bonus: 0.3 });
@@ -38,7 +40,7 @@
     roleFitted = s.role_weights_fitted;
     roleOverride = { ...s.role_weight_override };
     blindWeights = { ...blindWeights, ...s.blind_weights };
-    comfortGate = { ...comfortGate, ...s.comfort_gate };
+    gateTau = s.gate_tau;
     if (s.synergy_v2) syn = { ...s.synergy_v2 };
   });
 
@@ -67,7 +69,7 @@
                              comp_coherence: compCoherence, comp_weight: compWeight, lane_weight: laneWeight,
                              role_weight_override: Object.fromEntries(Object.entries(roleOverride)
                                .filter(([, v]) => v !== '' && v != null).map(([r, v]) => [r, +v])),
-                             blind_weights: blindWeights, comfort_gate: comfortGate }),
+                             blind_weights: blindWeights, gate_tau: gateTau }),
     });
     const body = await res.json();
     if (res.ok) {
@@ -159,12 +161,11 @@
         <label>{BLIND_LABELS[k]} <input type="number" min="0" max="5" step="0.1" bind:value={blindWeights[k]} /></label>
       {/each}
     </div>
-    <div class="row roles">Share of a counter pick's edge kept
-      {#each Object.keys(comfortGate) as t}
-        <label>{t} <input type="number" min="0" max="1" step="0.1" bind:value={comfortGate[t]} /></label>
-      {/each}
-    </div>
-    <p class="muted">Early picks lean on blind safety. Counter picks keep this share of their edge, so a main isn't passed for a small edge on a champion you're learning.</p>
+    <label class="row">Comfort curve (lower = a counter pick pays off sooner)
+      <input type="number" min="0.05" max="5" step="0.05" bind:value={gateTau} /></label>
+    <p class="muted">Counter picks keep a share of their edge that grows with comfort and games, quickly at first and then levelling off:
+      a new learning champion keeps {gateShare(-0.24, 0)}%, a new comfortable one {gateShare(0, 0)}%, 5 games {gateShare(0.6, 5)}%, 20 games {gateShare(1, 20)}%.
+      A much less comfortable champion also can't pass your most comfortable one on an edge of 3pp or less. Early picks lean on blind safety.</p>
 
     <label class="check">
       <input type="checkbox" bind:checked={banSynergy} />

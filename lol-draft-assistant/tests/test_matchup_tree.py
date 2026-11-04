@@ -7,7 +7,14 @@ from sqlmodel import Session
 from draftassist.data.archetypes import ARCHETYPES, load_archetype_plans
 from draftassist.engine.engine import DraftEngine
 from draftassist.engine.matchup_tree import GAP_PP, chip, matchup_tree
-from draftassist.engine.model import ROLES, BracketStats, EngineConfig, EngineData, OurTeam, RoleStat
+from draftassist.engine.model import (
+    ROLES,
+    BracketStats,
+    EngineConfig,
+    EngineData,
+    OurTeam,
+    RoleStat,
+)
 
 BRACKETS = dict.fromkeys(ROLES, "gold")
 TOP = ARCHETYPES["top"]

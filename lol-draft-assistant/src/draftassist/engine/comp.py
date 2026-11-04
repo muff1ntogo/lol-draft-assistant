@@ -71,7 +71,6 @@ class ChampStyle:
     frontline: bool
     source: str  # tags | classes (Data Dragon classes: an untagged champion)
     reviewed: bool  # its tags are reviewed
-    unsure: bool  # untagged: style guessed from classes
 
     def as_dict(self) -> dict[str, float]:
         return dict(zip(STYLES, self.weights))

@@ -150,7 +150,7 @@ def test_pick_order_contested_early_countered_late(side):
 
 
 def test_slot_groups_follow_the_format():
-    groups = lambda f, s: [g for g in dict.fromkeys(x.group for x in our_slots(f, s))]  # noqa: E731
+    groups = lambda f, s: [g for g in dict.fromkeys(x.group for x in our_slots(f, s))]
     assert groups(TOURNAMENT, "blue") == ["B1", "B2–B3", "B4–B5"]
     assert groups(TOURNAMENT, "red") == ["R1–R2", "R3", "R4–R5"]
     assert groups(STANDARD_RANKED, "blue") == ["B1", "B2–B3", "B4–B5"]
@@ -228,7 +228,7 @@ def test_guardrail_fuzz_with_plans():
             assert not unavailable & set(got), where
             assert not set(plan.values()) & set(got), where
             assert all(b.value > 0 and b.relevance >= engine.cfg.min_ban_relevance for b in bans), where
-        for role, rows in fills(c).items():
+        for rows in fills(c).values():
             assert not unavailable & {s.champ for s in rows}
         for b in backups(c).values():
             assert b is None or b.champ not in unavailable

@@ -11,7 +11,12 @@ from test_traits import BLUE, RED, match, store
 
 from draftassist.data.aggregate import aggregate
 from draftassist.data.profiles import load_profiles
-from draftassist.data.synergy import crawl_weights, latest_window, load_damage, load_synergy
+from draftassist.data.synergy import (
+    crawl_weights,
+    latest_window,
+    load_damage,
+    load_synergy,
+)
 from draftassist.data.traits import load_traits
 from draftassist.db.models import (
     BracketTotal,

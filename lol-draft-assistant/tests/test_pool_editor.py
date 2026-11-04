@@ -3,15 +3,26 @@
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
+from test_learning import add_games, entry, seed_champions
 
 from draftassist.api.main import create_app
-from draftassist.data.pools import import_pools, parse_pool_text, remove_pool_entry, set_pool_entry
+from draftassist.data.pools import (
+    import_pools,
+    parse_pool_text,
+    remove_pool_entry,
+    set_pool_entry,
+)
 from draftassist.db.models import Player, PoolEntry
 from draftassist.learning.comfort import comfort_score
-from test_learning import add_games, db, entry  # noqa: F401  (db is a fixture)
 
 AHRI, JINX, LEONA = 103, 222, 89
 NAMES = {AHRI: ("Ahri", "Ahri"), JINX: ("Jinx", "Jinx"), LEONA: ("Leona", "Leona")}
+
+
+
+@pytest.fixture
+def db(engine, session):
+    return seed_champions(engine, session)
 
 
 def mid_puuid(db):

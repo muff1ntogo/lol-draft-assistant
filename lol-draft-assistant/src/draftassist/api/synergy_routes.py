@@ -5,6 +5,7 @@ Split out of api/main.py; every route reads the app's Services from `request.app
 """
 from __future__ import annotations
 
+from datetime import UTC
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Body, HTTPException, Request
@@ -13,6 +14,7 @@ from sqlmodel import Session, select
 from draftassist.api.deps import db_of
 from draftassist.api.prep_view import SCOPES, VIEWS, build_prep_view
 from draftassist.api.synergy import draft_context
+from draftassist.data.archetypes import ARCHETYPES, resolve_archetype
 from draftassist.data.pools import list_players
 from draftassist.data.rules import set_prior
 from draftassist.data.settings_store import (
@@ -22,7 +24,6 @@ from draftassist.data.settings_store import (
     settings_payload,
 )
 from draftassist.data.synergy_model import fit_synergy_model, load_synergy_model
-from draftassist.data.archetypes import ARCHETYPES, resolve_archetype
 from draftassist.data.tags import load_archetypes, load_kit, remove_tag, update_tag
 from draftassist.data.traits import load_traits
 from draftassist.db.models import Champion
@@ -117,7 +118,7 @@ def get_pin(request: Request) -> dict:
 def post_pin(request: Request, locks: dict[str, int] = Body(..., embed=True)) -> dict:
     """"Pin for next game": the plan with its pick order and Combined bans for both sides and formats.
     Live then shows the plan banner and gives the plan's bans and due picks a bonus."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from draftassist.data.settings_store import get_synergy_v2_settings
     from draftassist.engine.plan import build_pin
@@ -128,7 +129,7 @@ def post_pin(request: Request, locks: dict[str, int] = Body(..., embed=True)) ->
     v = get_synergy_v2_settings(svc.db) if svc.db is not None else {}
     pin = build_pin(svc.engine, svc.synergy_v2(), locks, v.get("plan_ban_bonus", 0.3),
                     v.get("plan_pick_bonus", 0.3), v.get("ban_teamfight_d", 1.0))
-    pin["pinned_at"] = datetime.now(timezone.utc).isoformat()
+    pin["pinned_at"] = datetime.now(UTC).isoformat()
     svc.pinned = pin
     if svc.db is not None:
         save_pinned(svc.db, pin)

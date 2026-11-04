@@ -34,7 +34,12 @@ from draftassist.data.pools import (
     PlayerDirectoryDb,
 )
 from draftassist.data.profiles import load_profiles
-from draftassist.data.provider import ChampionCatalog, load_catalog, load_engine_inputs, stats_version
+from draftassist.data.provider import (
+    ChampionCatalog,
+    load_catalog,
+    load_engine_inputs,
+    stats_version,
+)
 from draftassist.data.rules import STYLE_RULES_FILE, TEAM_RULES_FILE
 from draftassist.data.settings_store import (
     engine_config,

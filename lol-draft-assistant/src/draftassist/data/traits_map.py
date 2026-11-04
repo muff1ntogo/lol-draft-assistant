@@ -17,8 +17,6 @@ PARTICIPANT_TRAIT_COLUMNS = ("cc_time", "immobilizations", "dmg_taken_share", "s
 
 # The traits measured from match stats. dmg_* stay real shares (the damage bar needs them); ranged is 0/1
 # from Data Dragon; the rest are percentiles within the role.
-MEASURED_TRAITS = ("cc", "frontline", "peel", "dmg_phys", "dmg_magic", "dmg_true", "power_curve",
-                   "lane_pressure", "ranged")
 
 # cc, frontline and peel are also ranked across every role (`cc_all`, `frontline_all`, `peel_all`, data/traits.py):
 # team rules need them (an ADC in the top tenth of ADC frontline is still not a frontliner).

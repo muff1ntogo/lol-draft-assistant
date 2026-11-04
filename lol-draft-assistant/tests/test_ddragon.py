@@ -1,12 +1,11 @@
 import json
 
 import httpx
+from conftest import SAMPLE_CHAMPIONS, SAMPLE_VERSION
 from sqlmodel import select
 
 from draftassist.data import ddragon
 from draftassist.db.models import Champion
-
-from conftest import SAMPLE_CHAMPIONS, SAMPLE_VERSION
 
 
 def make_client(calls: list[str]) -> httpx.Client:

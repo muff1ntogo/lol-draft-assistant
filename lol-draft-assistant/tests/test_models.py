@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import inspect
@@ -46,7 +46,7 @@ def test_champion_roundtrip_with_json_roles(session):
 
 
 def test_stats_key_is_unique(session):
-    key = dict(patch="15.21", bracket="gold", champ_id=266, role="top")
+    key = {"patch": "15.21", "bracket": "gold", "champ_id": 266, "role": "top"}
     session.add(ChampRoleStats(**key, games=10, wins=5))
     session.commit()
     session.add(ChampRoleStats(**key, games=1, wins=1))
@@ -57,7 +57,7 @@ def test_stats_key_is_unique(session):
 def test_player_pool_and_draft_roundtrip(session):
     session.add(Player(puuid="p1", riot_id="Top#EUW", role="top", rank="Gold IV", bracket="gold"))
     session.add(PoolEntry(puuid="p1", champ_id=897, role="top", manual_tier="main"))
-    draft = Draft(side="blue", played_at=datetime(2026, 11, 6, 20, 0, tzinfo=timezone.utc), queue_id=440)
+    draft = Draft(side="blue", played_at=datetime(2026, 11, 6, 20, 0, tzinfo=UTC), queue_id=440)
     session.add(draft)
     session.commit()
     session.add(DraftAction(draft_id=draft.draft_id, seq=1, side="blue", type="ban", champ_id=0))

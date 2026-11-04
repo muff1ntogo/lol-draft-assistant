@@ -28,7 +28,12 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from draftassist.engine.comp import IDENTITIES, IDENTITY_LABELS, IDENTITY_TERMS
-from draftassist.engine.traits import ChampionTraits, term_role_averages, term_value, validate_term
+from draftassist.engine.traits import (
+    ChampionTraits,
+    term_role_averages,
+    term_value,
+    validate_term,
+)
 
 Comp = Sequence[tuple[int, str]]  # (champ, role); any subset of the five roles
 ROLE_INDEX = {"top": 0, "jungle": 1, "mid": 2, "adc": 3, "support": 4}

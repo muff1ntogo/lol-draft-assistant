@@ -22,7 +22,11 @@ from sqlmodel import Session, select
 from draftassist.data.aggregate import PAIR_K, ROLE_K, shrink
 from draftassist.data.crawler import brackets_in_use
 from draftassist.data.ddragon import BASE_URL
-from draftassist.data.matchup_model import STRENGTH_K, load_matchup_model, smoothed_matchups
+from draftassist.data.matchup_model import (
+    STRENGTH_K,
+    load_matchup_model,
+    smoothed_matchups,
+)
 from draftassist.data.pools import load_team
 from draftassist.data.profiles import load_profiles
 from draftassist.data.traits import load_traits

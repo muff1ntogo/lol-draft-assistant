@@ -17,10 +17,15 @@ import math
 from dataclasses import dataclass, replace
 from itertools import combinations, permutations
 
+from draftassist.engine.bot_lane import PARTNER_TIER_WEIGHT, BotLaneData
 from draftassist.engine.comp import STYLE_LABELS, STYLE_SHARE, STYLES, team_comp
 from draftassist.engine.guards import validate_suggestions
-from draftassist.engine.bot_lane import PARTNER_TIER_WEIGHT, BotLaneData
-from draftassist.engine.lane_ban import BracketLaneData, RoleBanTable, role_ban_table, team_lane_ban
+from draftassist.engine.lane_ban import (
+    BracketLaneData,
+    RoleBanTable,
+    role_ban_table,
+    team_lane_ban,
+)
 from draftassist.engine.model import (
     ROLE_LABELS,
     ROLES,
@@ -28,12 +33,13 @@ from draftassist.engine.model import (
     EngineConfig,
     EngineData,
     OurTeam,
+    comfort_gate,
     logit,
     sigmoid,
 )
 from draftassist.engine.state import DraftState
-from draftassist.engine.traits import STRONG_TAG
 from draftassist.engine.synergy import to_pp
+from draftassist.engine.traits import STRONG_TAG
 
 log = logging.getLogger(__name__)
 
@@ -46,9 +52,9 @@ _KIT_PHRASES = {  # Stage 7: a kit interaction, when it's the biggest term in a 
     "anti_dive*arch:diver": "{c} punishes {opp}'s dive",
     "sustain*ability_range": "{c} out-heals {opp}'s poke",
 }
-DEFAULT_COMFORT_GATE = {"main": 1.0, "comfortable": 0.7, "learning": 0.2}  # Stage 6: "lock in your main"
-LEARNING_EDGE_PP = 3.0  # a learning champion goes above a main only with more edge than this
-MAIN_HOLDS_PP = -1.5  # a main at or above this ("even or slightly losing") holds its place
+COMFORT_GAP = 0.2  # Stage 6, "lock in your main": a champion this much less comfortable can't pass another...
+COUNTER_EDGE_PP = 3.0  # ...unless it has more edge than this...
+HOLDS_AT_PP = -1.5  # ...and the comfortable one holds its place only at or above this ("even or slightly losing")
 _LANE_MENTION_GOLD = 300  # an expected lead this large is always mentioned (user, 4 Nov 2026)
 _PAIR_MENTION_PP = 0.5  # a bot pairing worth at least this gets a reason line
 _LO_TO_PROB = 0.25  # d sigmoid / dx at 0.5: converts small log-odds terms to win-prob units
@@ -205,8 +211,9 @@ class DraftEngine:
         return self._comfort(champ, role)
 
     def _gate(self, champ: int, role: str) -> float:
+        """How much of a counter pick's edge this player can use on this champion."""
         entry = self.team.entry(champ, role)
-        return {**DEFAULT_COMFORT_GATE, **self.cfg.comfort_gate}[entry.tier if entry else "learning"]
+        return comfort_gate(*(entry.comfort, entry.games) if entry else (self.cfg.off_pool_penalty, 0), self.cfg.gate_tau)
 
     def provides_fight_starter(self, champ: int, role: str) -> bool:
         traits = self.data.traits
@@ -830,7 +837,7 @@ class DraftEngine:
             fit = self.coherence(locked, c, r_c, target)
             value = win - cfg.risk_weight * risk + flex + _LO_TO_PROB * fit
             opp = their_by_role.get(r_c)
-            if opp is not None:  # a counter pick keeps only part of its edge, by comfort
+            if opp is not None:  # a counter pick keeps only the part of its edge the player's comfort allows
                 edge = self._our_bracket(r_c).matchup_edge(r_c, c, opp)
                 if edge > 0:
                     value -= _LO_TO_PROB * (1 - self._gate(c, r_c)) * self.role_weight(r_c) * edge
@@ -841,39 +848,41 @@ class DraftEngine:
                                        (_LO_TO_PROB * fit, target))
             out.append(Suggestion(c, self.data.name(c), "pick", value, reason, role=r_c, win_prob=win,
                                   counter_id=counter, counter_risk=risk, comp_fit=fit, plan=in_plan))
-        out = self._main_over_learning(out, their_by_role)
+        out = self._comfort_holds(out, their_by_role)
         out.sort(key=lambda s: (-s.value, s.champ_id))
         return validate_suggestions(state, "pick", out[:k])
 
-    def _main_over_learning(self, picks: list[Suggestion], their_by_role: dict[str, int]) -> list[Suggestion]:
-        """A learning champion never goes above a main with an even or slightly losing matchup, unless its own edge is
-        large. Says so on the main's card when this decides the order."""
+    def _comfort_holds(self, picks: list[Suggestion], their_by_role: dict[str, int]) -> list[Suggestion]:
+        """A much less comfortable champion never goes above the player's most comfortable one in an even or slightly
+        losing matchup, unless its own edge is large. Says so on the card when this decides the order."""
         out = list(picks)
         for role, opp in their_by_role.items():
-            self._hold_main(out, role, opp)
+            self._hold_comfortable(out, role, opp)
         return out
 
-    def _hold_main(self, out: list[Suggestion], role: str, opp: int) -> None:
+    def _hold_comfortable(self, out: list[Suggestion], role: str, opp: int) -> None:
         bracket = self._our_bracket(role)
 
         def edge_pp(champ: int) -> float:
             return 25 * bracket.matchup_edge(role, champ, opp)
 
-        def tier(s: Suggestion) -> str | None:
-            entry = self.team.entry(s.champ_id, role)
-            return entry.tier if entry else None
+        def tier(champ: int) -> str:
+            entry = self.team.entry(champ, role)
+            return entry.tier if entry else "off-pool"
 
-        mains = [i for i, s in enumerate(out) if s.role == role and tier(s) == "main" and edge_pp(s.champ_id) >= MAIN_HOLDS_PP]
-        if not mains:
+        holders = [i for i, s in enumerate(out) if s.role == role and self.team.entry(s.champ_id, role)
+                   and edge_pp(s.champ_id) >= HOLDS_AT_PP]
+        if not holders:
             return
-        top = max(mains, key=lambda i: out[i].value)
+        top = max(holders, key=lambda i: (self._gate(out[i].champ_id, role), out[i].value))
+        held = self._gate(out[top].champ_id, role)
         for i, s in enumerate(out):
-            if s.role == role and tier(s) == "learning" and edge_pp(s.champ_id) <= LEARNING_EDGE_PP \
-                    and s.value >= out[top].value:
+            if s.role == role and self._gate(s.champ_id, role) <= held - COMFORT_GAP \
+                    and edge_pp(s.champ_id) <= COUNTER_EDGE_PP and s.value >= out[top].value:
                 pp = edge_pp(out[top].champ_id)
                 stance = "even" if abs(pp) < 0.5 else _pp(pp)
-                out[top] = replace(out[top], reason=f"{out[top].reason}; Your main {out[top].name} ({stance}) over "
-                                                    f"{s.name} (learning, {_pp(edge_pp(s.champ_id))})")
+                out[top] = replace(out[top], reason=f"{out[top].reason}; Your {tier(out[top].champ_id)} {out[top].name} "
+                                                    f"({stance}) over {s.name} ({tier(s.champ_id)}, {_pp(edge_pp(s.champ_id))})")
                 out[i] = replace(s, value=out[top].value - 1e-6)
 
     # ---------- pick-ahead ----------
@@ -1059,8 +1068,8 @@ class DraftEngine:
                 pair = bot.pair(c, partner) if role == "adc" else bot.pair(partner, c)
                 label = bot.pair_label(c, role)
                 if label and abs(to_pp(pair)) >= _PAIR_MENTION_PP:
-                    terms.append((_LO_TO_PROB * pair, f"Your {self.data.name(partner)}: "
-                                  f"{label.replace('_', ' ')} partner {_pp(to_pp(pair))}"))
+                    terms.append((_LO_TO_PROB * pair, (f"Your {self.data.name(partner)}: "
+                                  f"{label.replace('_', ' ')} partner {_pp(to_pp(pair))}")))
         if flex > 0:
             terms.append((flex, "flex " + "/".join(ROLE_LABELS[r] for r in flex_roles)))
         if fit[0] > 0 and fit[1] is not None:

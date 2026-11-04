@@ -132,7 +132,6 @@ class RiotClient:
         self.limiter = limiter or RateLimiter(sleep=sleep)
         self._sleep, self._clock, self._max_retries = sleep, clock, max_retries
         self.requests_made = 0
-        self.cache_hits = 0
 
     def __repr__(self) -> str:
         return f"RiotClient(cache={self._cache}, requests={self.requests_made})"
@@ -154,7 +153,6 @@ class RiotClient:
         if cache_body and cache.is_file():
             entry = json.loads(cache.read_text(encoding="utf-8"))
             if entry.get("key") == self.key_id and (ttl is None or self._clock() - entry["fetched_at"] < ttl):
-                self.cache_hits += 1
                 return entry["body"]
 
         url = f"https://{host}.api.riotgames.com{path}"

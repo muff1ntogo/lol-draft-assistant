@@ -21,7 +21,7 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import Engine
 from sqlmodel import Session, select
@@ -88,7 +88,7 @@ def rescore(db: Engine, now_ms: int | None = None, games_cap: int | None = None)
                 continue
             games = recent.get((e.puuid, e.champ_id, e.role), [])
             e.games, e.wins = len(games), sum(g.win for g in games)
-            e.last_played = (datetime.fromtimestamp(max(g.game_start_ms for g in games) / 1000, timezone.utc)
+            e.last_played = (datetime.fromtimestamp(max(g.game_start_ms for g in games) / 1000, UTC)
                              if games else None)
             e.comfort = comfort_score(e.manual_tier, e.games, e.wins, cap)
             e.scored_tier = scored_tier(e.manual_tier, e.games, e.wins)

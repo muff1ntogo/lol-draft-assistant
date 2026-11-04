@@ -11,10 +11,24 @@ from draftassist.data.backfill import backfill_traits
 from draftassist.data.crawler import parse_match
 from draftassist.data.ddragon import parse_champions
 from draftassist.data.riot import cache_path
-from draftassist.data.tags import dump_tags_yaml, load_tags, load_tags_yaml, sync_tags, update_tag
+from draftassist.data.tags import (
+    dump_tags_yaml,
+    load_tags,
+    load_tags_yaml,
+    sync_tags,
+    update_tag,
+)
 from draftassist.data.traits import load_traits
-from draftassist.data.traits_map import MEASURED_TRAITS, PARTICIPANT_TRAIT_COLUMNS, parse_traits
-from draftassist.db.models import Champion, ChampionTag, ChampionTraitRow, MatchParticipant
+from draftassist.data.traits_map import (
+    PARTICIPANT_TRAIT_COLUMNS,
+    parse_traits,
+)
+from draftassist.db.models import (
+    Champion,
+    ChampionTag,
+    ChampionTraitRow,
+    MatchParticipant,
+)
 from draftassist.engine.traits import (
     TAGS,
     ChampionTraits,
@@ -77,8 +91,8 @@ def db(engine):
 
 # ---------- 1a: the field mapping ----------
 def test_trait_mapping_reads_a_fixture_match():
-    raw = match("EUW1_1", per_role={0: dict(cc=30, immob=12, taken=40_000, mitigated=50_000, lane=1),
-                                    4: dict(heals=3_000, shields=2_000, taken=5_000)})
+    raw = match("EUW1_1", per_role={0: {"cc": 30, "immob": 12, "taken": 40_000, "mitigated": 50_000, "lane": 1},
+                                    4: {"heals": 3_000, "shields": 2_000, "taken": 5_000}})
     m = parse_match(raw)
     assert len(m.traits) == 10
     top, sup = m.traits[0], m.traits[4]
@@ -92,7 +106,7 @@ def test_trait_mapping_reads_a_fixture_match():
 
 
 def test_trait_mapping_prefers_the_challenges_share_when_present():
-    raw = match("EUW1_1", per_role={0: dict(taken_pct=0.31)})
+    raw = match("EUW1_1", per_role={0: {"taken_pct": 0.31}})
     assert parse_match(raw).traits[0]["dmg_taken_share"] == pytest.approx(0.31)
 
 
@@ -114,7 +128,7 @@ def test_lane_pressure_falls_back_to_the_early_laning_key():
 
 
 def test_crawler_stores_trait_columns(db):
-    store(db, match("EUW1_1", per_role={0: dict(cc=30)}))
+    store(db, match("EUW1_1", per_role={0: {"cc": 30}}))
     with Session(db) as s:
         row = s.get(MatchParticipant, ("EUW1_1", 1))
         assert row.cc_time == 30 and row.immobilizations == 5 and row.lane_adv == 1
@@ -132,7 +146,7 @@ def test_attack_range_from_data_dragon():
 def test_backfill_traits_from_cache_is_idempotent(db, tmp_path):
     from sqlalchemy import text
 
-    raw = match("EUW1_1", per_role={0: dict(cc=42)})
+    raw = match("EUW1_1", per_role={0: {"cc": 42}})
     store(db, raw)
     with db.begin() as conn:  # stored before trait sources were recorded
         conn.execute(text("UPDATE match_participants SET " + ", ".join(f"{c} = NULL" for c in PARTICIPANT_TRAIT_COLUMNS)))
@@ -164,9 +178,9 @@ def test_percentiles_are_in_unit_interval_and_handle_ties_and_nulls():
 def test_traits_are_percentiles_computed_per_role(db):
     # Top 1 CCs more than top 11; supports out-CC everyone in raw terms but are ranked only among supports.
     for i in range(30):
-        store(db, match(f"EUW1_{i}", blue_win=i % 2 == 0, per_role={4: dict(cc=200, heals=5_000)}))
+        store(db, match(f"EUW1_{i}", blue_win=i % 2 == 0, per_role={4: {"cc": 200, "heals": 5_000}}))
         store(db, match(f"EUW1_x{i}", blue=(1, 2, 3, 4, 5), red=(11, 12, 13, 14, 15), blue_win=i % 2 == 1,
-                        per_role={0: dict(cc=50)}))
+                        per_role={0: {"cc": 50}}))
     aggregate(db, "16.21")
     traits = load_traits(db)
     rows = list(traits.measured.values())
@@ -188,7 +202,7 @@ def test_traits_are_percentiles_computed_per_role(db):
 def test_cc_percentile_ranks_within_the_role(db):
     for i in range(30):
         # blue top CCs a lot, red top little; supports CC even more but are another role
-        raw = match(f"EUW1_{i}", blue_win=i % 2 == 0, per_role={4: dict(cc=500)})
+        raw = match(f"EUW1_{i}", blue_win=i % 2 == 0, per_role={4: {"cc": 500}})
         for p in raw["info"]["participants"]:
             if p["championId"] == 1:
                 p["timeCCingOthers"], p["challenges"]["enemyChampionImmobilizations"] = 60, 20
@@ -203,7 +217,7 @@ def test_cc_percentile_ranks_within_the_role(db):
 def test_team_traits_are_percentiles_across_all_roles(db):
     # supports CC far more than tops in raw terms: within the role they tie, across roles they rank higher
     for i in range(30):
-        store(db, match(f"EUW1_{i}", blue_win=i % 2 == 0, per_role={4: dict(cc=500, immob=40)}))
+        store(db, match(f"EUW1_{i}", blue_win=i % 2 == 0, per_role={4: {"cc": 500, "immob": 40}}))
     aggregate(db, "16.21")
     m = load_traits(db).measured
     assert m[(5, "support")]["cc"] == m[(1, "top")]["cc"] == 0.5  # ties within each role
@@ -241,9 +255,6 @@ def test_missing_source_field_gives_null_trait(db):
     assert t["cc"] is not None  # timeCCingOthers alone still gives cc
 
 
-def test_measured_traits_list_is_complete():
-    assert set(MEASURED_TRAITS) == {"cc", "frontline", "peel", "dmg_phys", "dmg_magic", "dmg_true",
-                                    "power_curve", "lane_pressure", "ranged"}
 
 
 # ---------- 1b: judgement tags ----------

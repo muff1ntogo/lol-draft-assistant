@@ -49,8 +49,8 @@ REAL_NAMES = {
 def make_services():
     from draftassist.api.draftlog import DraftLogger
     from draftassist.api.live import LiveHub, LiveService
-    from draftassist.data.pools import PlayerDirectoryDb
     from draftassist.api.main import Services
+    from draftassist.data.pools import PlayerDirectoryDb
     from draftassist.data.provider import ChampionCatalog
     from draftassist.engine.engine import DraftEngine
     from draftassist.engine.simulate import synthetic_data

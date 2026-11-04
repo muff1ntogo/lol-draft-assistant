@@ -1,6 +1,7 @@
 """Comp type and fight style: game length and power curves (docs/comp-style.md, Stage A), and fight style as
 the five comp identities derived from the reviewed tags (the merge in docs/synergy-v2.md)."""
 import json
+from collections.abc import Mapping
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,11 +11,24 @@ from draftassist.api.main import create_app
 from draftassist.data.aggregate import aggregate
 from draftassist.data.backfill import backfill_durations
 from draftassist.data.crawler import Crawler, parse_match
-from draftassist.data.profiles import load_profiles, profiles_from_traits, style_from_classes
-from draftassist.data.tags import sync_tags
+from draftassist.data.profiles import (
+    load_profiles,
+    style_from_classes,
+    style_from_traits,
+)
 from draftassist.data.riot import cache_path
+from draftassist.data.tags import sync_tags
 from draftassist.db.models import Champion, ChampRoleStats, CrawledMatch
-from draftassist.engine.comp import LONG_S, SHORT_S, power_curve, timing_label
+from draftassist.engine.comp import (
+    LONG_S,
+    SHORT_S,
+    ChampionProfiles,
+    ChampStyle,
+    TimingCurve,
+    power_curve,
+    timing_label,
+)
+from draftassist.engine.traits import ChampionTraits
 
 POSITIONS = ("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
 BLUE = (1, 2, 3, 4, 5)
@@ -51,6 +65,24 @@ def db(engine):
 
 
 # ---------- power curve ----------
+def profiles_from_traits(traits: ChampionTraits, class_tags: Mapping[int, list[str]] | None = None,
+                         curves: Mapping[tuple[int, str], TimingCurve] | None = None) -> ChampionProfiles:
+    """Profiles without a database (tests, fixtures): styles from the traits' tags."""
+    styles, role_styles = {}, {}
+    for (c, r) in sorted(traits.tags):
+        got = style_from_traits(traits, c, r)
+        if got is None:
+            continue
+        st = ChampStyle(got[0], got[1], "tags", traits.tags[(c, r)].reviewed)
+        role_styles[(c, r)] = st
+        styles.setdefault(c, st)
+    for c, tags in (class_tags or {}).items():
+        if c not in styles:
+            weights, frontline = style_from_classes(tags)
+            styles[c] = ChampStyle(weights, frontline, "classes", False)
+    return ChampionProfiles(styles, dict(curves or {}), role_styles)
+
+
 def test_power_curve_sign_and_shrinkage():
     p = 0.5
     early = power_curve(wins_short=360, games_short=600, wins_long=240, games_long=600, p=p)  # 60% short, 40% long
@@ -91,8 +123,8 @@ def test_timing_needs_enough_games(db):
 
 
 # ---------- fight style from tags (the merge) ----------
-from draftassist.engine.comp import STYLES, badge, team_comp  # noqa: E402
-from draftassist.engine.traits import TAGS, ChampionTraits, TagEntry  # noqa: E402
+from draftassist.engine.comp import STYLES, badge, team_comp
+from draftassist.engine.traits import TAGS, ChampionTraits, TagEntry
 
 
 def tags(reviewed=False, **v):
@@ -132,7 +164,7 @@ def test_untagged_champions_fall_back_to_classes():
     weights, frontline = style_from_classes(["Tank", "Fighter"])
     assert sum(weights) == pytest.approx(1.0) and frontline
     prof = profiles_from_traits(ChampionTraits({}, {}, {}), class_tags={11: ["Assassin"]})
-    assert prof.style(11).source == "classes" and prof.style(11).unsure
+    assert prof.style(11).source == "classes"
 
 
 def test_team_comp_names_an_identity_with_two_contributors():

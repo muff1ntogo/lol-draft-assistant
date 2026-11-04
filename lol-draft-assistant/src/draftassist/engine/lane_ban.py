@@ -11,11 +11,18 @@ LaneBanData protocol so tests and the engine can supply it without a database.
 """
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Set
+from collections.abc import Iterable, Mapping
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from draftassist.engine.model import ROLES, BracketStats, EngineData, LaneBanConfig, OurTeam
+from draftassist.engine.model import (
+    ROLES,
+    BracketStats,
+    EngineData,
+    LaneBanConfig,
+    OurTeam,
+)
 
 __all__ = ["LaneBanConfig"]  # re-exported; defined in model to avoid an import cycle
 
@@ -121,7 +128,7 @@ def role_ban_table(
     data: LaneBanData,
     role: str,
     pool: Mapping[int, str],  # our player's pool for this role: champ -> tier
-    unavailable: Set[int] = frozenset(),
+    unavailable: AbstractSet[int] = frozenset(),
     locked: int | None = None,
     enemy_filled: bool = False,
     config: LaneBanConfig | None = None,

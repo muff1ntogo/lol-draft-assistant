@@ -13,7 +13,13 @@ import numpy as np
 from sqlalchemy import Engine, text
 from sqlmodel import Session, delete
 
-from draftassist.data.archetypes import ARCHETYPES, PRIORS_FILE, load_archetype_priors, priors_for, resolve_archetype
+from draftassist.data.archetypes import (
+    ARCHETYPES,
+    PRIORS_FILE,
+    load_archetype_priors,
+    priors_for,
+    resolve_archetype,
+)
 from draftassist.data.matchup_model import (
     BEHIND_GOLD,
     BEHIND_K,

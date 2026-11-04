@@ -16,7 +16,7 @@ import logging
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 from sqlalchemy import Engine
@@ -24,7 +24,13 @@ from sqlmodel import Session, col, func, select
 
 from draftassist.data.riot import RiotClient
 from draftassist.data.traits_map import parse_match_traits
-from draftassist.db.models import Champion, CrawledMatch, MatchBan, MatchParticipant, SeedPlayer
+from draftassist.db.models import (
+    Champion,
+    CrawledMatch,
+    MatchBan,
+    MatchParticipant,
+    SeedPlayer,
+)
 
 log = logging.getLogger(__name__)
 
@@ -231,7 +237,7 @@ class Crawler:
             stats.stored[bracket] += 1
         with Session(self.db) as s:
             row = s.get(SeedPlayer, player.puuid)
-            row.last_crawled_at = datetime.fromtimestamp(self._clock(), timezone.utc)
+            row.last_crawled_at = datetime.fromtimestamp(self._clock(), UTC)
             s.add(row)
             s.commit()
         stats.players_crawled += 1

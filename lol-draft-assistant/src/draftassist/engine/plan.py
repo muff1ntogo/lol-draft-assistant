@@ -33,7 +33,12 @@ from itertools import permutations
 import numpy as np
 
 from draftassist.engine.blind import blind_safety
-from draftassist.engine.engine import DraftEngine, Evaluation, Suggestion, enemy_team_ban_prob
+from draftassist.engine.engine import (
+    DraftEngine,
+    Evaluation,
+    Suggestion,
+    enemy_team_ban_prob,
+)
 from draftassist.engine.formats import DraftFormat
 from draftassist.engine.guards import validate_suggestions
 from draftassist.engine.lane_ban import RoleBanTable, team_lane_ban

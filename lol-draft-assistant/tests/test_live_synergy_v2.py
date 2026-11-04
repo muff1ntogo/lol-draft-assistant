@@ -6,6 +6,19 @@ import time
 from dataclasses import replace
 
 import pytest
+from test_engine_synergy import (
+    BANS,
+    DAMAGE,
+    GNAR,
+    KAISA,
+    NAUTILUS,
+    SEJUANI,
+    SYN,
+    TEAM,
+    VI,
+    data,
+    state,
+)
 
 from draftassist.api.live import build_live_view
 from draftassist.data.provider import ChampionCatalog
@@ -19,9 +32,6 @@ from draftassist.engine.synergy_v2 import SynergyEvaluator
 from draftassist.engine.team import TeamModel, parse_team_rules
 from draftassist.engine.traits import TAGS, ChampionTraits, TagEntry
 from draftassist.lcu.parser import LiveDraft
-from test_engine_synergy import (
-    BANS, DAMAGE, GNAR, KAISA, NAUTILUS, SEJUANI, SYN, TEAM, VI, data, state,
-)
 
 STYLE = [{"pair": "ADC-SUP", "when": {"SUP": "engage", "ADC": "dive"}, "prior_pp": 2.0, "note": "All-in bot"}]
 TEAM_RULES = [

@@ -1,6 +1,8 @@
 """Stage 1 of docs/matchup-archetypes.md: the archetype taxonomy per champion and role."""
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
+
 import pytest
 from sqlmodel import Session
 
@@ -8,7 +10,6 @@ from draftassist.data.archetypes import (
     ARCHETYPES,
     Archetype,
     fallback_archetype,
-    pool_gaps,
     resolve_archetype,
 )
 from draftassist.data.tags import (
@@ -47,6 +48,17 @@ Sett:
 Lulu:
   support: {enchanter: 3, reviewed: false}
 """
+
+
+def pool_gaps(pools: Mapping[str, Iterable[str]], raw: Mapping) -> list[tuple[str, str]]:
+    """(role, champion key) for pool champions with no written archetype. `raw` = load_tags_yaml()."""
+    gaps = []
+    for role, keys in pools.items():
+        for key in keys:
+            e = raw.get(key, {}).get(role)
+            if e is None or e.archetype is None:
+                gaps.append((role, key))
+    return gaps
 
 
 @pytest.fixture
@@ -144,7 +156,7 @@ def test_resolve_prefers_the_entry_and_flags_the_fallback():
 def test_fallback_covers_every_champion_role_in_real_use():
     # Every shipped entry resolves, tagged or not, for a champion with any classes.
     raw = load_tags_yaml(TAGS_FILE)
-    for key, by_role in raw.items():
+    for key in raw:
         for role in ROLES:
             got = resolve_archetype({}, key, role, ["Fighter"])
             assert got.primary in ARCHETYPES[role], (key, role)

@@ -9,11 +9,24 @@ from draftassist.data.aggregate import aggregate
 from draftassist.data.archetypes import ARCHETYPES
 from draftassist.data.matchup_model import load_matchup_model
 from draftassist.db.models import Champion, ChampionTag, CrawledMatch, MatchParticipant
-from draftassist.engine.bot_lane import BotLane, BotLaneData, bot_features, fit_bot_game, fit_bot_gold
+from draftassist.engine.bot_lane import (
+    BotLane,
+    BotLaneData,
+    bot_features,
+    fit_bot_game,
+    fit_bot_gold,
+)
 from draftassist.engine.engine import DraftEngine
 from draftassist.engine.formats import TOURNAMENT
 from draftassist.engine.lane_ban import MappingLaneData
-from draftassist.engine.model import ROLES, BracketStats, EngineConfig, EngineData, OurTeam, RoleStat
+from draftassist.engine.model import (
+    ROLES,
+    BracketStats,
+    EngineConfig,
+    EngineData,
+    OurTeam,
+    RoleStat,
+)
 from draftassist.engine.state import DraftState
 
 ADC, SUP = ARCHETYPES["adc"], ARCHETYPES["support"]

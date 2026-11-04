@@ -20,7 +20,13 @@ from draftassist.data.synergy import ALL, latest_window
 from draftassist.data.traits_map import TRAIT_SOURCES
 from draftassist.db.models import Champion, ChampionTraitRow, MatchupFit
 from draftassist.engine.comp import LONG_S, SHORT_S
-from draftassist.engine.traits import ChampionTraits, KitTraits, percentiles, power_curve_slope, ranged
+from draftassist.engine.traits import (
+    ChampionTraits,
+    KitTraits,
+    percentiles,
+    power_curve_slope,
+    ranged,
+)
 
 TRAIT_MIN_GAMES = 20  # fewer raw games in the window: no percentile traits (too noisy)
 

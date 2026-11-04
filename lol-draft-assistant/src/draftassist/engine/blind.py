@@ -100,11 +100,11 @@ def blind_table(engine, role: str) -> dict[int, BlindScore]:
     z = {p: _z({c: raw[c][p] for c in raw}) for p in PARTS}
     weights = engine.cfg.blind_weights
     out = {}
-    for c in raw:
+    for c, values in raw.items():
         comfort = engine.comfort_of(c, role) / COMFORT_SCALE
         parts = {p: z[p][c] for p in PARTS}
         total = weights.get("comfort", 1.0) * comfort + sum(weights.get(p, 1.0) * parts[p] for p in PARTS)
-        out[c] = BlindScore(c, role, total, comfort, parts, raw[c])
+        out[c] = BlindScore(c, role, total, comfort, parts, values)
     cache[role] = out
     return out
 

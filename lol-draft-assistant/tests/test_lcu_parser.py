@@ -5,12 +5,22 @@ from pathlib import Path
 import pytest
 
 from draftassist.engine.engine import DraftEngine
-from draftassist.engine.formats import STANDARD_RANKED, TOURNAMENT
+from draftassist.engine.formats import STANDARD_RANKED, TOURNAMENT, DraftFormat, Side
 from draftassist.engine.simulate import synthetic_data
-from draftassist.lcu.demo import demo_sessions, expected_states
+from draftassist.engine.state import DraftState
+from draftassist.lcu.demo import demo_sessions
 from draftassist.lcu.parser import SessionParseError, detect_format, parse_session
 
 SAMPLE = Path(__file__).resolve().parents[1] / "fixtures" / "lcu" / "sample-tournament"
+
+
+def expected_states(events: list[dict], fmt: DraftFormat, our_side: Side) -> list[DraftState]:
+    """Actions encoded in each event (for round-trip tests)."""
+    out = []
+    for e in events:
+        done = sorted((a for turn in e["actions"] for a in turn if a["completed"]), key=lambda a: a["id"])
+        out.append(DraftState(fmt, our_side, tuple(a["championId"] for a in done)))
+    return out
 
 
 def load_sample():

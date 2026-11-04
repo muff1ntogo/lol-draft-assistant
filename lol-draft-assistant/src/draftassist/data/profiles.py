@@ -15,8 +15,6 @@ database but no longer read.
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from sqlalchemy import Engine, text
 from sqlmodel import Session, select
 
@@ -99,14 +97,14 @@ def load_profiles(db: Engine, patch: str | None, traits: ChampionTraits | None =
             if got is not None:
                 weights, frontline = got
                 reviewed = traits.tag_entry(cid, r).reviewed
-                per_role[r] = ChampStyle(weights, frontline or frontline_class, "tags", reviewed, False)
+                per_role[r] = ChampStyle(weights, frontline or frontline_class, "tags", reviewed)
         if per_role:
             main = next(r for r in roles if r in per_role)
             styles[cid] = per_role[main]
             role_styles |= {(cid, r): st for r, st in per_role.items()}
         else:
             weights, frontline = style_from_classes(champ.tags or [])
-            styles[cid] = ChampStyle(weights, frontline, "classes", False, True)
+            styles[cid] = ChampStyle(weights, frontline, "classes", False)
 
     curves = {}
     if patch is not None:
@@ -124,19 +122,3 @@ def load_profiles(db: Engine, patch: str | None, traits: ChampionTraits | None =
     return ChampionProfiles(styles, curves, role_styles)
 
 
-def profiles_from_traits(traits: ChampionTraits, class_tags: Mapping[int, list[str]] | None = None,
-                         curves: Mapping[tuple[int, str], TimingCurve] | None = None) -> ChampionProfiles:
-    """Profiles without a database (tests, fixtures): styles from the traits' tags."""
-    styles, role_styles = {}, {}
-    for (c, r) in sorted(traits.tags):
-        got = style_from_traits(traits, c, r)
-        if got is None:
-            continue
-        st = ChampStyle(got[0], got[1], "tags", traits.tags[(c, r)].reviewed, False)
-        role_styles[(c, r)] = st
-        styles.setdefault(c, st)
-    for c, tags in (class_tags or {}).items():
-        if c not in styles:
-            weights, frontline = style_from_classes(tags)
-            styles[c] = ChampStyle(weights, frontline, "classes", False, True)
-    return ChampionProfiles(styles, dict(curves or {}), role_styles)

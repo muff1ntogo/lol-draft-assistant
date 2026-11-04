@@ -22,7 +22,13 @@ from sqlmodel import Session, func, select
 from draftassist.config import load_settings
 from draftassist.data.aggregate import aggregate
 from draftassist.data.coverage import coverage, format_report
-from draftassist.data.crawler import LEAGUE_TIERS, Crawler, CrawlStats, brackets_in_use, current_patch
+from draftassist.data.crawler import (
+    LEAGUE_TIERS,
+    Crawler,
+    CrawlStats,
+    brackets_in_use,
+    current_patch,
+)
 from draftassist.data.riot import RiotAuthError, RiotClient, sync_api_key
 from draftassist.data.tags import sync_tags
 from draftassist.data.timelines import backfill_timelines

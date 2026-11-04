@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import Engine
 from sqlmodel import Session, delete, select
@@ -91,7 +91,7 @@ def parse_eog(eog: dict | None) -> tuple[int | None, str | None, str | None]:
 
 
 class DraftLogger:
-    def __init__(self, db: Engine, clock=lambda: datetime.now(timezone.utc), context=None):
+    def __init__(self, db: Engine, clock=lambda: datetime.now(UTC), context=None):
         """`context()` -> (DraftEngine, ChampionCatalog) of the live service, for P(win) after each
         step and the game's patch; without it those fields are filled in on first view."""
         self.db = db

@@ -5,10 +5,10 @@ import pytest
 from draftassist.engine.engine import DraftEngine
 from draftassist.engine.formats import TOURNAMENT
 from draftassist.engine.model import (
+    BanWeights,
     BracketStats,
     EngineConfig,
     EngineData,
-    BanWeights,
     OurTeam,
     RoleStat,
     logit,

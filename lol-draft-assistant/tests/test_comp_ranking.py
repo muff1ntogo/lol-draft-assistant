@@ -4,9 +4,36 @@ from dataclasses import replace
 
 import pytest
 from sqlmodel import Session
+from test_comp_live import PHASE1, PROFILES, style
+from test_engine_synergy import (
+    AZIR,
+    BANS,
+    CATALOG,
+    GNAR,
+    KAISA,
+    KSANTE,
+    META,
+    NAMES,
+    NAUTILUS,
+    ORIANNA,
+    RAKAN,
+    RUMBLE,
+    SEJUANI,
+    TEAM,
+    VI,
+    data,
+    live,
+    rs,
+    state,
+    table,
+)
 
 from draftassist.api.live import build_live_view
-from draftassist.data.settings_store import engine_config, save_engine_settings, settings_payload
+from draftassist.data.settings_store import (
+    engine_config,
+    save_engine_settings,
+    settings_payload,
+)
 from draftassist.db.models import AppSetting
 from draftassist.db.session import init_db
 from draftassist.engine.comp import STYLE_LABELS, STYLES
@@ -15,11 +42,6 @@ from draftassist.engine.model import BracketStats, EngineConfig, EngineData, Our
 from draftassist.engine.state import SKIPPED
 from draftassist.learning.style import STYLES as TEAM_STYLES
 from draftassist.learning.style import classify, get_hand_style, set_hand_style
-from test_comp_live import PHASE1, PROFILES, style
-from test_engine_synergy import (
-    AZIR, BANS, CATALOG, GNAR, KAISA, KSANTE, META, NAMES, NAUTILUS, ORIANNA, RAKAN, RUMBLE, SEJUANI, TEAM, VI,
-    data, live, rs, state, table,
-)
 
 W = EngineConfig().comp_weight
 
@@ -144,7 +166,7 @@ def test_team_page_uses_the_comp_style_labels(db):
                      ("balanced", "mixed")):
         with Session(db) as s:
             row = s.get(AppSetting, "team_style") or AppSetting(key="team_style", value="")
-            row.value = '{"style": "%s"}' % old
+            row.value = f'{{"style": "{old}"}}'
             s.add(row)
             s.commit()
         assert get_hand_style(db) == new, old

@@ -3,13 +3,13 @@ PUUIDs fetched with one key are rejected (400) by another: cached responses carr
 and our players' API PUUIDs must not survive a key change."""
 import httpx
 from sqlmodel import Session, select
+from test_data_pipeline import BLUE, RED, FakeClock, FakeRiot, add_champions, make_match
 
 from draftassist.data.crawler import Crawler
 from draftassist.data.pools import backfill_player_ids
-from draftassist.learning.history import fetch_history
 from draftassist.data.riot import RateLimiter, RiotClient, key_id, sync_api_key
 from draftassist.db.models import CrawledMatch, Player, SeedPlayer
-from test_data_pipeline import BLUE, RED, FakeClock, FakeRiot, add_champions, make_match
+from draftassist.learning.history import fetch_history
 
 KEY_A, KEY_B = "RGAPI-dev-key-aaaa", "RGAPI-app-key-bbbb"
 

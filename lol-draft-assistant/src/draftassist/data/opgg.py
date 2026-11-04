@@ -14,7 +14,7 @@ import json
 import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -111,7 +111,7 @@ def _value(v: str):
             return v
 
 
-HEADER = re.compile(r"^class (\w+): (.+)$", re.M)
+HEADER = re.compile(r"^class (\w+): (.+)$", re.MULTILINE)
 
 
 def parse_lane_meta(raw: str, role: str) -> list[dict]:
@@ -142,7 +142,7 @@ def _norm(name: str) -> str:
 def import_bootstrap(db: Engine, patch: str, rows: list[dict],
                      fetched_at: datetime | None = None) -> tuple[int, list[str]]:
     """Replace the bootstrap rows for `patch`. Returns (rows stored, champion names not matched)."""
-    fetched_at = fetched_at or datetime.now(timezone.utc)
+    fetched_at = fetched_at or datetime.now(UTC)
     with Session(db) as s:
         lookup = {}
         for c in s.exec(select(Champion)).all():

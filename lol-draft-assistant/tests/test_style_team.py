@@ -5,8 +5,19 @@ import math
 import numpy as np
 import pytest
 
-from draftassist.data.rules import STYLE_RULES_FILE, TEAM_RULES_FILE, load_style_rules, load_team_rules
-from draftassist.engine.style import PAIRS, PairObs, StyleModel, fit_style, parse_style_rules
+from draftassist.data.rules import (
+    STYLE_RULES_FILE,
+    TEAM_RULES_FILE,
+    load_style_rules,
+    load_team_rules,
+)
+from draftassist.engine.style import (
+    PAIRS,
+    PairObs,
+    StyleModel,
+    fit_style,
+    parse_style_rules,
+)
 from draftassist.engine.synergy import pair_score
 from draftassist.engine.team import (
     IDENTITIES,
@@ -259,7 +270,7 @@ def test_comp_identity():
     t = {(1, "top"): tags(engage=3), (2, "jungle"): tags(engage=3, dive=2), (3, "mid"): tags(engage=2),
          (4, "adc"): tags(hypercarry=1), (5, "support"): tags(engage=3)}
     traits = ChampionTraits({}, t, {})
-    ident = comp_identity(traits, list((c, r) for (c, r) in t))
+    ident = comp_identity(traits, list(t))
     assert ident.label == "engage" and ident.coherence > 0.7
     assert set(ident.scores) == set(IDENTITIES)
     poke = {(1, "top"): tags(poke=3), (2, "jungle"): tags(poke=2), (3, "mid"): tags(poke=3),
@@ -294,12 +305,12 @@ def test_shipped_team_rules_are_valid():
 
 
 # ---------- fits stored by aggregation, the model loaded back, the Rules page ----------
-from sqlmodel import Session, select  # noqa: E402
+from sqlmodel import Session, select
 
-from draftassist.data.aggregate import aggregate  # noqa: E402
-from draftassist.data.rules import dump_style_rules, dump_team_rules  # noqa: E402
-from draftassist.data.synergy_model import fit_synergy_model, load_synergy_model  # noqa: E402
-from draftassist.db.models import Champion, SynergyFit  # noqa: E402
+from draftassist.data.aggregate import aggregate
+from draftassist.data.rules import dump_style_rules, dump_team_rules
+from draftassist.data.synergy_model import fit_synergy_model, load_synergy_model
+from draftassist.db.models import Champion, SynergyFit
 
 
 @pytest.fixture

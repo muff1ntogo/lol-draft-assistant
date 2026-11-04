@@ -3,29 +3,42 @@ Acceptance: tiers update after each logged game; the report shows predicted win 
 import json
 import math
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 import pytest
+from conftest import REAL_NAMES
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from draftassist.api.main import create_app
 from draftassist.data.pools import import_pools, parse_pool_text, set_players
 from draftassist.data.riot import RateLimiter, RiotClient
-from draftassist.db.models import Champion, Draft, DraftAction, Player, PlayerGame, PoolEntry
+from draftassist.db.models import (
+    Champion,
+    Draft,
+    DraftAction,
+    Player,
+    PlayerGame,
+    PoolEntry,
+)
+from draftassist.engine.comp import ChampionProfiles, ChampStyle
 from draftassist.engine.formats import TOURNAMENT
 from draftassist.engine.model import ROLES, tier_comfort
-from draftassist.learning.comfort import accept, comfort_score, rescore, scored_tier, set_locked, wr_adj
+from draftassist.lcu.demo import demo_sessions
+from draftassist.learning.comfort import (
+    accept,
+    comfort_score,
+    rescore,
+    scored_tier,
+    set_locked,
+    wr_adj,
+)
 from draftassist.learning.history import collect_logged, fetch_history
 from draftassist.learning.jobs import run_learning
 from draftassist.learning.prep import prep_sheet
 from draftassist.learning.report import draft_report, model_check
-from draftassist.engine.comp import ChampionProfiles, ChampStyle
 from draftassist.learning.style import classify, set_hand_style, team_summary
-from draftassist.lcu.demo import demo_sessions
-
-from conftest import REAL_NAMES
 
 NOW_MS = int(time.time() * 1000)
 DAY_MS = 86_400_000
@@ -49,13 +62,17 @@ def test_comfort_formula_and_tiers():
 
 
 # ---------- fixtures ----------
-@pytest.fixture
-def db(engine, session):
+def seed_champions(engine, session):
     for cid, name in REAL_NAMES.items():
         session.add(Champion(champ_id=cid, key=name.replace("'", "").replace(" ", ""), name=name,
                              patch="16.21.1", tags=["Fighter"]))
     session.commit()
     return engine
+
+
+@pytest.fixture
+def db(engine, session):
+    return seed_champions(engine, session)
 
 
 def add_games(db, puuid, champ, role, wins, losses, days_ago=1, source="match-v5"):
@@ -95,7 +112,7 @@ def test_rescore_counts_recent_games_in_the_pool_role(db):
 def test_collect_logged_games_and_match_v5_wins(db):
     import_pools(db, parse_pool_text("ADC\nJinx: main", {c: (n, n) for c, n in REAL_NAMES.items()}))
     with Session(db) as s:
-        d = Draft(game_id=555, side="blue", played_at=datetime.now(timezone.utc), result="win", draft_format="tournament")
+        d = Draft(game_id=555, side="blue", played_at=datetime.now(UTC), result="win", draft_format="tournament")
         s.add(d)
         s.flush()
         s.add(DraftAction(draft_id=d.draft_id, seq=7, side="blue", type="pick", champ_id=222))  # role from the pool
@@ -217,7 +234,7 @@ def test_report_prices_deviations_from_our_top_pick(make_services, db):
 def test_model_check_trend_then_calibration(db):
     with Session(db) as s:
         for i in range(60):
-            s.add(Draft(game_id=i, side="blue", played_at=datetime(2026, 11, 1, tzinfo=timezone.utc).replace(minute=i % 60),
+            s.add(Draft(game_id=i, side="blue", played_at=datetime(2026, 11, 1, tzinfo=UTC).replace(minute=i % 60),
                         result="win" if i % 3 else "loss", pred_win_prob=0.6 if i % 3 else 0.4))
         s.commit()
     check = model_check(db)
@@ -230,7 +247,7 @@ def test_model_check_trend_then_calibration(db):
 def test_style_classification():
     # docs/comp-style.md Stage C: the Live comp panel's rule (more in test_comp_ranking.py)
     def st(ftb, dive, poke, front=False):  # old fixtures as identities: protect, engage, poke
-        return ChampStyle((dive, poke, 0.0, ftb, 0.0), front, "tags", False, False)
+        return ChampStyle((dive, poke, 0.0, ftb, 0.0), front, "tags", False)
     profiles = ChampionProfiles({1: st(0.8, 0.2, 0, True), 2: st(0.6, 0.4, 0, True), 3: st(0.2, 0.8, 0),
                                  4: st(0, 1, 0), 5: st(0.1, 0.2, 0.7), 6: st(0, 0.1, 0.9)}, {})
     assert classify(profiles, [(1, None), (2, None), (5, None)]) == "protect"
@@ -298,7 +315,10 @@ def test_client_linked_player_gets_api_puuid_for_history(db, tmp_path):
 
 
 def test_comfort_cap_setting_drives_engine_and_pools(make_services, db):
-    from draftassist.data.settings_store import get_engine_settings, save_engine_settings
+    from draftassist.data.settings_store import (
+        get_engine_settings,
+        save_engine_settings,
+    )
 
     import_pools(db, parse_pool_text("TOP\nK'Sante: main", {c: (n, n) for c, n in REAL_NAMES.items()}))
     add_games(db, "unresolved:top", 897, "top", 20, 10)
@@ -307,13 +327,13 @@ def test_comfort_cap_setting_drives_engine_and_pools(make_services, db):
     with TestClient(create_app(svc, stats_refresh_s=0)) as client:
         body = client.get("/api/settings").json()
         assert body["comfort_games_cap"] == 10 and body["alpha"] == 1.5 and body["beta"] == 0.3
-        put = dict(ban_weights=body["ban_weights"], ban_declared_intents=False, comfort_games_cap=5)
+        put = {"ban_weights": body["ban_weights"], "ban_declared_intents": False, "comfort_games_cap": 5}
         assert client.put("/api/settings", json=put).status_code == 200
         assert client.put("/api/settings", json={**put, "comfort_games_cap": 0}).status_code == 422
         top = client.get("/api/pools").json()["pools"]["top"][0]
     assert get_engine_settings(db) == {"alpha": 1.5, "beta": 0.3, "comfort_games_cap": 5, "damage_balance": True,
                                        "lane_weight": 0.5, "role_weight_override": {}, "blind_weights": {},
-                                       "comfort_gate": {},
+                                       "gate_tau": 0.75,
                                       "damage_penalty": -0.05, "ban_comp_synergy": False, "comp_coherence": True,
                                           "comp_weight": 0.15}  # alpha/beta kept
     assert top["comfort"] == pytest.approx(round(comfort_score("main", 30, 20, games_cap=5), 2))  # 20W 10L

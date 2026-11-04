@@ -15,7 +15,14 @@ from draftassist.data.tags import (
     update_tag,
 )
 from draftassist.db.models import Champion
-from draftassist.engine.traits import KIT_TAGS, TAGS, ChampionTraits, KitEntry, KitTraits, validate_term
+from draftassist.engine.traits import (
+    KIT_TAGS,
+    TAGS,
+    ChampionTraits,
+    KitEntry,
+    KitTraits,
+    validate_term,
+)
 
 OUR_POOLS = {
     "top": ["Kayle", "Sion", "Jax", "Vayne", "Camille", "Ornn", "Aurora", "KSante"],
@@ -150,7 +157,7 @@ def test_review_flags_are_independent(tag_db, tag_file):
     assert load_tags_yaml(tag_file)["Jax"]["top"].reviewed_arch
 
 
-def test_kit_tags_are_known_terms_rules_may_use_but_no_rule_does():
+def test_kit_tags_are_known_terms_and_only_the_poke_rule_uses_one():
     from draftassist.data.rules import STYLE_RULES_FILE, TEAM_RULES_FILE
 
     kit = KitTraits({(1, "top"): KitEntry({"kite": 3}, reviewed=True)})
@@ -159,9 +166,10 @@ def test_kit_tags_are_known_terms_rules_may_use_but_no_rule_does():
     assert traits.intensity(1, "top", "kite") == 1.0
     assert traits.intensity(2, "top", "kite") is None
     assert ChampionTraits({}, {}, {}).intensity(1, "top", "kite") is None
-    for f in (STYLE_RULES_FILE, TEAM_RULES_FILE):
-        text = f.read_text(encoding="utf-8")
-        assert not [t for t in KIT_TAGS if t in text], f
+    assert not [t for t in KIT_TAGS if t in STYLE_RULES_FILE.read_text(encoding="utf-8")]
+    used = [line for line in TEAM_RULES_FILE.read_text(encoding="utf-8").splitlines()
+            if any(t in line for t in KIT_TAGS) and not line.startswith("#")]
+    assert len(used) == 1 and "ability_range" in used[0]  # poke_without_engage, by the user's definition
 
 
 def test_load_traits_attaches_the_kit(tag_db, tag_file):

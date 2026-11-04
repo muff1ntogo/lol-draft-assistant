@@ -120,7 +120,7 @@ def test_team_vs_enemy_includes_cross_terms():
     ours = {r: pools[r][0] for r in ROLES}
     enemy = [(pools[r][1], r) for r in ROLES]
     res = ev.evaluate(ours, enemy)
-    expected = ev.team.team_vs(list((c, r) for r, c in ours.items()), enemy, fill=True)
+    expected = ev.team.team_vs([(c, r) for r, c in ours.items()], enemy, fill=True)
     assert res.team_vs.total == pytest.approx(expected.total)
     assert any(rule.cross for rule, _ in res.team_vs.contributions)
 
@@ -178,8 +178,8 @@ def test_evaluate_api(make_services, engine):
     team_pools = svc.engine.team.pools
     svc.synergy_v2_override = ev
     with TestClient(create_app(svc, stats_refresh_s=0)) as c:
-        jg, mid = sorted(team_pools["jungle"])[0], sorted(team_pools["mid"])[0]
-        banned = sorted(team_pools["top"])[0]
+        jg, mid = min(team_pools["jungle"]), min(team_pools["mid"])
+        banned = min(team_pools["top"])
         start = time.perf_counter()
         body = c.post("/api/synergy/evaluate", json={
             "champions": [{"champ_id": jg, "role": "jungle"}, {"champ_id": mid, "role": "mid"}],

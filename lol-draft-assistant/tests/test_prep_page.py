@@ -62,7 +62,7 @@ def evaluator() -> SynergyEvaluator:
 
 
 def view(**kw):
-    args = dict(scope="teamfight", view="overall", threshold_pp=0.0)
+    args = {"scope": "teamfight", "view": "overall", "threshold_pp": 0.0}
     return build_prep_view(evaluator(), CATALOG, TEAM, **(args | kw))
 
 

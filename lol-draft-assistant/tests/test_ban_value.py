@@ -5,7 +5,14 @@ import pytest
 
 from draftassist.engine.engine import DraftEngine
 from draftassist.engine.formats import STANDARD_RANKED, TOURNAMENT
-from draftassist.engine.model import BanWeights, BracketStats, EngineConfig, EngineData, OurTeam, RoleStat
+from draftassist.engine.model import (
+    BanWeights,
+    BracketStats,
+    EngineConfig,
+    EngineData,
+    OurTeam,
+    RoleStat,
+)
 from draftassist.engine.simulate import run_draft, synthetic_data
 from draftassist.engine.state import SKIPPED, DraftState
 
@@ -62,12 +69,11 @@ def test_countered_champion_is_not_suggested():
 def test_slider_extremes_rank_by_one_component():
     data, t = synthetic_data()
     for slider, component in ((0.0, "Threat"), (1.0, "Matchup")):
-        engine = DraftEngine(data, t, EngineConfig(ban_weights=BanWeights.from_slider(slider, own=0.0)))
+        engine = DraftEngine(data, t, EngineConfig(ban_weights=BanWeights(threat=2.5 * (1 - slider), matchup=2.5 * slider, own=0.0)))
         rows = engine.ban_breakdown(EMPTY)
         by_value = [r["champ_id"] for r in rows]
         by_component = [r["champ_id"] for r in sorted(rows, key=lambda r: (-r[component], r["champ_id"]))]
         assert by_value == by_component, component
-    assert BanWeights.from_slider(0.3).threat + BanWeights.from_slider(0.3).matchup == pytest.approx(2.5)
 
 
 # 4. Eligibility ---------------------------------------------------------------------------------
@@ -135,11 +141,11 @@ def test_ban_value_speed():
 
 # Settings: weights persist and drive the live engine --------------------------------------------
 def test_settings_api_changes_ban_weights(make_services, engine, session):
+    from conftest import REAL_NAMES
     from fastapi.testclient import TestClient
 
     from draftassist.api.main import create_app
     from draftassist.db.models import Champion
-    from conftest import REAL_NAMES
 
     for cid, name in REAL_NAMES.items():
         session.add(Champion(champ_id=cid, key=name.replace("'", "").replace(" ", ""), name=name, patch="16.21.1"))
@@ -150,7 +156,7 @@ def test_settings_api_changes_ban_weights(make_services, engine, session):
             "ban_weights": {"threat": 1.0, "matchup": 1.5, "comp": 1.0, "own": 1.0}, "slider": 0.6,
             "ban_declared_intents": False, "alpha": 1.0, "beta": 1.0, "comfort_games_cap": 10,
             "damage_balance": True, "damage_penalty": -0.05, "ban_comp_synergy": False,
-            "lane_weight": 0.5, "role_weight_override": {}, "blind_weights": {}, "comfort_gate": {},
+            "lane_weight": 0.5, "role_weight_override": {}, "blind_weights": {}, "gate_tau": 0.75,
             "role_weights_fitted": dict.fromkeys(("top", "jungle", "mid", "adc", "support")),
             "comp_coherence": True, "comp_weight": 0.15,
             "synergy_v2": {"prior_sd_pp": 1.0, "w_stat": 0.5, "w_style": 0.25, "w_team": 0.25, "conf_k": 200.0,

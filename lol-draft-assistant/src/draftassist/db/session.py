@@ -46,7 +46,8 @@ def add_missing_columns(engine: Engine) -> list[str]:
 
 
 # Tables a newer version no longer has. Derived data only (rebuilt by aggregation), so dropping is safe.
-DROPPED_TABLES = ("synergy",)  # role-less duos, replaced by synergy_pairs (docs/synergy-visualizer.md)
+# synergy: role-less duos, replaced by synergy_pairs. champion_styles: the comp-style seed, replaced by the tags.
+DROPPED_TABLES = ("synergy", "champion_styles")
 
 
 def drop_obsolete_tables(engine: Engine) -> list[str]:

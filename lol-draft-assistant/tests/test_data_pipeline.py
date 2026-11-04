@@ -9,7 +9,12 @@ from sqlmodel import Session, select
 from draftassist.data.aggregate import aggregate, shrink
 from draftassist.data.coverage import coverage
 from draftassist.data.crawler import Crawler, parse_match, patch_of
-from draftassist.data.opgg import McpClient, fetch_lane_meta, import_bootstrap, parse_lane_meta
+from draftassist.data.opgg import (
+    McpClient,
+    fetch_lane_meta,
+    import_bootstrap,
+    parse_lane_meta,
+)
 from draftassist.data.provider import load_engine_inputs
 from draftassist.data.riot import RateLimiter, RiotAuthError, RiotClient
 from draftassist.db.models import (
@@ -82,7 +87,7 @@ def test_riot_client_sends_key_header_and_caches(tmp_path):
     c = riot_client(tmp_path, handler)
     assert c.get("europe", "/x", {"a": 1}) == {"ok": True}
     assert c.get("europe", "/x", {"a": 1}) == {"ok": True}
-    assert len(calls) == 1 and c.cache_hits == 1
+    assert len(calls) == 1
     assert calls[0].headers["X-Riot-Token"] == FAKE_KEY
     assert FAKE_KEY not in repr(c)
     assert not any(FAKE_KEY in p.read_text() for p in (tmp_path / "riot").rglob("*.json"))

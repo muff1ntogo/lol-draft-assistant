@@ -11,22 +11,48 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from sqlmodel import Session, select
+from test_matchup_model import arch, features
 
 from draftassist.data.aggregate import aggregate
-from draftassist.data.matchup_model import format_matchup_report, load_matchup_model, load_role_weights
-from draftassist.data.settings_store import engine_config, get_engine_settings, save_engine_settings, settings_payload
+from draftassist.data.matchup_model import (
+    format_matchup_report,
+    load_matchup_model,
+    load_role_weights,
+)
+from draftassist.data.settings_store import (
+    engine_config,
+    get_engine_settings,
+    save_engine_settings,
+    settings_payload,
+)
 from draftassist.data.timelines import backfill_timelines, lane_diffs, store_leads
-from draftassist.db.models import Champion, ChampionTag, CrawledMatch, Matchup, MatchParticipant
+from draftassist.db.models import (
+    Champion,
+    ChampionTag,
+    CrawledMatch,
+    MatchParticipant,
+    Matchup,
+)
 from draftassist.engine.engine import DraftEngine
 from draftassist.engine.formats import TOURNAMENT
 from draftassist.engine.lane_ban import BracketLaneData, RoleBanTable, team_lane_ban
+from draftassist.engine.matchup_model import (
+    empirical_k_gold,
+    fit_lane_gold,
+    fit_lane_slopes,
+    fit_role_weights,
+)
 from draftassist.engine.mathx import sigmoid
-from draftassist.engine.matchup_model import empirical_k_gold, fit_lane_gold, fit_lane_slopes, fit_role_weights
-from draftassist.engine.model import ROLES, BracketStats, EngineConfig, EngineData, OurTeam, RoleStat
+from draftassist.engine.model import (
+    ROLES,
+    BracketStats,
+    EngineConfig,
+    EngineData,
+    OurTeam,
+    RoleStat,
+)
 from draftassist.engine.simulate import synthetic_data
 from draftassist.engine.state import DraftState
-
-from test_matchup_model import arch, features
 
 
 def _store(s, match_id, blue, red, blue_win, gold=None, patch="16.21", bracket="gold"):

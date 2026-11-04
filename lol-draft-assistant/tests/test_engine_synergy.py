@@ -9,7 +9,14 @@ from draftassist.api.live import build_live_view
 from draftassist.data.provider import ChampionCatalog
 from draftassist.engine.engine import DraftEngine
 from draftassist.engine.formats import TOURNAMENT
-from draftassist.engine.model import BracketStats, EngineConfig, EngineData, OurTeam, PoolChamp, RoleStat
+from draftassist.engine.model import (
+    BracketStats,
+    EngineConfig,
+    EngineData,
+    OurTeam,
+    PoolChamp,
+    RoleStat,
+)
 from draftassist.engine.simulate import synthetic_data
 from draftassist.engine.state import SKIPPED, DraftState
 from draftassist.engine.synergy import PairScore, SynergyTable
@@ -220,7 +227,11 @@ def test_pick_turn_budget_with_pairs_on_full_size_data():
 
 # ---------- settings ----------
 def test_damage_and_ban_synergy_settings_round_trip(engine):
-    from draftassist.data.settings_store import engine_config, save_engine_settings, settings_payload
+    from draftassist.data.settings_store import (
+        engine_config,
+        save_engine_settings,
+        settings_payload,
+    )
 
     cfg = engine_config(engine)
     assert (cfg.damage_balance, cfg.damage_penalty, cfg.ban_comp_synergy) == (True, -0.05, False)

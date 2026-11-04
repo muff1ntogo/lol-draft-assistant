@@ -9,12 +9,16 @@ import pytest
 from sqlmodel import Session, select
 
 from draftassist.data.aggregate import shrink
-from draftassist.data.archetypes import ARCHETYPES, Archetype, load_archetype_priors, priors_for
+from draftassist.data.archetypes import (
+    ARCHETYPES,
+    Archetype,
+    load_archetype_priors,
+    priors_for,
+)
 from draftassist.data.matchup_model import format_matchup_report, load_matchup_model
 from draftassist.data.provider import Bootstrap, bracket_stats, load_engine_inputs
-from draftassist.db.models import Champion, CrawledMatch, Matchup, MatchParticipant
+from draftassist.db.models import Champion, CrawledMatch, MatchParticipant, Matchup
 from draftassist.engine.engine import DraftEngine
-from draftassist.engine.mathx import logit, sigmoid
 from draftassist.engine.matchup_model import (
     RoleFeatures,
     empirical_k,
@@ -23,6 +27,7 @@ from draftassist.engine.matchup_model import (
     param_names,
     smooth,
 )
+from draftassist.engine.mathx import logit, sigmoid
 from draftassist.engine.model import BracketStats, EngineData, OurTeam, RoleStat
 from draftassist.engine.traits import KitEntry, KitTraits
 
@@ -203,10 +208,8 @@ def crawled(engine):
             s.add(Champion(champ_id=c, key=f"C{c}", name=f"C{c}", patch="16.21.1", tags=["Mage"]))
         s.commit()
         rng = random.Random(5)
-        i = 0
         juggernauts, ranged, tanks = (1, 2), (3, 4), (5, 6)
-        for _ in range(3000):
-            i += 1
+        for i in range(1, 3001):
             left, right, p_left = rng.choice(((juggernauts, ranged, 0.40), (juggernauts, tanks, 0.60),
                                               (ranged, tanks, 0.40)))
             blue = (rng.choice(left), 10, 11, 12, 13)

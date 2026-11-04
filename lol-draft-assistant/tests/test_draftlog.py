@@ -4,6 +4,7 @@ import json
 
 import httpx
 import pytest
+from conftest import REAL_NAMES
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
@@ -14,8 +15,6 @@ from draftassist.data.riot import RateLimiter, RiotClient
 from draftassist.db.models import Champion, Draft, DraftAction
 from draftassist.engine.formats import TOURNAMENT
 from draftassist.lcu.demo import demo_sessions
-
-from conftest import REAL_NAMES
 
 
 @pytest.fixture

@@ -12,7 +12,14 @@ from draftassist.data.crawler import parse_match
 from draftassist.data.riot import cache_path
 from draftassist.data.settings_store import get_synergy_bracket, save_synergy_bracket
 from draftassist.data.synergy import load_synergy, window_weights
-from draftassist.db.models import Champion, ChampRoleStats, CrawledMatch, MatchParticipant, SynergyPair, SynergyRoleStats
+from draftassist.db.models import (
+    Champion,
+    ChampRoleStats,
+    CrawledMatch,
+    MatchParticipant,
+    SynergyPair,
+    SynergyRoleStats,
+)
 from draftassist.engine.model import logit, sigmoid
 from draftassist.engine.synergy import LOW_DATA_GAMES, pair_score, to_pp
 

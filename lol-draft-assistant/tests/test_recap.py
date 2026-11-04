@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import REAL_NAMES
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
@@ -11,8 +12,6 @@ from draftassist.api.recap import lane_matchup
 from draftassist.db.models import Champion, DraftAction, Matchup
 from draftassist.engine.formats import TOURNAMENT
 from draftassist.lcu.demo import demo_sessions
-
-from conftest import REAL_NAMES
 
 FLEX = Path(__file__).resolve().parents[1] / "fixtures" / "lcu" / "flex-ranked-sample"
 

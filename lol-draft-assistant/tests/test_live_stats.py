@@ -4,6 +4,14 @@ import time
 
 from sqlalchemy import text
 from sqlmodel import Session
+from test_data_pipeline import (
+    BLUE,
+    RED,
+    FakeRiot,
+    add_champions,
+    make_match,
+    riot_client,
+)
 
 from draftassist.data.aggregate import aggregate
 from draftassist.data.crawler import Crawler
@@ -11,8 +19,6 @@ from draftassist.data.opgg import import_bootstrap
 from draftassist.data.provider import load_engine_inputs
 from draftassist.db.models import BracketTotal, SeedPlayer
 from draftassist.db.session import init_db
-
-from test_data_pipeline import BLUE, RED, FakeRiot, add_champions, make_match, riot_client
 
 
 def bootstrap_rows():

@@ -19,7 +19,12 @@ import numpy as np
 from sqlalchemy import Engine, text
 from sqlmodel import Session, delete, select
 
-from draftassist.data.rules import STYLE_RULES_FILE, TEAM_RULES_FILE, load_style_rules, load_team_rules
+from draftassist.data.rules import (
+    STYLE_RULES_FILE,
+    TEAM_RULES_FILE,
+    load_style_rules,
+    load_team_rules,
+)
 from draftassist.data.synergy import ALL, crawl_weights, latest_window, load_synergy
 from draftassist.data.traits import load_traits
 from draftassist.db.models import SynergyFit

@@ -12,7 +12,14 @@ from dataclasses import dataclass
 
 from draftassist.engine.engine import DraftEngine, Suggestion
 from draftassist.engine.formats import DraftFormat, Side, Step, get_format
-from draftassist.engine.model import ROLE_LABELS, ROLES, BracketStats, EngineData, OurTeam, RoleStat
+from draftassist.engine.model import (
+    ROLE_LABELS,
+    ROLES,
+    BracketStats,
+    EngineData,
+    OurTeam,
+    RoleStat,
+)
 from draftassist.engine.state import DraftState
 from draftassist.engine.synergy import PairScore, SynergyTable
 

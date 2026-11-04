@@ -7,7 +7,7 @@ class, flagged `untagged`.
 """
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -149,12 +149,3 @@ def resolve_archetype(entries: Mapping, champ, role: str, classes: Sequence[str]
     return got if got is not None else Archetype(fallback_archetype(role, classes), untagged=True)
 
 
-def pool_gaps(pools: Mapping[str, Iterable[str]], raw: Mapping) -> list[tuple[str, str]]:
-    """(role, champion key) for pool champions with no written archetype. `raw` = load_tags_yaml()."""
-    gaps = []
-    for role, keys in pools.items():
-        for key in keys:
-            e = raw.get(key, {}).get(role)
-            if e is None or e.archetype is None:
-                gaps.append((role, key))
-    return gaps

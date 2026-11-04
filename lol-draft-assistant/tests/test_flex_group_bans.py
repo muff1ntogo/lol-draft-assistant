@@ -9,7 +9,13 @@ from fastapi.testclient import TestClient
 from draftassist.api.main import create_app
 from draftassist.engine.engine import DraftEngine, enemy_team_ban_prob
 from draftassist.engine.formats import STANDARD_RANKED, TOURNAMENT
-from draftassist.engine.model import BracketStats, EngineConfig, EngineData, OurTeam, RoleStat
+from draftassist.engine.model import (
+    BracketStats,
+    EngineConfig,
+    EngineData,
+    OurTeam,
+    RoleStat,
+)
 from draftassist.engine.simulate import synthetic_data
 from draftassist.engine.state import DraftState
 from draftassist.lcu.demo import demo_sessions

@@ -1,6 +1,7 @@
 """Engine inputs: stats per bracket, our team, and tunable weights. Pure data, no I/O."""
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
@@ -16,6 +17,19 @@ ROLE_LABELS = {"top": "Top", "jungle": "Jungle", "mid": "Mid", "adc": "ADC", "su
 TIERS = ("main", "comfortable", "learning")
 # Prior win rate per manual tier (spec, comfort scoring).
 TIER_PRIOR_WR = {"main": 0.53, "comfortable": 0.50, "learning": 0.46}
+
+
+# The comfort gate (docs/matchup-archetypes.md, Stage 6): how much of a counter pick's edge a player can actually use.
+GATE_COMFORT_OFFSET = 0.3  # a new learning champion's comfort is about -0.24: experience starts just above nothing
+GATE_GAMES_PER_UNIT = 20.0  # 20 games count as much as one point of comfort
+DEFAULT_GATE_TAU = 0.75
+
+
+def comfort_gate(comfort: float, games: int, tau: float = DEFAULT_GATE_TAU) -> float:
+    """The share of an edge kept, 0 to 1: 1 - exp(-experience / tau), with experience from the comfort score and games
+    played. It rises quickly at first and levels off: the first games matter most, the fiftieth hardly at all."""
+    experience = max(comfort + GATE_COMFORT_OFFSET, 0.0) + games / GATE_GAMES_PER_UNIT
+    return 1.0 - math.exp(-experience / tau)
 
 
 def tier_comfort(tier: str) -> float:
@@ -184,12 +198,6 @@ class BanWeights:
     comp: float = 1.0
     own: float = 1.0  # self-ban penalty: what banning one of our own pool champions costs us
 
-    @classmethod
-    def from_slider(cls, towards_matchups: float, comp: float = 1.0, own: float = 1.0) -> BanWeights:
-        """towards_matchups in [0, 1]: 0 = all meta threat, 1 = all our matchups."""
-        t = min(max(towards_matchups, 0.0), 1.0)
-        return cls(threat=2.5 * (1 - t), matchup=2.5 * t, comp=comp, own=own)
-
 
 @dataclass(frozen=True)
 class EngineConfig:
@@ -225,7 +233,7 @@ class EngineConfig:
     role_weights: Mapping[str, float] | None = None  # role -> how much its matchups count (None = all 1)
     # docs/matchup-archetypes.md, Stage 6
     blind_weights: Mapping[str, float] = field(default_factory=dict)  # part or "comfort" -> weight (missing = 1)
-    comfort_gate: Mapping[str, float] = field(default_factory=dict)  # tier -> share of a counter pick's edge it keeps
+    gate_tau: float = DEFAULT_GATE_TAU  # how much experience the comfort gate wants: lower = opens sooner
     ban_comp_synergy: bool = False  # ban phase 2: Comp also counts synergy with the enemy's locked picks
     min_ban_relevance: float = 0.10  # bans below this share of still-open roles are wasted
     role_share_floor: float = 0.001  # P(champ in role) for roles with no data, when inferring filled roles

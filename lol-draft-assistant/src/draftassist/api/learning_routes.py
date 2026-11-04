@@ -4,17 +4,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Body, HTTPException, Request
-
 from sqlalchemy import text
 
+from draftassist.api.deps import db_of
 from draftassist.data.archetypes import ARCHETYPES, load_archetype_plans
 from draftassist.data.matchup_model import load_matchup_model, pooled_stats
 from draftassist.engine.blind import pool_health
-from draftassist.engine.matchup_tree import matchup_tree
-from draftassist.api.deps import db_of
 from draftassist.engine.engine import DraftEngine
 from draftassist.engine.formats import TOURNAMENT
 from draftassist.engine.lane_ban import RoleBanTable
+from draftassist.engine.matchup_tree import matchup_tree
 from draftassist.engine.model import ROLE_LABELS, ROLES
 from draftassist.engine.state import DraftState
 from draftassist.learning.prep import prep_sheet

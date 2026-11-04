@@ -3,6 +3,7 @@ See docs/synergy-v2.md."""
 import json
 
 import pytest
+from conftest import REAL_NAMES
 from fastapi.testclient import TestClient
 
 from draftassist.api.main import create_app
@@ -17,8 +18,6 @@ from draftassist.engine.synergy_v2 import SynergyEvaluator
 from draftassist.engine.team import TeamModel
 from draftassist.engine.traits import EMPTY_TRAITS
 from draftassist.lcu.demo import demo_sessions
-
-from conftest import REAL_NAMES
 
 
 def evaluator(data):
@@ -36,7 +35,7 @@ def setup(seed=3):
 
 # ---------- the pinned plan ----------
 def test_pin_holds_orders_and_bans_for_both_sides_and_formats():
-    data, team, engine, plan = setup()
+    data, _team, engine, plan = setup()
     pin = build_pin(engine, evaluator(data), plan)
     assert pin["locks"] == plan
     for fmt in ("tournament", "ranked"):
@@ -53,7 +52,7 @@ def test_pin_holds_orders_and_bans_for_both_sides_and_formats():
 
 # ---------- 1. banner states ----------
 def test_banner_intact_at_risk_broken():
-    data, team, engine, plan = setup()
+    data, _team, engine, plan = setup()
     pin = build_pin(engine, evaluator(data), plan)
     st = DraftState(TOURNAMENT, "blue")
     assert pin_effects(pin, st).banner["state"] == "intact"
@@ -115,7 +114,7 @@ def test_replayed_draft_banner_changes_when_a_plan_champion_is_banned(svc):
 
 # ---------- 2. bonuses ----------
 def test_ban_bonus_only_for_plan_bans_and_guardrails_win():
-    data, team, engine, plan = setup()
+    _data, _team, engine, _plan = setup()
     st = DraftState(TOURNAMENT, "blue")
     base = engine.suggest_bans(st, k=200)
     positive = [s for s in base if s.value > 0]
@@ -131,7 +130,7 @@ def test_ban_bonus_only_for_plan_bans_and_guardrails_win():
 
 
 def test_pick_bonus_only_at_the_plan_champions_slot():
-    data, team, engine, plan = setup()
+    data, _team, engine, plan = setup()
     pin = build_pin(engine, evaluator(data), plan)
     order = {o["champ"]: o["n"] for o in pin["orders"]["tournament"]["blue"]}
     first = min(order, key=order.get)

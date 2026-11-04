@@ -14,7 +14,13 @@ from sqlalchemy import Engine
 from sqlmodel import Session, select
 
 from draftassist.data.crawler import brackets_in_use, current_patch
-from draftassist.db.models import BootstrapRoleStats, BracketTotal, Champion, ChampRoleStats, Matchup
+from draftassist.db.models import (
+    BootstrapRoleStats,
+    BracketTotal,
+    Champion,
+    ChampRoleStats,
+    Matchup,
+)
 
 MIN_GAMES = 200
 REAL_LANE_ROLE_RATE = 0.10
@@ -79,8 +85,8 @@ def format_report(db: Engine, patch: str, report: dict[str, BracketCoverage], to
     with Session(db) as s:
         names = {c.champ_id: c.name for c in s.exec(select(Champion)).all()}
     n = lambda c: names.get(c, f"#{c}")
-    lines = [f"Coverage for patch {patch} (real lane = role share >= {REAL_LANE_ROLE_RATE:.0%}; "
-             f"covered = {MIN_GAMES}+ games)"]
+    lines = [(f"Coverage for patch {patch} (real lane = role share >= {REAL_LANE_ROLE_RATE:.0%}; "
+             f"covered = {MIN_GAMES}+ games)")]
     for cov in report.values():
         lines.append(f"\n{cov.bracket.upper():<8} {cov.matches} matches | lanes covered {cov.covered}/{cov.real_lanes}"
                      f" | sparse matchups {len(cov.sparse_matchups)}/{cov.matchup_pairs}"

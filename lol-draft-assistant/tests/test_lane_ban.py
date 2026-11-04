@@ -35,18 +35,18 @@ OURS_MAIN, OURS_COMF, OURS_LEARN = 201, 202, 203
 
 
 def provider(**overrides):
-    base = dict(
-        pick_rates={"top": {OPP1: 0.12, OPP2: 0.08, OPP3: 0.05}},
-        ban_rates={},
-        matchups={
+    base = {
+        "pick_rates": {"top": {OPP1: 0.12, OPP2: 0.08, OPP3: 0.05}},
+        "ban_rates": {},
+        "matchups": {
             ("top", OURS_MAIN, OPP1): 0.47,
             ("top", OURS_COMF, OPP1): 0.45,
             ("top", OURS_MAIN, OPP2): 0.52,
             ("top", OURS_COMF, OPP2): 0.55,
             ("top", OURS_MAIN, OPP3): 0.50,
         },
-        role_wrs={("top", OURS_MAIN): 0.51, ("top", OURS_COMF): 0.49, ("top", OURS_LEARN): 0.50},
-    )
+        "role_wrs": {("top", OURS_MAIN): 0.51, ("top", OURS_COMF): 0.49, ("top", OURS_LEARN): 0.50},
+    }
     base.update(overrides)
     return MappingLaneData(**base)
 

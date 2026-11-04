@@ -4,6 +4,26 @@ import time
 from dataclasses import replace
 
 import pytest
+from test_engine_synergy import (
+    AZIR,
+    BANS,
+    CATALOG,
+    GNAR,
+    KAISA,
+    KSANTE,
+    NAUTILUS,
+    ORIANNA,
+    RAKAN,
+    RELL,
+    RUMBLE,
+    SEJUANI,
+    TEAM,
+    VARUS,
+    VI,
+    data,
+    live,
+    state,
+)
 
 from draftassist.api.live import build_live_view
 from draftassist.api.prep_view import build_prep_view
@@ -21,15 +41,11 @@ from draftassist.engine.formats import STANDARD_RANKED, TOURNAMENT
 from draftassist.engine.simulate import synthetic_data
 from draftassist.engine.state import SKIPPED, DraftState
 from draftassist.lcu.parser import Slot
-from test_engine_synergy import (
-    AZIR, BANS, CATALOG, GNAR, KAISA, KSANTE, NAUTILUS, ORIANNA, RAKAN, RELL, RUMBLE, SEJUANI, TEAM, VARUS, VI,
-    data, live, state,
-)
 
 
 def style(ftb, dive, poke, frontline=False):
     """Old three-style fixtures as identities: front to back -> protect, dive -> engage, poke -> poke."""
-    return ChampStyle((dive, poke, 0.0, ftb, 0.0), frontline, "tags", False, False)
+    return ChampStyle((dive, poke, 0.0, ftb, 0.0), frontline, "tags", False)
 
 
 STYLES = {

@@ -198,8 +198,8 @@ blind_safety(champ, player) = comfort(tier) + worst_plausible_counter + behind_v
 - `safety_kit` = f(`ability_range`, `escape`), plus wave clear where tagged ("good range or wave clear and ideally an escape tool").
 
 **Comfort gates counter picks** ("lock in your main"):
-- A counter-pick suggestion's matchup term is multiplied by a comfort factor: main 1.0, comfortable 0.7, learning 0.2 (configurable).
-- Learning-tier champions can still appear, but never above a main with an even or slightly losing matchup, unless their matchup edge is more than 3pp. Add a reason when this rule decides the order: `"Your main Ahri (even) over Syndra (learning, +2.4pp)"`.
+- A counter-pick suggestion's matchup term is multiplied by a comfort gate that scales non-linearly with the comfort score and games played (decision 40).
+- A much less comfortable champion can still appear, but never above the player's most comfortable one in an even or slightly losing matchup, unless its edge is more than 3pp. Add a reason when this rule decides the order: `"Your main Ahri (even) over Syndra (learning, +2.4pp)"`.
 - β (comfort) stays a manual Settings value (decided 4 Nov 2026): no comparison run, and the default doesn't change.
 
 **Pick order by slot:** early slots favour high `blind_safety`; late slots (when the enemy laner is known) favour the Lane-matchup counter, gated by comfort. This refines `engine/plan.py`'s contest / counter / flex ordering. Keep that formula and add `blind_safety` to the early-priority term.
@@ -307,13 +307,14 @@ Show what's present and what's missing. It's informational: no automatic changes
    - Out-of-lane matchups come later: not in the first version.
 38. **Stage 6 and 7 built tonight, ahead of the audit (user, 4 Nov 2026).** Their numbers refit as gold arrives.
 39. **What counts as blind-safe (Stage 6).** A total of 0 or more: average or better for the role, comfort included. Comfort is the tier comfort / 0.3, about the size of a z-score. Both are easy to change.
-40. **The comfort gate (Stage 6).** Shrinks only a positive edge, in pick value and not in P(win). "Even or slightly losing" for a main = −1.5pp or better. It only fires for `main`: today's pools have one main (Aphelios) and the rest comfortable or learning, so it mostly won't fire until tiers change.
-41. **`has_fight_starter` (Stage 6).** `{max_any: [engage, setup]}`, prior +1.5 as `has_engage` had. `followup_without_setup` and `needs_team_alone` use `{none: [..]}` rather than the `{max: not x}` of `poke_without_engage`, which is 1 whenever any one champion lacks x. That older rule is unchanged: worth a look.
+40. **The comfort gate is a curve (user, 4 Nov 2026).** Not fixed shares per tier: gate = 1 − exp(−experience / τ), experience = max(comfort + 0.3, 0) + games / 20, τ = 0.75 (Settings). It rises quickly and levels off. It shrinks only a positive edge, in pick value and not in P(win). The "lock in your main" rule works on it too, so it covers comfortable champions: a champion at least 0.2 of gate below the player's most comfortable one (which must be −1.5pp or better) can't pass it on an edge of 3pp or less.
+41. **`has_fight_starter` (Stage 6).** `{max_any: [engage, setup]}`, prior +1.5 as `has_engage` had. `followup_without_setup` and `needs_team_alone` use `{none: [..]}`.
 42. **The check strip (Stage 6).** Early = 3 or more enemy picks to come. Fight starter = a locked champion with engage or setup 2+. Frontline = the same flag as the comp panels.
 43. **Pick order (Stage 6).** Blind safety adds 0.5pp per point, scaled by the share of enemy picks still to come. Only with real data: fixtures are unchanged.
 44. **Matchup tree (Stage 7).** Chips: covered at 0pp or better, thin to −1.5pp, gap below. The expectation is the fit's archetype coefficient. Live reasons use the matchup's biggest fitted term; kit phrases are generic ("Kayle blocks Darius's autos"), since the tags don't name abilities. Plan lines beyond the doc's two are Claude's, from the guides' grids: edit them in `data/archetype_matchups.yaml`.
-
 45. **The Matchup tree reads the whole window (user, 4 Nov 2026).** There's far more 16.21 data than 16.22, so the tree's pair records and strength pool every crawled patch (newer ones counting more) and every tier, with "most picked" from the player's tier. This is `data/matchup_model.pooled_stats`. Live stays on the current patch, and the health card on the tree still reads Live's numbers.
+46. **`poke_without_engage` (user, 4 Nov 2026).** Fires only for champions with long ability range and no CC of their own, per champion: `{sum: ability_range * not cc_all, cap: 2.0}`. It was `{max: not engage}`, which fired whenever any one champion lacked engage. Unlike the other kit tags, `ability_range` now feeds this one team rule; no cross-team rule uses it, so it isn't counted in the lane matchup.
+47. **Removed as obsolete (user, 4 Nov 2026).** The `champion_styles` table (empty on the real database; dropped at the next start); `Trio`; `from_slider`; `cache_hits`; `MEASURED_TRAITS`; `ChampStyle.unsure`; the audit's pre-decomposition comparison. Helpers only tests used moved into those tests: `pool_gaps`, `profiles_from_traits`, `expected_states`.
 
 ## Findings
 
