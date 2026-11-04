@@ -19,6 +19,7 @@ from itertools import combinations, permutations
 
 from draftassist.engine.comp import STYLE_LABELS, STYLE_SHARE, STYLES, team_comp
 from draftassist.engine.guards import validate_suggestions
+from draftassist.engine.bot_lane import BotLaneData
 from draftassist.engine.lane_ban import BracketLaneData, RoleBanTable, role_ban_table, team_lane_ban
 from draftassist.engine.model import (
     ROLE_LABELS,
@@ -36,8 +37,9 @@ from draftassist.engine.synergy import to_pp
 log = logging.getLogger(__name__)
 
 US, THEM = "us", "them"
-_LANE_REASON_GOLD = 50  # lane lead, and game pp, below which lane and game aren't said to disagree
-_GAME_REASON_PP = 0.25
+_PARTNER_TIER_WEIGHT = {"main": 3.0, "comfortable": 2.0, "learning": 1.0}
+_LANE_MENTION_GOLD = 300  # an expected lead this large is always mentioned (user, 4 Nov 2026)
+_PAIR_MENTION_PP = 0.5  # a bot pairing worth at least this gets a reason line
 _LO_TO_PROB = 0.25  # d sigmoid / dx at 0.5: converts small log-odds terms to win-prob units
 
 
@@ -283,6 +285,11 @@ class DraftEngine:
         for c, r in our_roles.items():
             if (opp := their_by_role.get(r)) is not None:
                 lane += self.role_weight(r) * self._our_bracket(r).matchup_edge(r, c, opp)
+        if (bot := self.data.bot) is not None:  # 2v2: cross terms only; the pairing is in synergy
+            our_by_role = {r: c for c, r in our_roles.items()}
+            cross = bot.game_cross(our_by_role.get("adc"), our_by_role.get("support"),
+                                   their_by_role.get("adc"), their_by_role.get("support"))
+            lane += cross * (self.role_weight("adc") + self.role_weight("support")) / 2
         if self.data.synergy_v2 is not None:
             syn_us, syn_them, team = syn if syn is not None else self._syn_v2(ours, our_roles, theirs, their_roles)
             return Terms(meta_us, comfort, meta_them, syn_us, syn_them, lane, 0.0, team)
@@ -473,9 +480,14 @@ class DraftEngine:
             our_by_role.setdefault(r, c)
         their_filled = set(ev.their_roles.values())
         unavailable = state.unavailable()
+        data = self._lane_data
+        if self.data.bot is not None:  # 2v2: our partner (locked, else expected from the pool) and the enemy's
+            partners = {r: self._expected_partners(r, our_by_role.get(r), unavailable) for r in ("adc", "support")}
+            enemy = {r: c for c, r in ev.their_roles.items()}
+            data = BotLaneData(data, self.data.bot, partners, enemy, self.cfg.lane_weight)
         return {
             r: role_ban_table(
-                self._lane_data, r,
+                data, r,
                 {c: e.tier for c, e in self.team.pools.get(r, {}).items()},
                 unavailable=unavailable,
                 locked=our_by_role.get(r),
@@ -484,6 +496,14 @@ class DraftEngine:
             )
             for r in ROLES
         }
+
+    def _expected_partners(self, role: str, locked: int | None, unavailable) -> list[tuple[int, float]]:
+        """Who plays `role` on our team: the locked champion, else the pool weighted by tier."""
+        if locked is not None:
+            return [(locked, 1.0)]
+        pool = [(c, _PARTNER_TIER_WEIGHT[e.tier]) for c, e in self.team.pools.get(role, {}).items() if c not in unavailable]
+        total = sum(w for _, w in pool)
+        return [(c, w / total) for c, w in pool] if total else []
 
     def lane_ban_tables(self, state: DraftState, plan: dict[str, int] | None = None) -> dict[str, RoleBanTable]:
         """Per-role lane ban tables (Opp / PR / Resp / via / Ban) for the Prep page and API; `plan` treats our
@@ -910,20 +930,16 @@ class DraftEngine:
         return self.cfg.role_weights.get(role, 1.0) if self.cfg.role_weights else 1.0
 
     def _matchup_term(self, bracket: BracketStats, role: str, c: int, opp: int) -> tuple[float, str]:
-        """A reason's (value, text) for the lane opponent: both numbers when lane and game disagree."""
-        name = self.data.name(opp)
-        game = bracket.matchup_edge(role, c, opp)
+        """A reason's (value, text) for the lane opponent's game matchup."""
+        return _LO_TO_PROB * bracket.matchup_edge(role, c, opp), f"counters their {self.data.name(opp)}"
+
+    def _lane_note(self, bracket: BracketStats, role: str, c: int, opp: int) -> str | None:
+        """The expected gold lead when it's past 300, with the game matchup: figures, not a verdict. The user reads them."""
         gold = bracket.lane_gold_of(role, c, opp)
-        default = (_LO_TO_PROB * game, f"counters their {name}")
-        if gold is None:
-            return default
-        game_pp = 25 * game
-        if abs(gold) < _LANE_REASON_GOLD or abs(game_pp) < _GAME_REASON_PP or gold * game_pp > 0:
-            return default
-        lead = f"{'+' if gold > 0 else '\u2212'}{abs(gold):.0f} gold"
-        text = (f"{'Wins' if gold > 0 else 'Loses'} lane vs {name} {lead}, "
-                f"{'wins' if game_pp > 0 else 'loses'} game {_pp(game_pp)}")
-        return _LO_TO_PROB * max(game, bracket.lane_logodds(role, c, opp)), text
+        if gold is None or abs(gold) < _LANE_MENTION_GOLD:
+            return None
+        lead = f"{'+' if gold > 0 else '\u2212'}{abs(gold):.0f}"
+        return f"{lead} gold at 15 vs {self.data.name(opp)}, game {_pp(25 * bracket.matchup_edge(role, c, opp))}"
 
     def _pick_reason(self, c: int, role: str, our_roles: dict[int, str], their_roles: dict[int, str],
                      flex_roles: list[str], flex: float, risk: float, counter: int | None,
@@ -944,6 +960,15 @@ class DraftEngine:
             if o != c:
                 syn = self.pair_synergy(role, c, r_o, o)[0]
                 terms.append((_LO_TO_PROB * syn, f"{_pp(to_pp(syn))} with your locked {self.data.name(o)}"))
+        if (bot := self.data.bot) is not None and role in ("adc", "support"):
+            other = "support" if role == "adc" else "adc"
+            partner = next((o for o, r in our_roles.items() if r == other), None)
+            if partner is not None:
+                pair = bot.pair(c, partner) if role == "adc" else bot.pair(partner, c)
+                label = bot.pair_label(c, role)
+                if label and abs(to_pp(pair)) >= _PAIR_MENTION_PP:
+                    terms.append((_LO_TO_PROB * pair, f"Your {self.data.name(partner)}: "
+                                  f"{label.replace('_', ' ')} partner {_pp(to_pp(pair))}"))
         if flex > 0:
             terms.append((flex, "flex " + "/".join(ROLE_LABELS[r] for r in flex_roles)))
         if fit[0] > 0 and fit[1] is not None:
@@ -953,4 +978,6 @@ class DraftEngine:
         reason = f"{head}, {best[1]}" if best else head
         if counter is not None and risk > (best[0] if best else 0):
             reason += f"; watch for {self.data.name(counter)}"
+        if opp is not None and (note := self._lane_note(bracket, role, c, opp)):
+            reason += f"; {note}"
         return reason

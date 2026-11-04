@@ -156,6 +156,24 @@ def lane_matchup(db: Engine, patch: str | None, bracket: str, role: str, ours: i
             "games": m.games, "band": band}
 
 
+def bot_lane_summary(adc: dict | None, sup: dict | None, cross_pp: float) -> dict | None:
+    """History's one bot-lane bar: both 1v1s and the cross terms (docs/matchup-archetypes.md, Stage 5)."""
+    if not adc or not sup or adc.get("delta_pp") is None or sup.get("delta_pp") is None:
+        return None
+    delta = adc["delta_pp"] + sup["delta_pp"] + cross_pp
+    gold = None if adc.get("lane_gold") is None or sup.get("lane_gold") is None else adc["lane_gold"] + sup["lane_gold"]
+    band = "even" if abs(delta) <= EVEN_PP else ("ours" if delta > 0 else "theirs")
+    return {"delta_pp": round(delta, 1), "lane_gold": gold, "band": band, "games": min(adc["games"], sup["games"])}
+
+
+def _bot_lane(engine: DraftEngine, cache: dict, by_role: dict, ours: str, theirs: str) -> dict | None:
+    bot = engine.data.bot
+    cross = 0.0 if bot is None else 25 * bot.game_cross(by_role["adc"].get(ours), by_role["support"].get(ours),
+                                                        by_role["adc"].get(theirs), by_role["support"].get(theirs))
+    lanes = cache.get("lane_matchups", {})
+    return bot_lane_summary(lanes.get("adc"), lanes.get("support"), cross)
+
+
 # ---------- recap ----------
 def _load(db: Engine, catalog: ChampionCatalog, engine: DraftEngine,
           draft_id: int) -> tuple[Draft, list[DraftAction], bool] | None:
@@ -310,6 +328,7 @@ def recap(db: Engine, engine: DraftEngine, catalog: ChampionCatalog, draft_id: i
                    "format": fmt.name},
         "bans": _bans_by_phase(actions, steps, card),
         "picks": picks,
+        "bot_lane": _bot_lane(engine, cache, by_role, our_side, their_side),
         "timeline": timeline,
         "review": {"followed": _followed(actions, steps, our_side, card), "biggest_swing": swing,
                    "synergy": {"ours_pp": _win_pp(terms.syn_us), "theirs_pp": _win_pp(terms.syn_them),

@@ -296,7 +296,29 @@ Show what's present and what's missing. It's informational: no automatic changes
 27. **Where each number goes (Stage 4).** Game matchup: P(win). Blend (`lane_weight`, default 0.5): lane ban `Resp`, Win-lane bans, counter risk, History bars. The doc's "pick value" uses P(win), so the game matchup, and it also subtracts counter risk, which uses the blend. Counter risk blends the lane log-odds with the game edge, beyond strength.
 28. **Role weights (Stage 4).** Scale the P(win) lane term, each role's lane ban scores and counter risk. Fitted on leave-one-out edges, so a game can't predict itself, prior 1 with SD 0.5, floored at 0, averaging 1. A Settings override replaces single roles.
 
+29. **Fitted role weights are live (user, 4 Nov 2026),** from 16.21's data.
+30. **Gold is reported, not judged (user, 4 Nov 2026).** No fixed "behind" verdict: an expected lead past 300 gold is always mentioned, with the game figure (`−310 gold at 15 vs X, game +1.2pp`), and the user interprets it. This replaces the doc's "Loses lane −310 gold, wins game". Stage 6's `behind_value` shows the split the same way: check with the user before fixing a cutoff.
+31. **Bot lane: cross terms in P(win), pair terms outside it (Stage 5).** The ADC-support pairing is already in synergy (Stat and Style), so adding pair terms to L would count it twice. Pair terms feed lane ban `Resp` and the reason line. Cross terms are one table: our ADC against their support and its mirror.
+32. **Bot lane fits (Stage 5).** Game: logistic on matches, with both lanes' strength and left-one-out matchups as the offset, prior SD 1.5pp. Lane: gold of both bot players together, offset = what strength and labels predict, prior SD 150 gold. So a kind of support that simply wins more can't look good with everyone.
+33. **The expected partner (Stage 5).** With no lock: our pool weighted main 3, comfortable 2, learning 1. The ADC vs enemy support term applies once the enemy support is known.
+34. **Reason line threshold (Stage 5).** A pairing worth at least 0.5pp, naming the champion's archetype: `Your Leona: lane bully partner +2.1pp`. The doc's "(Samira/Draven)" examples are left out.
+
 ## Findings
+
+**Stage 5, the check the doc asks for: ADC-support rules that encode a main effect.** Additive R² = how much of a rule's strength over real pairs each champion explains alone, weighted by games. High means it mostly says "this ADC" or "this support" rather than "these two together". No rule was changed.
+
+| Rule | Prior | Fitted | Additive R² |
+| --- | --- | --- | --- |
+| ADC not ranged_long + SUP engage | +1.5 | +0.47 | 0.92 |
+| ADC power_curve_late + SUP power_curve_late | −0.5 | −0.96 | 0.90 |
+| ADC hypercarry + SUP disengage | +1.0 | +0.69 | 0.90 |
+| ADC power_curve_early + SUP engage | +1.0 | +0.47 | 0.89 |
+| ADC hypercarry + SUP frontline | +0.6 | −0.25 | 0.87 |
+| ADC hypercarry + SUP enchanter | +2.0 | +1.94 | 0.86 |
+
+All 16 rules score 0.71 or higher. Part of that is arithmetic: unreviewed tags blend towards the role's average, and a product of two offset values is largely additive. So the ranking means more than the level. The first two are the clearest cases.
+
+**Stage 5, how cautious the fit is.** At 20k matches a real pairing effect comes out at about half its size (planted 0.16: 0.08 at 20k, 0.09 at 60k, 0.12 at 200k, 0.13 at 600k). The prior is doing what it should, but tomorrow's numbers will understate real effects.
 
 **Stage 3, on 16.21 (held out, mean log-loss per lane; a coin flip is 0.6931):**
 
@@ -322,11 +344,17 @@ Show what's present and what's missing. It's informational: no automatic changes
 
 ## Built
 
+### Stage 5 (4 Nov 2026)
+- `engine/bot_lane.py`: `BotLane` (cross and pair tables, game and gold), `BotLaneData` (a lane ban provider with both partners in view), `bot_features`, `fit_bot_game`, `fit_bot_gold`. `EngineData.bot`. Stored as `bot_game:*`, `bot_gold:*` under role `bot` in `matchup_fits`; printed by `data.coverage`.
+- Engine: cross terms in L, scaled by the mean of the ADC and support role weights; lane ban tables use `BotLaneData`; the partner reason line. Archetypes are per role, so a mage bot reads its bot-lane archetype.
+- History: a combined Bot lane (2v2) bar above the ADC and support 1v1s.
+
 ### Stage 4 (4 Nov 2026)
 - `data/timelines.py`: `lane_diffs`, `store_leads`, `backfill_timelines` (resumable, newest first). `RiotClient.timeline` isn't cached. `match_participants.lane_gold_15`, `lane_xp_15`; `crawled_matches.timeline_done`; `matchups.lane_gold_sum`, `lane_xp_sum`, `lane_n`.
 - `engine/matchup_model.py`: `fit_lane_gold`, `empirical_k_gold`, `fit_lane_slopes`, `fit_role_weights`. `data/matchup_model.py`: stored as `lane:*`, `slope:*`, `role_weight` in `matchup_fits`; `MatchupModel.lane_table`; the report prints lane figures, slopes and weights.
-- `BracketStats`: `lane_gold_of`, `lane_logodds`, `lane_wr`, `blended_wr`, `counter_term`. Reasons show both when they disagree: `Loses lane vs X −310 gold, wins game +1.2pp`.
+- `BracketStats`: `lane_gold_of`, `lane_logodds`, `lane_wr`, `blended_wr`, `counter_term`.
 - Settings: lane vs game weight, a matchup weight per role (fitted shown, override optional). History bars blend both; the tooltip shows gold.
+- Reasons mention an expected lead past 300 gold, with the game figure (decision 30).
 - Until a pair of champions has gold data, it has no lane matchup and everything reads the game matchup.
 
 ### Stage 3 (4 Nov 2026)

@@ -154,6 +154,21 @@
         <div class="colhead red">{ours === 'red' ? 'Us' : 'Them'} · red</div>
         {#each recap.picks as p}
           {@const b = bar(p.matchup, ours)}
+          {#if p.role === 'adc' && recap.bot_lane}
+            {@const bl = bar(recap.bot_lane, ours)}
+            <div class="pick blue"></div>
+            <div class="matchup">
+              <div class="role">Bot lane (2v2)</div>
+              {#if bl}
+                <div class="track" title="{signed(recap.bot_lane.delta_pp)} for {ours === 'blue' ? 'blue (us)' : 'red (us)'}{recap.bot_lane.lane_gold != null ? ` · ${signed(recap.bot_lane.lane_gold)} gold at 15` : ''}">
+                  <span class="axis"></span>
+                  <span class="fill {bl.band} {bl.toward}" style="width:{bl.width}%"></span>
+                </div>
+                <div class="value {bl.band}">{signed(recap.bot_lane.delta_pp)}</div>
+              {/if}
+            </div>
+            <div class="pick red"></div>
+          {/if}
           <div class="pick blue">
             {#if p.blue}
               <Champ champ={p.blue.champ} size={64} />

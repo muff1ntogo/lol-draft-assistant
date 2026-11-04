@@ -24,6 +24,7 @@ from draftassist.data.archetypes import (
 from draftassist.data.synergy import crawl_weights, latest_window, weights_cte
 from draftassist.data.tags import load_archetypes, load_kit
 from draftassist.db.models import Champion, MatchupFit
+from draftassist.engine.bot_lane import BotLane, bot_features, fit_bot_game, fit_bot_gold
 from draftassist.engine.matchup_model import (
     DEFAULT_K,
     DEFAULT_SLOPE,
@@ -55,6 +56,7 @@ LANE_PREFIX = "lane:"
 LANE_K = LANE_PREFIX + K_PARAM
 SLOPE_PREFIX = "slope:"
 ROLE_WEIGHT, ROLE_WEIGHT_SE = "role_weight", "role_weight_se"
+BOT_ROLE = "bot"  # Stage 5: bot_game:cross:a|s, bot_game:pair:a|s, bot_gold:cross:a|s, bot_gold:pair:a|s
 LANE_STRENGTH_K = 100  # a champion's own mean lead shrinks towards 0 by this many lanes
 LANE_MIN_GAMES = 30  # champions with fewer lane games in the window get no lane matchups
 DEFAULT_SIGMA2 = 1000.0 ** 2  # one lane's variance in gold^2, when there's no data to measure it
@@ -107,7 +109,8 @@ def _fit_lane(role: str, pairs: list, lanes: list, feats: RoleFeatures, priors: 
     rows = [MatchupFit(window=window, role=role, param=LANE_PREFIX + name, value=float(v), prior_pp=float(pv) / GOLD_PER_PP,
                        support=support) for name, v, pv in zip(feats.names, coefs, prior)]
     rows.append(MatchupFit(window=window, role=role, param=LANE_K, value=k, support=support))
-    return rows
+    strength_matrix = strength[:, None] - strength[None, :] if len(strength) else np.zeros((0, 0))
+    return rows, strength_matrix + (feats.matrix(coefs) if len(strength) else 0.0)
 
 
 def _lanes(conn, values: str, params: dict) -> list:
@@ -151,6 +154,37 @@ def _fit_role_weights(role_games: Mapping, window: str) -> list:
     for r, w, e in zip(ROLES, weights, se):
         out.append(MatchupFit(window=window, role=r, param=ROLE_WEIGHT, value=float(w), support=len(complete)))
         out.append(MatchupFit(window=window, role=r, param=ROLE_WEIGHT_SE, value=float(e), support=len(complete)))
+    return out
+
+
+def _fit_bot(role_games: Mapping, inputs: Mapping, window: str) -> list:
+    """Cross and pair tables (engine/bot_lane.py), on what's left after each champion's strength and the two 1v1s."""
+    adc_rows, adc_feats, adc_pred = inputs["adc"]
+    sup_rows, sup_feats, sup_pred = inputs["support"]
+    sup_by_match = {r[0]: r for r in sup_rows}
+    pairs = [(a, sup_by_match[a[0]]) for a in adc_rows if a[0] in sup_by_match]
+    n = len(pairs)
+    w_adc, w_sup = adc_feats.weights, sup_feats.weights
+    idx = lambda f, rows, at: np.array([f.index[r[at]] for r in rows], dtype=int)
+    a_blue, a_red = idx(adc_feats, [p[0] for p in pairs], 2), idx(adc_feats, [p[0] for p in pairs], 3)
+    s_blue, s_red = idx(sup_feats, [p[1] for p in pairs], 2), idx(sup_feats, [p[1] for p in pairs], 3)
+    x = bot_features(w_adc[a_blue], w_sup[s_blue], w_adc[a_red], w_sup[s_red]) if n else np.zeros((0, 50))
+    groups = _group_by_match(role_games)
+    offset = np.array([sum(groups[p[0][0]][r][0] + groups[p[0][0]][r][1] for r in ("adc", "support")) for p in pairs])
+    won = np.array([bool(p[0][4]) for p in pairs], dtype=bool)
+    game = fit_bot_game(x, offset if n else np.zeros(0), won)
+    with_gold = np.array([p[0][5] is not None and p[1][5] is not None for p in pairs], dtype=bool)
+    gold_total = np.array([(p[0][5] or 0.0) + (p[1][5] or 0.0) for p in pairs], dtype=float)
+    predicted = adc_pred[a_blue, a_red] + sup_pred[s_blue, s_red] if n else np.zeros(0)
+    sigma2 = float(gold_total[with_gold].var()) if with_gold.sum() > 1 else DEFAULT_SIGMA2
+    gold = fit_bot_gold(x[with_gold], predicted[with_gold], gold_total[with_gold], sigma2)
+    out = []
+    names = [f"{a}|{s}" for a in ARCHETYPES["adc"] for s in ARCHETYPES["support"]]
+    size = len(names)
+    for prefix, values, support in (("bot_game:", game, n), ("bot_gold:", gold, int(with_gold.sum()))):
+        for kind, chunk in (("cross", values[:size]), ("pair", values[size:])):
+            out += [MatchupFit(window=window, role=BOT_ROLE, param=f"{prefix}{kind}:{name}", value=float(v), support=support)
+                    for name, v in zip(names, chunk)]
     return out
 
 
@@ -204,7 +238,7 @@ def fit_matchup_model(db: Engine, window: str | None = None, priors_path: Path =
         lane_pairs = _lane_pairs(conn, values, params)
         lanes = _lanes(conn, values, params)
     wr = {(r, c): (wins + 0.5 * STRENGTH_K) / (games + STRENGTH_K) for r, c, games, wins in roles}
-    rows, out, role_games = [], {}, {}
+    rows, out, role_games, bot_inputs = [], {}, {}, {}
     for role in ROLES:
         here = [p for p in pairs if p[0] == role]
         role_lanes = [r for r in lanes if r[1] == role]
@@ -229,12 +263,15 @@ def fit_matchup_model(db: Engine, window: str | None = None, priors_path: Path =
                  for name, v, pv in zip(feats.names, coefs, prior)]
         rows.append(MatchupFit(window=window, role=role, param=K_PARAM, value=k, support=support))
         out[role] = k
-        rows += _fit_lane(role, [p for p in lane_pairs if p[0] == role], role_lanes, feats, priors, window)
+        lane_rows, gold_pred = _fit_lane(role, [p for p in lane_pairs if p[0] == role], role_lanes, feats, priors, window)
+        rows += lane_rows
         by_champ = dict(zip(champs, strength))
         rows += _fit_slopes(role, role_lanes, by_champ,
                             lambda c: resolve_archetype(written, c, role, classes.get(c)), window)
         role_games[role] = _loo_edges(role_lanes, feats, coefs, strength, k)
+        bot_inputs[role] = (role_lanes, feats, gold_pred)
     rows += _fit_role_weights(role_games, window)
+    rows += _fit_bot(role_games, bot_inputs, window)
     with Session(db) as s:
         s.exec(delete(MatchupFit).where(MatchupFit.window == window))
         s.add_all(rows)
@@ -257,6 +294,7 @@ class MatchupModel:
     _role_weights: Mapping[str, float] = field(default_factory=dict)
     _lane_pairs: list = field(default_factory=list)
     _lane_table: dict | None = None
+    _bot: Mapping[str, float] = field(default_factory=dict)
 
     def coefs(self, role: str) -> Mapping[str, float]:
         return self._coefs.get(role, {})
@@ -279,6 +317,20 @@ class MatchupModel:
     def lane_slopes(self) -> dict[tuple[int, str], float]:
         """(champ, role) -> what a lead is worth to it, from its main archetype."""
         return {(c, r): self.slope(r, self.label(r, c).primary) for r in ROLES for c in self.classes}
+
+    def bot(self) -> BotLane:
+        """The 2v2 tables, with every champion's archetype weights as they stand in each bot role."""
+        adc_words, sup_words = ARCHETYPES["adc"], ARCHETYPES["support"]
+
+        def table(prefix: str) -> np.ndarray:
+            return np.array([[self._bot.get(f"{prefix}:{a}|{s}", 0.0) for s in sup_words] for a in adc_words])
+
+        adc, sup = self.features("adc"), self.features("support")
+        slopes = [self.slope(r, w) for r in ("adc", "support") for w in ARCHETYPES[r]]
+        labels = {(c, r): self.label(r, c).primary for r in ("adc", "support") for c in self.classes}
+        return BotLane({c: adc.weights[i] for c, i in adc.index.items()}, {c: sup.weights[i] for c, i in sup.index.items()},
+                       table("bot_game:cross"), table("bot_game:pair"), table("bot_gold:cross"), table("bot_gold:pair"),
+                       labels, sum(slopes) / len(slopes))
 
     def lane_table(self) -> dict[tuple[str, int, int], float]:
         """a's expected gold lead at 15 minutes per pair, (role, a, b) with a < b, for every pair of champions with enough
@@ -341,8 +393,11 @@ def load_matchup_model(db: Engine, window: str | None = None) -> MatchupModel | 
     ks: dict[str, float] = {}
     lane_ks: dict[str, float] = {}
     weights: dict[str, float] = {}
+    bot: dict[str, float] = {}
     for r in rows:
-        if r.param == K_PARAM:
+        if r.role == BOT_ROLE:
+            bot[r.param] = r.value
+        elif r.param == K_PARAM:
             ks[r.role] = r.value
         elif r.param == LANE_K:
             lane_ks[r.role] = r.value
@@ -360,7 +415,7 @@ def load_matchup_model(db: Engine, window: str | None = None) -> MatchupModel | 
     with db.connect() as conn:
         values, params = weights_cte(crawl_weights(conn, window))
         pairs = _lane_pairs(conn, values, params)
-    return MatchupModel(window, coefs, ks, written, classes, kit, {}, lane_coefs, lane_ks, slopes, weights, pairs)
+    return MatchupModel(window, coefs, ks, written, classes, kit, {}, lane_coefs, lane_ks, slopes, weights, pairs, None, bot)
 
 
 def load_lane_slope(db: Engine, role: str, window: str | None = None) -> float:
@@ -444,6 +499,15 @@ def format_matchup_report(db: Engine, window: str | None = None) -> str:
                 lines.append(f"  {a} v {b}: {typical * PP_PER_LOGODDS:+.2f} [{prior or 0:+.2f}]  lane {lane:+.0f} gold")
             else:
                 lines.append(f"  kit {name[2:]}: {value * PP_PER_LOGODDS:+.2f}  lane {lane:+.0f} gold")
+    fits = _report_fits(db, model.window, BOT_ROLE)
+    lines.append(f"\nBOT LANE 2v2  ({fits.get('bot_game:cross:scaler|engage', (0, None, 0))[2]:,} matches, "
+                 f"{fits.get('bot_gold:cross:scaler|engage', (0, None, 0))[2]:,} with gold); the largest terms, pp [gold]")
+    for kind, what in (("cross", "ADC v enemy support"), ("pair", "ADC with support")):
+        cells = sorted(((name.split(":")[2], v[0]) for name, v in fits.items() if name.startswith(f"bot_game:{kind}:")),
+                       key=lambda kv: -abs(kv[1]))[:5]
+        lines.append(f"  {what}: " + ", ".join(
+            f"{n.replace('|', ' / ')} {v * PP_PER_LOGODDS:+.2f} [{fits.get(f'bot_gold:{kind}:{n}', (0.0,))[0]:+.0f}]"
+            for n, v in cells))
     return "\n".join(lines)
 
 

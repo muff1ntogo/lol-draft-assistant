@@ -120,6 +120,7 @@ class EngineData:
     # Synergy v2 (docs/synergy-v2.md): when set, the synergy term is Stat + Style + Team (engine/synergy_v2.py)
     # instead of `synergy` alone, and the team model's damage rule replaces the damage-balance penalty.
     synergy_v2: object | None = None
+    bot: object | None = None  # docs/matchup-archetypes.md, Stage 5: engine/bot_lane.BotLane
 
     def champions(self) -> frozenset[int]:
         ids = set(self.names)

@@ -326,17 +326,24 @@ def test_team_lane_ban_scales_by_role_weight():
     assert team_lane_ban([top, jungle], {"top": 1.5, "jungle": 0.5}) == {1: 3.5}
 
 
-def test_reason_shows_both_when_lane_and_game_disagree():
+def test_a_lead_past_300_gold_is_always_mentioned_without_a_verdict():
     s = _stats(gold=-310.0, game=0.56)
-    value, text = _engine(s, EngineConfig())._matchup_term(s, "top", 1, 2)
-    assert text.startswith("Loses lane vs Bb −310 gold") and "wins game" in text and value > 0
-    agree = _stats(gold=310.0, game=0.56)
-    assert _engine(agree, EngineConfig())._matchup_term(agree, "top", 1, 2)[1] == "counters their Bb"
-    wins_lane = _stats(gold=310.0, game=0.45)
-    value, text = _engine(wins_lane, EngineConfig())._matchup_term(wins_lane, "top", 1, 2)
-    assert text.startswith("Wins lane vs Bb +310 gold") and "loses game" in text and value > 0
-    small = _stats(gold=-20.0, game=0.56)
-    assert _engine(small, EngineConfig())._matchup_term(small, "top", 1, 2)[1] == "counters their Bb"
+    assert _engine(s, EngineConfig())._lane_note(s, "top", 1, 2).startswith("\u2212310 gold at 15 vs Bb, game +")
+    assert "Loses" not in _engine(s, EngineConfig())._lane_note(s, "top", 1, 2)
+    ahead = _stats(gold=310.0, game=0.45)
+    assert _engine(ahead, EngineConfig())._lane_note(ahead, "top", 1, 2).startswith("+310 gold at 15 vs Bb, game \u2212")
+    under = _stats(gold=299.0, game=0.56)
+    assert _engine(under, EngineConfig())._lane_note(under, "top", 1, 2) is None
+    none = BracketStats(s.meta, s.matchups, strength_in_matchups=True)
+    assert _engine(none, EngineConfig())._lane_note(none, "top", 1, 2) is None
+
+
+def test_the_mention_reaches_the_pick_reason_even_when_another_term_is_bigger():
+    s = _stats(gold=-310.0, game=0.56)
+    eng = _engine(s, EngineConfig())
+    text = eng._pick_reason(1, "top", {1: "top"}, {2: "top"}, [], 0.0, 0.0, None)
+    assert "\u2212310 gold at 15 vs Bb" in text
+    assert "counters their Bb" in text  # the game edge is still its largest term here
 
 
 # ---------- the fits ----------

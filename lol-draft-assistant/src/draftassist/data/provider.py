@@ -205,7 +205,7 @@ def load_engine_inputs(db: Engine, use_matchup_model: bool = True) -> EngineInpu
 
             synergy = load_synergy(db, bracket=get_synergy_bracket(db))
             data = EngineData(brackets, names, synergy=synergy, damage=load_damage(db, synergy.window or patch),
-                              profiles=load_profiles(db, patch))
+                              profiles=load_profiles(db, patch), bot=model.bot() if model is not None else None)
             sources = {b: ("crawl" if boot is None else "opgg" if crawled[b] == 0 else "blend") for b in needed}
             kinds = set(sources.values())
             source = kinds.pop() if len(kinds) == 1 else "blend"
