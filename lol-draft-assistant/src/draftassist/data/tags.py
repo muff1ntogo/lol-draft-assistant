@@ -33,7 +33,7 @@ HEADER = """\
 # reviewed: false = drafted by Claude, not checked yet: counts at half weight in every model.
 # reviewed covers the synergy tags; reviewed_kit the kit tags; reviewed_arch the archetype (true is written, false isn't).
 # Edit here or on the Tags page (it writes this file). Keys are Data Dragon champion keys.
-# Tags: engage, disengage, poke, dive, pick, splitpush, enchanter, hypercarry
+# Tags: engage, disengage, poke, dive, pick, splitpush, enchanter, hypercarry, setup, followup, needs_team
 # archetype / archetype2: the champion's archetype in that role (data/archetypes.py, docs/matchup-archetypes.md).
 # source: video = named in a matchup guide. A line with only an archetype or kit tags isn't a tag rating.
 # Kit tags, 0-3 (docs/matchup-archetypes.md, Stage 2): auto_reliant, auto_denial, max_hp_damage, hard_gap_close,

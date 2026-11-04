@@ -32,6 +32,7 @@ from itertools import permutations
 
 import numpy as np
 
+from draftassist.engine.blind import blind_safety
 from draftassist.engine.engine import DraftEngine, Evaluation, Suggestion, enemy_team_ban_prob
 from draftassist.engine.formats import DraftFormat
 from draftassist.engine.guards import validate_suggestions
@@ -45,6 +46,7 @@ from draftassist.engine.team import IDENTITIES, IDENTITY_LABELS, TeamRule
 K = 5
 MIN_PRESENCE = 0.002  # enemy champions picked less than this aren't Win-teamfights candidates
 MIN_ROLE_SHARE = 0.10
+BLIND_PP_PER_UNIT = 0.5  # Stage 6: pp of early priority per point of blind safety
 NO_BACKUP_LOSS_PP = 5.0  # losing a plan champion with nobody in the pool to replace it
 COUNTERED_PP = 0.5  # counter cost (pp) above which a pick is "countered", below: "safe blind"
 IDENTITY_POOL = 12  # per role: the enemy's most-picked champions an identity comp is built from
@@ -342,6 +344,7 @@ class _PickCosts:
     risk_weight: float
     risk_horizon: int
     flex_bonus: float
+    blind: float = 0.0  # blind safety (engine/blind.py): worth more the more enemy picks are still to come
 
     def contest(self, s: Slot) -> float:
         """P(banned or taken before slot s)."""
@@ -354,7 +357,10 @@ class _PickCosts:
         return 100 * self.flex_bonus * max(self.roles - 1, 0) * s.enemy_picks_after / 5
 
     def score(self, s: Slot) -> float:
-        return -self.contest(s) * self.loss - self.counter_pp(s) + self.flex_pp(s)
+        return -self.contest(s) * self.loss - self.counter_pp(s) + self.flex_pp(s) + self.blind_pp(s)
+
+    def blind_pp(self, s: Slot) -> float:
+        return BLIND_PP_PER_UNIT * self.blind * s.enemy_picks_after / 5
 
 
 def _pick_costs(c: PlanContext, champ: int, role: str, backup: Backup | None) -> _PickCosts:
@@ -367,7 +373,8 @@ def _pick_costs(c: PlanContext, champ: int, role: str, backup: Backup | None) ->
     who, edge = _counter(c, champ, role)
     return _PickCosts(champ, role, loss, who, edge, len(eng.team.roles_for(champ)),
                       enemy_team_ban_prob(eng.enemy_stats.ban_rates.get(champ, 0.0)), enemy_presence(eng, champ),
-                      cfg.risk_weight, cfg.risk_horizon, cfg.flex_bonus)
+                      cfg.risk_weight, cfg.risk_horizon, cfg.flex_bonus,
+                      blind_safety(eng, champ, role) if eng.data.traits is not None else 0.0)
 
 
 def _pick_line(c: PlanContext, k: _PickCosts, s: Slot, first: Slot) -> str:
@@ -403,7 +410,7 @@ def pick_order(c: PlanContext) -> list[PlannedPick]:
     out = []
     for k, i in sorted(zip(costs, best_perm), key=lambda t: t[1]):
         s = slots[i]
-        priority = k.contest(slots[-1]) * k.loss - k.counter_pp(slots[0]) + k.flex_pp(slots[0])
+        priority = k.contest(slots[-1]) * k.loss - k.counter_pp(slots[0]) + k.flex_pp(slots[0]) + k.blind_pp(slots[0])
         out.append(PlannedPick(k.champ, k.role, s.n, s.label, s.group, k.contest(s), k.counter, 25 * k.edge,
                                k.counter_pp(s), k.loss, priority, _pick_line(c, k, s, slots[0])))
     return out

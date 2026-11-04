@@ -14,12 +14,12 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import combinations, permutations
 
 from draftassist.engine.comp import STYLE_LABELS, STYLE_SHARE, STYLES, team_comp
 from draftassist.engine.guards import validate_suggestions
-from draftassist.engine.bot_lane import BotLaneData
+from draftassist.engine.bot_lane import PARTNER_TIER_WEIGHT, BotLaneData
 from draftassist.engine.lane_ban import BracketLaneData, RoleBanTable, role_ban_table, team_lane_ban
 from draftassist.engine.model import (
     ROLE_LABELS,
@@ -37,7 +37,10 @@ from draftassist.engine.synergy import to_pp
 log = logging.getLogger(__name__)
 
 US, THEM = "us", "them"
-_PARTNER_TIER_WEIGHT = {"main": 3.0, "comfortable": 2.0, "learning": 1.0}
+DEFAULT_COMFORT_GATE = {"main": 1.0, "comfortable": 0.7, "learning": 0.2}  # Stage 6: "lock in your main"
+LEARNING_EDGE_PP = 3.0  # a learning champion goes above a main only with more edge than this
+MAIN_HOLDS_PP = -1.5  # a main at or above this ("even or slightly losing") holds its place
+FIGHT_STARTER_MIN = 2 / 3  # a tag of 2 or more
 _LANE_MENTION_GOLD = 300  # an expected lead this large is always mentioned (user, 4 Nov 2026)
 _PAIR_MENTION_PP = 0.5  # a bot pairing worth at least this gets a reason line
 _LO_TO_PROB = 0.25  # d sigmoid / dx at 0.5: converts small log-odds terms to win-prob units
@@ -168,6 +171,7 @@ class DraftEngine:
         self._lane_data = BracketLaneData(data, self.team, self.cfg.enemy_bracket, self.cfg.lane_weight)
         self._role_shares = self._enemy_role_shares()
         self._assign_cache: dict[tuple, tuple[float, dict[int, str]]] = {}
+        self.blind_cache: dict = {}  # engine/blind.py: per role, for this engine's pools and stats
         self._last_tables: dict[str, RoleBanTable] = {}
 
     # ---------- lookups ----------
@@ -183,6 +187,27 @@ class DraftEngine:
     def _m(self, champ: int, role: str, bracket: BracketStats) -> float:
         stat = bracket.role_stat(champ, role)
         return logit(stat.win_rate if stat else self.cfg.off_role_wr)
+
+    def our_roles(self, state: DraftState) -> dict[int, str]:
+        """Our locked champions and their roles, as the engine assigns them."""
+        self._assign_cache.clear()
+        return dict(self._evaluate(state).our_roles)
+
+    def comfort_of(self, champ: int, role: str) -> float:
+        return self._comfort(champ, role)
+
+    def _gate(self, champ: int, role: str) -> float:
+        entry = self.team.entry(champ, role)
+        return {**DEFAULT_COMFORT_GATE, **self.cfg.comfort_gate}[entry.tier if entry else "learning"]
+
+    def provides_fight_starter(self, champ: int, role: str) -> bool:
+        traits = self.data.traits
+        entry = traits.tag_entry(champ, role) if traits is not None else None
+        return entry is not None and max(entry.raw("engage"), entry.raw("setup")) >= FIGHT_STARTER_MIN
+
+    def provides_frontline(self, champ: int, role: str) -> bool:
+        style = self.data.profiles.style(champ, role)
+        return style is not None and style.frontline
 
     def _comfort(self, champ: int, role: str) -> float:
         entry = self.team.entry(champ, role)
@@ -480,11 +505,7 @@ class DraftEngine:
             our_by_role.setdefault(r, c)
         their_filled = set(ev.their_roles.values())
         unavailable = state.unavailable()
-        data = self._lane_data
-        if self.data.bot is not None:  # 2v2: our partner (locked, else expected from the pool) and the enemy's
-            partners = {r: self._expected_partners(r, our_by_role.get(r), unavailable) for r in ("adc", "support")}
-            enemy = {r: c for c, r in ev.their_roles.items()}
-            data = BotLaneData(data, self.data.bot, partners, enemy, self.cfg.lane_weight)
+        data = self.resp_data(unavailable, our_by_role, {r: c for c, r in ev.their_roles.items()})
         return {
             r: role_ban_table(
                 data, r,
@@ -497,11 +518,19 @@ class DraftEngine:
             for r in ROLES
         }
 
+    def resp_data(self, unavailable, our_by_role: dict[str, int] | None = None, enemy: dict[str, int] | None = None):
+        """What a lane answer is scored on: the blend, in 2v2 for the bot lane with our partner (locked, else expected
+        from the pool) and the enemy's."""
+        if self.data.bot is None:
+            return self._lane_data
+        partners = {r: self._expected_partners(r, (our_by_role or {}).get(r), unavailable) for r in ("adc", "support")}
+        return BotLaneData(self._lane_data, self.data.bot, partners, enemy or {}, self.cfg.lane_weight)
+
     def _expected_partners(self, role: str, locked: int | None, unavailable) -> list[tuple[int, float]]:
         """Who plays `role` on our team: the locked champion, else the pool weighted by tier."""
         if locked is not None:
             return [(locked, 1.0)]
-        pool = [(c, _PARTNER_TIER_WEIGHT[e.tier]) for c, e in self.team.pools.get(role, {}).items() if c not in unavailable]
+        pool = [(c, PARTNER_TIER_WEIGHT[e.tier]) for c, e in self.team.pools.get(role, {}).items() if c not in unavailable]
         total = sum(w for _, w in pool)
         return [(c, w / total) for c, w in pool] if total else []
 
@@ -760,6 +789,7 @@ class DraftEngine:
         enemy_cands = {r: [e for e in self._champs if e not in unavailable and enemy.role_stat(e, r)] for r in ROLES}
         locked = [(c, ev.our_roles.get(c)) for c in ours]
         target, _ = self.target_for(locked)
+        their_by_role = {r: c for c, r in ev.their_roles.items()}
 
         cands = []
         for c in self._champs:
@@ -789,6 +819,11 @@ class DraftEngine:
             flex = cfg.flex_bonus * max(len(flex_roles) - 1, 0)
             fit = self.coherence(locked, c, r_c, target)
             value = win - cfg.risk_weight * risk + flex + _LO_TO_PROB * fit
+            opp = their_by_role.get(r_c)
+            if opp is not None:  # a counter pick keeps only part of its edge, by comfort
+                edge = self._our_bracket(r_c).matchup_edge(r_c, c, opp)
+                if edge > 0:
+                    value -= _LO_TO_PROB * (1 - self._gate(c, r_c)) * self.role_weight(r_c) * edge
             in_plan = bool(bonus) and c in bonus
             if in_plan:
                 value += _LO_TO_PROB * bonus[c]
@@ -796,8 +831,32 @@ class DraftEngine:
                                        (_LO_TO_PROB * fit, target))
             out.append(Suggestion(c, self.data.name(c), "pick", value, reason, role=r_c, win_prob=win,
                                   counter_id=counter, counter_risk=risk, comp_fit=fit, plan=in_plan))
+        out = self._main_over_learning(out, their_by_role)
         out.sort(key=lambda s: (-s.value, s.champ_id))
         return validate_suggestions(state, "pick", out[:k])
+
+    def _main_over_learning(self, picks: list[Suggestion], their_by_role: dict[str, int]) -> list[Suggestion]:
+        """A learning champion never goes above a main with an even or slightly losing matchup, unless its own edge is
+        large. Says so on the main's card when this decides the order."""
+        out = list(picks)
+        for role, opp in their_by_role.items():
+            bracket = self._our_bracket(role)
+            edge_pp = lambda c: 25 * bracket.matchup_edge(role, c, opp)
+            tier = lambda s: (e.tier if (e := self.team.entry(s.champ_id, role)) else None)
+            mains = [i for i, s in enumerate(out) if s.role == role and tier(s) == "main"
+                     and edge_pp(s.champ_id) >= MAIN_HOLDS_PP]
+            if not mains:
+                continue
+            top = max(mains, key=lambda i: out[i].value)
+            for i, s in enumerate(out):
+                if s.role == role and tier(s) == "learning" and edge_pp(s.champ_id) <= LEARNING_EDGE_PP \
+                        and s.value >= out[top].value:
+                    pp = edge_pp(out[top].champ_id)
+                    stance = "even" if abs(pp) < 0.5 else _pp(pp)
+                    out[top] = replace(out[top], reason=f"{out[top].reason}; Your main {out[top].name} ({stance}) over "
+                                                        f"{s.name} (learning, {_pp(edge_pp(s.champ_id))})")
+                    out[i] = replace(s, value=out[top].value - 1e-6)
+        return out
 
     # ---------- pick-ahead ----------
     @staticmethod

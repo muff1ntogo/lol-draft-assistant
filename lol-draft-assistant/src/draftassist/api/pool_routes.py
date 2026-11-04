@@ -15,6 +15,7 @@ from draftassist.data.pools import (
     set_players,
     set_pool_entry,
 )
+from draftassist.engine.blind import pool_health
 from draftassist.engine.comp import badge
 from draftassist.learning.comfort import accept as accept_tiers
 from draftassist.learning.comfort import set_locked
@@ -94,6 +95,7 @@ def _pools_payload(svc: Services) -> dict:
                       for e in sorted(entries, key=lambda e: (tier_order.get(e.manual_tier, 9), e.champ_id))]
                   for r, entries in pools.items()},
         "using_placeholder_pools": not any(pools.values()),
+        "health": {r: pool_health(svc.engine, r) for r in pools if pools[r]},
         "champions": sorted(({"id": c, "name": name} for c, (_, name) in svc.catalog.champs.items()),
                             key=lambda c: c["name"]),
     }

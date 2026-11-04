@@ -8,9 +8,10 @@ from sqlalchemy import Engine
 from sqlmodel import Session
 
 from draftassist.db.models import AppSetting
-from draftassist.engine.model import ROLES, BanWeights, EngineConfig
+from draftassist.engine.model import ROLES, TIERS, BanWeights, EngineConfig
 
 BAN_KEY = "ban"
+BLIND_KEYS = ("comfort", "matchup", "synergy", "worst", "behind", "kit")  # engine/blind.py
 
 
 def get_ban_settings(db: Engine) -> tuple[BanWeights, bool]:
@@ -61,14 +62,16 @@ def get_engine_settings(db: Engine) -> dict:
             "comp_coherence": bool(v.get("comp_coherence", d.comp_coherence)),
             "comp_weight": float(v.get("comp_weight", d.comp_weight)),
             "lane_weight": float(v.get("lane_weight", d.lane_weight)),
-            "role_weight_override": dict(v.get("role_weight_override") or {})}
+            "role_weight_override": dict(v.get("role_weight_override") or {}),
+            "blind_weights": dict(v.get("blind_weights") or {}), "comfort_gate": dict(v.get("comfort_gate") or {})}
 
 
 def save_engine_settings(db: Engine, alpha: float | None = None, beta: float | None = None,
                          comfort_games_cap: int | None = None, damage_balance: bool | None = None,
                          damage_penalty: float | None = None, ban_comp_synergy: bool | None = None,
                          comp_coherence: bool | None = None, comp_weight: float | None = None,
-                         lane_weight: float | None = None, role_weight_override: dict | None = None) -> None:
+                         lane_weight: float | None = None, role_weight_override: dict | None = None,
+                         blind_weights: dict | None = None, comfort_gate: dict | None = None) -> None:
     """Update only the values given; the others keep what was saved."""
     current = get_engine_settings(db)
     for name, value, hi in (("alpha", alpha, 5), ("beta", beta, 5)):
@@ -87,13 +90,20 @@ def save_engine_settings(db: Engine, alpha: float | None = None, beta: float | N
             raise ValueError(f"unknown role {role!r}")
         if not 0 <= w <= 3:
             raise ValueError(f"{role} matchup weight must be between 0 and 3")
+    for name, w in (blind_weights or {}).items():
+        if name not in BLIND_KEYS or not 0 <= w <= 5:
+            raise ValueError(f"blind weight {name!r} must be one of {', '.join(BLIND_KEYS)}, between 0 and 5")
+    for tier, w in (comfort_gate or {}).items():
+        if tier not in TIERS or not 0 <= w <= 1:
+            raise ValueError(f"comfort gate {tier!r} must be a tier, between 0 and 1")
     merged = {"alpha": current["alpha"] if alpha is None else alpha,
               "beta": current["beta"] if beta is None else beta,
               "comfort_games_cap": current["comfort_games_cap"] if comfort_games_cap is None else comfort_games_cap}
     for name, value in (("damage_balance", damage_balance), ("damage_penalty", damage_penalty),
                         ("ban_comp_synergy", ban_comp_synergy), ("comp_coherence", comp_coherence),
                         ("comp_weight", comp_weight), ("lane_weight", lane_weight),
-                        ("role_weight_override", role_weight_override)):
+                        ("role_weight_override", role_weight_override), ("blind_weights", blind_weights),
+                        ("comfort_gate", comfort_gate)):
         merged[name] = current[name] if value is None else value
     with Session(db) as s:
         row = s.get(AppSetting, ENGINE_KEY) or AppSetting(key=ENGINE_KEY, value="{}")
@@ -119,7 +129,8 @@ def engine_config(db: Engine) -> EngineConfig:
                         damage_balance=e["damage_balance"], damage_penalty=e["damage_penalty"],
                         ban_comp_synergy=e["ban_comp_synergy"], comp_coherence=e["comp_coherence"],
                         comp_weight=e["comp_weight"], comp_target=get_hand_style(db),
-                        lane_weight=e["lane_weight"], role_weights=role_weights(db, e["role_weight_override"]))
+                        lane_weight=e["lane_weight"], role_weights=role_weights(db, e["role_weight_override"]),
+                        blind_weights=e["blind_weights"], comfort_gate=e["comfort_gate"])
 
 
 def settings_payload(db: Engine) -> dict:
@@ -134,6 +145,7 @@ def settings_payload(db: Engine) -> dict:
             "damage_penalty": engine["damage_penalty"], "ban_comp_synergy": engine["ban_comp_synergy"],
             "comp_coherence": engine["comp_coherence"], "comp_weight": engine["comp_weight"],
             "lane_weight": engine["lane_weight"], "role_weight_override": engine["role_weight_override"],
+            "blind_weights": engine["blind_weights"], "comfort_gate": engine["comfort_gate"],
             "role_weights_fitted": _fitted_role_weights(db),
             "synergy_v2": get_synergy_v2_settings(db)}
 

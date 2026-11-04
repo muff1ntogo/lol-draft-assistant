@@ -41,6 +41,7 @@ class PlayerDirectory(Protocol):
     def resolve_from_session(self, members: list[dict]) -> int: ...
 
 
+LATE_ENEMY_PICKS = 3  # with fewer enemy picks to come, our pick is a late one
 HOVER_FLAG_RISK = 0.2  # log-odds; a hover whose best open counter wins its lane ~55%+ gets flagged
 IDLE_PHASES = {"None", "Lobby", "Matchmaking", "ReadyCheck"}  # gameflow phases that clear the screen
 
@@ -136,6 +137,29 @@ def _pick_card(catalog: ChampionCatalog, s: Suggestion, hovered: set[int], profi
             "warnings": warnings, "highlighted": s.champ_id in hovered, "plan": s.plan,
             "badge": badge(profiles, s.champ_id, s.role).as_dict(),
             "effect": comp_effect(profiles, ours, s.champ_id, s.role)}
+
+
+def _check_strip(engine: DraftEngine, st: DraftState) -> dict | None:
+    """The drafting guide's three questions on our pick turns. Display only: the scores come from the team rules."""
+    if engine.data.traits is None:
+        return None
+    locked = engine.our_roles(st).items()
+    return {"picking": "early" if st.picks_left(st.their_side) >= LATE_ENEMY_PICKS else "late",
+            "fight_starter": any(engine.provides_fight_starter(c, r) for c, r in locked),
+            "frontline": any(engine.provides_frontline(c, r) for c, r in locked)}
+
+
+def _note_fixes(card: dict, s: Suggestion, engine: DraftEngine, check: dict | None) -> None:
+    """A suggestion that fixes a "no" on the check strip says so."""
+    if not check or s.role is None:
+        return
+    fixes = []
+    if not check["fight_starter"] and engine.provides_fight_starter(s.champ_id, s.role):
+        fixes.append("fight starter")
+    if not check["frontline"] and engine.provides_frontline(s.champ_id, s.role):
+        fixes.append("frontline")
+    if fixes:
+        card["reason"] = f"{card['reason']}; adds {' and '.join(fixes)}"
 
 
 def _target(engine: DraftEngine, ours: list[tuple[int, str | None]]) -> dict | None:
@@ -341,6 +365,10 @@ def _center_our_pick(v: _View, n_cards: int) -> dict:
     picks = eng.suggest_picks(st, k=n_cards, role=role, bonus=v.pick_bonus)
     center = {"mode": "our_pick", "title": f"PICK — {ROLE_LABELS[role]}" if role else "PICK",
               "cards": [_pick_card(v.catalog, s, v.hovered, v.profiles, v.ours) for s in picks], "hover_card": None}
+    check = _check_strip(eng, st)
+    center["check"] = check
+    for card, s in zip(center["cards"], picks):
+        _note_fixes(card, s, eng, check)
     if eng.back_to_back(st):
         center["next_two"] = _next_two(v)
     actor_hover = next((sl.hover_id for sl in live.our_slots if sl.cell_id == live.actor_cell_id), 0)

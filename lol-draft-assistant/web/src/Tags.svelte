@@ -5,7 +5,8 @@
   import Champ from './Champ.svelte';
 
   const LABELS = { engage: 'Engage', disengage: 'Disengage', poke: 'Poke', dive: 'Dive', pick: 'Pick',
-                   splitpush: 'Split', enchanter: 'Enchanter', hypercarry: 'Hypercarry' };
+                   splitpush: 'Split', enchanter: 'Enchanter', hypercarry: 'Hypercarry', setup: 'Setup', followup: 'Follow-up',
+                   needs_team: 'Needs team' };
   // kit interactions for matchups (docs/matchup-archetypes.md, Stage 2)
   const KIT_LABELS = {
     auto_reliant: ['Autos', 'Damage mainly from auto attacks'],

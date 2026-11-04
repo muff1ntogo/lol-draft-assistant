@@ -17,7 +17,9 @@ from dataclasses import dataclass, field
 
 from draftassist.engine.mathx import logit
 
-TAGS = ("engage", "disengage", "poke", "dive", "pick", "splitpush", "enchanter", "hypercarry")
+# Who starts a fight (docs/matchup-archetypes.md, Stage 6): for team rules and the Live check strip, not identities.
+IDENTITY_FREE_TAGS = ("setup", "followup", "needs_team")
+TAGS = ("engage", "disengage", "poke", "dive", "pick", "splitpush", "enchanter", "hypercarry", *IDENTITY_FREE_TAGS)
 TAG_MAX = 3
 # Kit-interaction traits for the matchup model (docs/matchup-archetypes.md, Stage 2). Kept apart from TAGS: the
 # synergy models, identities and team rules read TAGS only.
@@ -224,7 +226,7 @@ class ChampionTraits:
 
 KNOWN_TERMS = frozenset(TAGS) | frozenset(KIT_TAGS) | frozenset(DERIVED_TERMS) | {
     "cc", "frontline", "peel", "dmg_phys", "dmg_magic", "dmg_true", "power_curve", "lane_pressure", "ranged",
-    "cc_all", "frontline_all", "peel_all"}
+    "cc_all", "frontline_all", "peel_all", "behind_value"}
 
 EMPTY_TRAITS = ChampionTraits({}, {}, {})
 

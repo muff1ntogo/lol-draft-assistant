@@ -2,136 +2,136 @@
 # reviewed: false = drafted by Claude, not checked yet: counts at half weight in every model.
 # reviewed covers the synergy tags; reviewed_kit the kit tags; reviewed_arch the archetype (true is written, false isn't).
 # Edit here or on the Tags page (it writes this file). Keys are Data Dragon champion keys.
-# Tags: engage, disengage, poke, dive, pick, splitpush, enchanter, hypercarry
+# Tags: engage, disengage, poke, dive, pick, splitpush, enchanter, hypercarry, setup, followup, needs_team
 # archetype / archetype2: the champion's archetype in that role (data/archetypes.py, docs/matchup-archetypes.md).
 # source: video = named in a matchup guide. A line with only an archetype or kit tags isn't a tag rating.
 # Kit tags, 0-3 (docs/matchup-archetypes.md, Stage 2): auto_reliant, auto_denial, max_hp_damage, hard_gap_close,
 # kite, escape, extend_fight, anti_dive, sustain, ability_range
 
 Aatrox:
-  top: {engage: 1, dive: 2, splitpush: 1, archetype: diver, source: video, hard_gap_close: 1, extend_fight: 1, sustain: 3, reviewed: false, reviewed_kit: true}
+  top: {engage: 1, dive: 2, splitpush: 1, setup: 1, archetype: diver, source: video, hard_gap_close: 1, extend_fight: 1, sustain: 3, reviewed: false, reviewed_kit: true}
 Ahri:
-  mid: {engage: 1, poke: 1, dive: 1, pick: 3, archetype: control_mage, archetype2: assassin, hard_gap_close: 1, kite: 1, escape: 3, anti_dive: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  mid: {engage: 1, poke: 1, dive: 1, pick: 3, setup: 2, followup: 1, archetype: control_mage, archetype2: assassin, hard_gap_close: 1, kite: 1, escape: 3, anti_dive: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
 Akali:
-  top: {dive: 3, pick: 2, splitpush: 1, archetype: diver, archetype2: skirmisher, hard_gap_close: 3, escape: 2, reviewed: false, reviewed_kit: true}
-  mid: {dive: 3, pick: 2, splitpush: 1, archetype: assassin, hard_gap_close: 3, escape: 2, reviewed: false, reviewed_kit: true}
+  top: {dive: 3, pick: 2, splitpush: 1, followup: 2, archetype: diver, archetype2: skirmisher, hard_gap_close: 3, escape: 2, reviewed: false, reviewed_kit: true}
+  mid: {dive: 3, pick: 2, splitpush: 1, followup: 2, archetype: assassin, hard_gap_close: 3, escape: 2, reviewed: false, reviewed_kit: true}
 Akshan:
-  top: {poke: 1, pick: 2, splitpush: 2, archetype: ranged, auto_reliant: 2, hard_gap_close: 1, kite: 2, escape: 2, reviewed: false, reviewed_kit: true}
-  mid: {poke: 1, pick: 2, splitpush: 2, archetype: skirmisher, auto_reliant: 2, hard_gap_close: 1, kite: 2, escape: 2, reviewed: false, reviewed_kit: true}
+  top: {poke: 1, pick: 2, splitpush: 2, followup: 1, archetype: ranged, auto_reliant: 2, hard_gap_close: 1, kite: 2, escape: 2, reviewed: false, reviewed_kit: true}
+  mid: {poke: 1, pick: 2, splitpush: 2, followup: 1, archetype: skirmisher, auto_reliant: 2, hard_gap_close: 1, kite: 2, escape: 2, reviewed: false, reviewed_kit: true}
 Alistar:
-  support: {engage: 3, disengage: 2, pick: 1, archetype: engage, hard_gap_close: 2, extend_fight: 2, anti_dive: 2, sustain: 1, reviewed: false, reviewed_kit: true}
+  support: {engage: 3, disengage: 2, pick: 1, setup: 3, archetype: engage, hard_gap_close: 2, extend_fight: 2, anti_dive: 2, sustain: 1, reviewed: false, reviewed_kit: true}
 Ambessa:
   top: {engage: 1, dive: 3, splitpush: 1, archetype: diver, reviewed: false}
   jungle: {engage: 1, dive: 3, splitpush: 1, archetype: skirmisher, reviewed: false}
 Amumu:
-  jungle: {engage: 3, dive: 1, archetype: tank, auto_reliant: 2, max_hp_damage: 1, hard_gap_close: 2, extend_fight: 2, reviewed: false, reviewed_kit: true}
-  support: {engage: 3, dive: 1, archetype: engage, auto_reliant: 2, max_hp_damage: 1, hard_gap_close: 2, extend_fight: 2, reviewed: false, reviewed_kit: true}
+  jungle: {engage: 3, dive: 1, setup: 3, archetype: tank, auto_reliant: 2, max_hp_damage: 1, hard_gap_close: 2, extend_fight: 2, reviewed: false, reviewed_kit: true}
+  support: {engage: 3, dive: 1, setup: 3, archetype: engage, auto_reliant: 2, max_hp_damage: 1, hard_gap_close: 2, extend_fight: 2, reviewed: false, reviewed_kit: true}
 Anivia:
-  mid: {disengage: 2, poke: 1, pick: 1, archetype: control_mage, reviewed: false}
+  mid: {disengage: 2, poke: 1, pick: 1, setup: 2, archetype: control_mage, reviewed: false}
 Annie:
-  mid: {engage: 2, pick: 2, archetype: control_mage, archetype2: battle_mage, anti_dive: 3, reviewed: false, reviewed_kit: true}
-  support: {engage: 2, pick: 2, archetype: mage, archetype2: catcher, anti_dive: 3, reviewed: false, reviewed_kit: true}
+  mid: {engage: 2, pick: 2, setup: 3, archetype: control_mage, archetype2: battle_mage, anti_dive: 3, reviewed: false, reviewed_kit: true}
+  support: {engage: 2, pick: 2, setup: 3, archetype: mage, archetype2: catcher, anti_dive: 3, reviewed: false, reviewed_kit: true}
 Aphelios:
-  adc: {hypercarry: 3, archetype: scaler, source: video, auto_reliant: 3, kite: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
+  adc: {hypercarry: 3, followup: 2, needs_team: 2, archetype: scaler, source: video, auto_reliant: 3, kite: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
 Ashe:
-  adc: {engage: 2, poke: 1, pick: 2, archetype: poke, source: video, auto_reliant: 3, kite: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
-  support: {engage: 2, poke: 1, pick: 2, archetype: catcher, archetype2: mage, auto_reliant: 3, kite: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
+  adc: {engage: 2, poke: 1, pick: 2, setup: 2, followup: 1, archetype: poke, source: video, auto_reliant: 3, kite: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
+  support: {engage: 2, poke: 1, pick: 2, setup: 2, followup: 1, archetype: catcher, archetype2: mage, auto_reliant: 3, kite: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
 AurelionSol:
   mid: {engage: 1, poke: 1, hypercarry: 2, archetype: battle_mage, reviewed: false}
 Aurora:
   top: {disengage: 1, pick: 2, splitpush: 1, archetype: ranged, kite: 2, escape: 2, anti_dive: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
   mid: {disengage: 1, pick: 2, splitpush: 1, archetype: battle_mage, kite: 2, escape: 2, anti_dive: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
 Azir:
-  mid: {engage: 1, disengage: 2, poke: 1, hypercarry: 2, archetype: control_mage, reviewed: false}
+  mid: {engage: 1, disengage: 2, poke: 1, hypercarry: 2, followup: 2, needs_team: 3, archetype: control_mage, reviewed: false}
 Bard:
-  support: {engage: 1, disengage: 2, pick: 3, archetype: catcher, kite: 1, escape: 2, anti_dive: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  support: {engage: 1, disengage: 2, pick: 3, setup: 2, needs_team: 1, archetype: catcher, kite: 1, escape: 2, anti_dive: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
 Belveth:
-  jungle: {dive: 2, splitpush: 2, hypercarry: 1, archetype: skirmisher, archetype2: farmer, auto_reliant: 3, max_hp_damage: 1, hard_gap_close: 2, escape: 1, extend_fight: 2, sustain: 2, reviewed: false, reviewed_kit: true}
+  jungle: {dive: 2, splitpush: 2, hypercarry: 1, followup: 2, archetype: skirmisher, archetype2: farmer, auto_reliant: 3, max_hp_damage: 1, hard_gap_close: 2, escape: 1, extend_fight: 2, sustain: 2, reviewed: false, reviewed_kit: true}
 Blitzcrank:
-  support: {engage: 2, pick: 3, archetype: catcher, hard_gap_close: 1, extend_fight: 1, anti_dive: 1, reviewed: false, reviewed_kit: true}
+  support: {engage: 2, pick: 3, setup: 3, archetype: catcher, hard_gap_close: 1, extend_fight: 1, anti_dive: 1, reviewed: false, reviewed_kit: true}
 Brand:
-  jungle: {poke: 2, archetype: farmer, max_hp_damage: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
-  mid: {poke: 2, archetype: battle_mage, max_hp_damage: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
-  support: {poke: 2, archetype: mage, max_hp_damage: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  jungle: {poke: 2, followup: 3, archetype: farmer, max_hp_damage: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  mid: {poke: 2, followup: 3, archetype: battle_mage, max_hp_damage: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  support: {poke: 2, followup: 3, archetype: mage, max_hp_damage: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
 Braum:
-  support: {engage: 1, disengage: 3, archetype: warden, auto_denial: 3, extend_fight: 1, anti_dive: 2, reviewed: false, reviewed_kit: true}
+  support: {engage: 1, disengage: 3, setup: 2, archetype: warden, auto_denial: 3, extend_fight: 1, anti_dive: 2, reviewed: false, reviewed_kit: true}
 Briar:
-  jungle: {engage: 1, dive: 3, archetype: skirmisher, auto_reliant: 2, hard_gap_close: 3, extend_fight: 2, sustain: 3, reviewed: false, reviewed_kit: true}
+  jungle: {engage: 1, dive: 3, setup: 1, archetype: skirmisher, auto_reliant: 2, hard_gap_close: 3, extend_fight: 2, sustain: 3, reviewed: false, reviewed_kit: true}
 Caitlyn:
-  adc: {poke: 3, pick: 1, archetype: lane_bully, source: video, auto_reliant: 3, kite: 2, escape: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  adc: {poke: 3, pick: 1, setup: 1, followup: 1, archetype: lane_bully, source: video, auto_reliant: 3, kite: 2, escape: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
 Camille:
-  top: {dive: 3, pick: 2, splitpush: 3, archetype: skirmisher, source: video, auto_reliant: 1, max_hp_damage: 3, hard_gap_close: 3, escape: 2, extend_fight: 1, reviewed: false, reviewed_kit: true}
+  top: {dive: 3, pick: 2, splitpush: 3, setup: 2, archetype: skirmisher, source: video, auto_reliant: 1, max_hp_damage: 3, hard_gap_close: 3, escape: 2, extend_fight: 1, reviewed: false, reviewed_kit: true}
 Cassiopeia:
-  top: {hypercarry: 2, archetype: ranged, extend_fight: 1, anti_dive: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
-  mid: {hypercarry: 2, archetype: battle_mage, source: video, extend_fight: 1, anti_dive: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  top: {hypercarry: 2, followup: 2, needs_team: 1, archetype: ranged, extend_fight: 1, anti_dive: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  mid: {hypercarry: 2, followup: 2, needs_team: 1, archetype: battle_mage, source: video, extend_fight: 1, anti_dive: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
 Chogath:
-  top: {engage: 2, disengage: 1, pick: 1, archetype: tank, source: video, max_hp_damage: 2, extend_fight: 1, anti_dive: 1, sustain: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  top: {engage: 2, disengage: 1, pick: 1, setup: 2, archetype: tank, source: video, max_hp_damage: 2, extend_fight: 1, anti_dive: 1, sustain: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
   jungle: {archetype: tank, archetype2: farmer, source: video, max_hp_damage: 2, extend_fight: 1, anti_dive: 1, sustain: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
-  mid: {engage: 2, disengage: 1, pick: 1, archetype: battle_mage, max_hp_damage: 2, extend_fight: 1, anti_dive: 1, sustain: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  mid: {engage: 2, disengage: 1, pick: 1, setup: 2, archetype: battle_mage, max_hp_damage: 2, extend_fight: 1, anti_dive: 1, sustain: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
 Corki:
-  mid: {poke: 2, hypercarry: 1, archetype: artillery, auto_reliant: 2, kite: 2, escape: 2, ability_range: 2, reviewed: false, reviewed_kit: true}
+  mid: {poke: 2, hypercarry: 1, followup: 1, needs_team: 1, archetype: artillery, auto_reliant: 2, kite: 2, escape: 2, ability_range: 2, reviewed: false, reviewed_kit: true}
 Darius:
-  top: {dive: 1, splitpush: 1, archetype: juggernaut, source: video, auto_reliant: 2, max_hp_damage: 1, extend_fight: 3, sustain: 1, reviewed: false, reviewed_kit: true}
+  top: {dive: 1, splitpush: 1, setup: 1, archetype: juggernaut, source: video, auto_reliant: 2, max_hp_damage: 1, extend_fight: 3, sustain: 1, reviewed: false, reviewed_kit: true}
 Diana:
-  jungle: {engage: 2, dive: 3, archetype: skirmisher, archetype2: assassin, hard_gap_close: 2, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
-  mid: {engage: 2, dive: 3, archetype: assassin, hard_gap_close: 2, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
+  jungle: {engage: 2, dive: 3, setup: 2, followup: 1, archetype: skirmisher, archetype2: assassin, hard_gap_close: 2, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
+  mid: {engage: 2, dive: 3, setup: 2, followup: 1, archetype: assassin, hard_gap_close: 2, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
 Draven:
-  adc: {hypercarry: 1, archetype: lane_bully, source: video, auto_reliant: 3, kite: 1, escape: 1, reviewed: false, reviewed_kit: true}
+  adc: {hypercarry: 1, followup: 1, archetype: lane_bully, source: video, auto_reliant: 3, kite: 1, escape: 1, reviewed: false, reviewed_kit: true}
 DrMundo:
   top: {splitpush: 1, archetype: tank, archetype2: juggernaut, auto_reliant: 1, max_hp_damage: 2, extend_fight: 1, sustain: 3, reviewed: false, reviewed_kit: true}
   jungle: {splitpush: 1, archetype: tank, archetype2: farmer, auto_reliant: 1, max_hp_damage: 2, extend_fight: 1, sustain: 3, reviewed: false, reviewed_kit: true}
 Ekko:
-  jungle: {dive: 2, pick: 2, splitpush: 1, archetype: assassin, archetype2: skirmisher, hard_gap_close: 2, kite: 1, escape: 3, reviewed: false, reviewed_kit: true}
-  mid: {dive: 2, pick: 2, splitpush: 1, archetype: assassin, archetype2: skirmisher, hard_gap_close: 2, kite: 1, escape: 3, reviewed: false, reviewed_kit: true}
+  jungle: {dive: 2, pick: 2, splitpush: 1, setup: 1, archetype: assassin, archetype2: skirmisher, hard_gap_close: 2, kite: 1, escape: 3, reviewed: false, reviewed_kit: true}
+  mid: {dive: 2, pick: 2, splitpush: 1, setup: 1, archetype: assassin, archetype2: skirmisher, hard_gap_close: 2, kite: 1, escape: 3, reviewed: false, reviewed_kit: true}
 Elise:
-  jungle: {dive: 2, pick: 3, archetype: tempo_ganker, max_hp_damage: 1, hard_gap_close: 2, escape: 2, reviewed: false, reviewed_kit: true}
+  jungle: {dive: 2, pick: 3, setup: 2, archetype: tempo_ganker, max_hp_damage: 1, hard_gap_close: 2, escape: 2, reviewed: false, reviewed_kit: true}
 Evelynn:
-  jungle: {dive: 2, pick: 3, archetype: assassin, max_hp_damage: 1, hard_gap_close: 2, escape: 1, reviewed: false, reviewed_kit: true}
+  jungle: {dive: 2, pick: 3, setup: 1, followup: 2, archetype: assassin, max_hp_damage: 1, hard_gap_close: 2, escape: 1, reviewed: false, reviewed_kit: true}
 Ezreal:
-  adc: {poke: 3, archetype: poke, source: video, auto_reliant: 1, kite: 3, escape: 3, ability_range: 2, reviewed: false, reviewed_kit: true}
+  adc: {poke: 3, followup: 1, archetype: poke, source: video, auto_reliant: 1, kite: 3, escape: 3, ability_range: 2, reviewed: false, reviewed_kit: true}
 Fiddlesticks:
-  jungle: {engage: 3, archetype: farmer, reviewed: false}
+  jungle: {engage: 3, setup: 2, archetype: farmer, reviewed: false}
 Fiora:
-  top: {dive: 1, splitpush: 3, archetype: skirmisher, source: video, auto_reliant: 2, auto_denial: 2, max_hp_damage: 3, hard_gap_close: 1, escape: 1, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
+  top: {dive: 1, splitpush: 3, followup: 1, archetype: skirmisher, source: video, auto_reliant: 2, auto_denial: 2, max_hp_damage: 3, hard_gap_close: 1, escape: 1, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
 Fizz:
-  mid: {dive: 3, pick: 2, archetype: assassin, hard_gap_close: 2, escape: 3, reviewed: false, reviewed_kit: true}
+  mid: {dive: 3, pick: 2, followup: 2, archetype: assassin, hard_gap_close: 2, escape: 3, reviewed: false, reviewed_kit: true}
 Galio:
-  mid: {engage: 3, disengage: 2, archetype: battle_mage, hard_gap_close: 2, extend_fight: 1, anti_dive: 2, reviewed: false, reviewed_kit: true}
-  support: {engage: 3, disengage: 2, archetype: warden, archetype2: engage, hard_gap_close: 2, extend_fight: 1, anti_dive: 2, reviewed: false, reviewed_kit: true}
+  mid: {engage: 3, disengage: 2, setup: 2, archetype: battle_mage, hard_gap_close: 2, extend_fight: 1, anti_dive: 2, reviewed: false, reviewed_kit: true}
+  support: {engage: 3, disengage: 2, setup: 2, archetype: warden, archetype2: engage, hard_gap_close: 2, extend_fight: 1, anti_dive: 2, reviewed: false, reviewed_kit: true}
 Gangplank:
   top: {poke: 2, splitpush: 2, hypercarry: 1, archetype: ranged, source: video, kite: 1, escape: 2, ability_range: 2, reviewed: false, reviewed_kit: true}
 Garen:
   top: {dive: 1, splitpush: 1, archetype: juggernaut, source: video, max_hp_damage: 1, hard_gap_close: 1, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
 Gnar:
-  top: {engage: 2, disengage: 1, poke: 1, archetype: ranged, source: video, auto_reliant: 2, max_hp_damage: 2, kite: 3, escape: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
+  top: {engage: 2, disengage: 1, poke: 1, setup: 2, archetype: ranged, source: video, auto_reliant: 2, max_hp_damage: 2, kite: 3, escape: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
 Gragas:
-  top: {engage: 3, disengage: 2, pick: 1, archetype: tank, reviewed: false}
-  jungle: {engage: 3, disengage: 2, pick: 1, archetype: tempo_ganker, reviewed: false}
-  support: {engage: 3, disengage: 2, pick: 1, archetype: engage, archetype2: warden, reviewed: false}
+  top: {engage: 3, disengage: 2, pick: 1, setup: 2, archetype: tank, reviewed: false}
+  jungle: {engage: 3, disengage: 2, pick: 1, setup: 2, archetype: tempo_ganker, reviewed: false}
+  support: {engage: 3, disengage: 2, pick: 1, setup: 2, archetype: engage, archetype2: warden, reviewed: false}
 Graves:
-  jungle: {dive: 1, splitpush: 1, hypercarry: 1, archetype: skirmisher, archetype2: farmer, auto_reliant: 2, kite: 1, escape: 2, reviewed: false, reviewed_kit: true}
+  jungle: {dive: 1, splitpush: 1, hypercarry: 1, followup: 1, archetype: skirmisher, archetype2: farmer, auto_reliant: 2, kite: 1, escape: 2, reviewed: false, reviewed_kit: true}
 Gwen:
-  top: {dive: 2, splitpush: 2, hypercarry: 1, archetype: skirmisher, auto_denial: 2, max_hp_damage: 3, hard_gap_close: 1, escape: 1, extend_fight: 2, sustain: 1, reviewed: false, reviewed_kit: true}
+  top: {dive: 2, splitpush: 2, hypercarry: 1, followup: 2, archetype: skirmisher, auto_denial: 2, max_hp_damage: 3, hard_gap_close: 1, escape: 1, extend_fight: 2, sustain: 1, reviewed: false, reviewed_kit: true}
 Hecarim:
-  jungle: {engage: 3, dive: 3, archetype: skirmisher, source: video, hard_gap_close: 3, escape: 1, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
+  jungle: {engage: 3, dive: 3, setup: 2, archetype: skirmisher, source: video, hard_gap_close: 3, escape: 1, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
 Heimerdinger:
   top: {archetype: ranged, kite: 1, anti_dive: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
   mid: {disengage: 2, poke: 2, archetype: control_mage, kite: 1, anti_dive: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
   support: {disengage: 2, poke: 2, archetype: mage, kite: 1, anti_dive: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
 Hwei:
-  mid: {disengage: 1, poke: 3, pick: 2, archetype: artillery, archetype2: control_mage, kite: 1, anti_dive: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
-  support: {disengage: 1, poke: 3, pick: 2, archetype: mage, kite: 1, anti_dive: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
+  mid: {disengage: 1, poke: 3, pick: 2, setup: 1, followup: 2, needs_team: 1, archetype: artillery, archetype2: control_mage, kite: 1, anti_dive: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
+  support: {disengage: 1, poke: 3, pick: 2, setup: 1, followup: 2, needs_team: 1, archetype: mage, kite: 1, anti_dive: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
 Illaoi:
   top: {disengage: 1, splitpush: 2, archetype: juggernaut, source: video, max_hp_damage: 1, extend_fight: 2, sustain: 2, reviewed: false, reviewed_kit: true}
 Irelia:
-  top: {dive: 3, splitpush: 2, archetype: skirmisher, source: video, auto_reliant: 3, max_hp_damage: 1, hard_gap_close: 3, escape: 1, extend_fight: 1, sustain: 2, reviewed: false, reviewed_kit: true}
-  mid: {dive: 3, splitpush: 2, archetype: skirmisher, source: video, auto_reliant: 3, max_hp_damage: 1, hard_gap_close: 3, escape: 1, extend_fight: 1, sustain: 2, reviewed: false, reviewed_kit: true}
+  top: {dive: 3, splitpush: 2, followup: 2, archetype: skirmisher, source: video, auto_reliant: 3, max_hp_damage: 1, hard_gap_close: 3, escape: 1, extend_fight: 1, sustain: 2, reviewed: false, reviewed_kit: true}
+  mid: {dive: 3, splitpush: 2, followup: 2, archetype: skirmisher, source: video, auto_reliant: 3, max_hp_damage: 1, hard_gap_close: 3, escape: 1, extend_fight: 1, sustain: 2, reviewed: false, reviewed_kit: true}
 Ivern:
-  jungle: {disengage: 1, enchanter: 2, archetype: farmer, reviewed: false}
+  jungle: {disengage: 1, enchanter: 2, needs_team: 2, archetype: farmer, reviewed: false}
 Janna:
-  support: {disengage: 3, enchanter: 3, archetype: enchanter, archetype2: warden, auto_denial: 1, escape: 1, anti_dive: 3, reviewed: false, reviewed_kit: true}
+  support: {disengage: 3, enchanter: 3, setup: 1, needs_team: 1, archetype: enchanter, archetype2: warden, auto_denial: 1, escape: 1, anti_dive: 3, reviewed: false, reviewed_kit: true}
 JarvanIV:
-  jungle: {engage: 3, dive: 3, pick: 1, archetype: tempo_ganker, auto_reliant: 1, hard_gap_close: 3, extend_fight: 2, reviewed: false, reviewed_kit: true}
+  jungle: {engage: 3, dive: 3, pick: 1, setup: 3, archetype: tempo_ganker, auto_reliant: 1, hard_gap_close: 3, extend_fight: 2, reviewed: false, reviewed_kit: true}
 Jax:
   top: {dive: 2, splitpush: 3, archetype: skirmisher, source: video, auto_reliant: 3, auto_denial: 3, max_hp_damage: 1, hard_gap_close: 2, extend_fight: 1, reviewed: false, reviewed_kit: true}
   jungle: {dive: 2, splitpush: 3, archetype: skirmisher, auto_reliant: 3, auto_denial: 3, max_hp_damage: 1, hard_gap_close: 2, extend_fight: 1, reviewed: false, reviewed_kit: true}
@@ -139,303 +139,303 @@ Jayce:
   top: {poke: 3, splitpush: 1, archetype: ranged, source: video, hard_gap_close: 1, kite: 3, escape: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
   mid: {poke: 3, splitpush: 1, archetype: artillery, hard_gap_close: 1, kite: 3, escape: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
 Jhin:
-  adc: {poke: 2, pick: 2, archetype: poke, source: video, auto_reliant: 2, kite: 2, ability_range: 2, reviewed: false, reviewed_kit: true}
+  adc: {poke: 2, pick: 2, setup: 1, followup: 2, archetype: poke, source: video, auto_reliant: 2, kite: 2, ability_range: 2, reviewed: false, reviewed_kit: true}
 Jinx:
-  adc: {hypercarry: 3, archetype: scaler, source: video, auto_reliant: 3, kite: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
+  adc: {hypercarry: 3, followup: 2, needs_team: 1, archetype: scaler, source: video, auto_reliant: 3, kite: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
 Kaisa:
-  adc: {dive: 2, hypercarry: 2, archetype: skirmisher, source: video, auto_reliant: 2, max_hp_damage: 1, hard_gap_close: 2, kite: 2, escape: 2, reviewed: false, reviewed_kit: true}
+  adc: {dive: 2, hypercarry: 2, followup: 3, archetype: skirmisher, source: video, auto_reliant: 2, max_hp_damage: 1, hard_gap_close: 2, kite: 2, escape: 2, reviewed: false, reviewed_kit: true}
 Kalista:
-  adc: {engage: 1, hypercarry: 1, archetype: lane_bully, source: video, auto_reliant: 3, max_hp_damage: 1, kite: 3, escape: 3, reviewed: false, reviewed_kit: true}
+  adc: {engage: 1, hypercarry: 1, needs_team: 2, archetype: lane_bully, source: video, auto_reliant: 3, max_hp_damage: 1, kite: 3, escape: 3, reviewed: false, reviewed_kit: true}
 Karma:
-  mid: {disengage: 1, poke: 2, enchanter: 2, archetype: control_mage, archetype2: artillery, kite: 1, anti_dive: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
-  support: {disengage: 1, poke: 2, enchanter: 2, archetype: enchanter, archetype2: mage, kite: 1, anti_dive: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
+  mid: {disengage: 1, poke: 2, enchanter: 2, setup: 1, archetype: control_mage, archetype2: artillery, kite: 1, anti_dive: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
+  support: {disengage: 1, poke: 2, enchanter: 2, setup: 1, archetype: enchanter, archetype2: mage, kite: 1, anti_dive: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
 Karthus:
-  jungle: {hypercarry: 2, archetype: farmer, reviewed: false}
-  mid: {hypercarry: 2, archetype: control_mage, reviewed: false}
+  jungle: {hypercarry: 2, followup: 2, archetype: farmer, reviewed: false}
+  mid: {hypercarry: 2, followup: 2, archetype: control_mage, reviewed: false}
   adc: {archetype: mage_bot, source: video, reviewed: false}
 Kassadin:
-  mid: {dive: 2, hypercarry: 3, archetype: assassin, hard_gap_close: 3, escape: 2, reviewed: false, reviewed_kit: true}
+  mid: {dive: 2, hypercarry: 3, followup: 2, archetype: assassin, hard_gap_close: 3, escape: 2, reviewed: false, reviewed_kit: true}
 Katarina:
-  mid: {dive: 3, archetype: assassin, hard_gap_close: 3, escape: 2, reviewed: false, reviewed_kit: true}
+  mid: {dive: 3, followup: 3, archetype: assassin, hard_gap_close: 3, escape: 2, reviewed: false, reviewed_kit: true}
 Kayle:
-  top: {splitpush: 1, hypercarry: 3, archetype: ranged, source: video, auto_reliant: 3, kite: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
+  top: {splitpush: 1, hypercarry: 3, followup: 1, needs_team: 1, archetype: ranged, source: video, auto_reliant: 3, kite: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
 Kayn:
-  jungle: {dive: 3, pick: 2, archetype: skirmisher, archetype2: assassin, max_hp_damage: 2, hard_gap_close: 2, escape: 2, extend_fight: 1, sustain: 2, reviewed: false, reviewed_kit: true}
+  jungle: {dive: 3, pick: 2, followup: 2, archetype: skirmisher, archetype2: assassin, max_hp_damage: 2, hard_gap_close: 2, escape: 2, extend_fight: 1, sustain: 2, reviewed: false, reviewed_kit: true}
 Kennen:
-  top: {engage: 3, archetype: ranged, source: video, kite: 2, escape: 3, anti_dive: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
-  mid: {engage: 3, archetype: battle_mage, kite: 2, escape: 3, anti_dive: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
+  top: {engage: 3, setup: 2, archetype: ranged, source: video, kite: 2, escape: 3, anti_dive: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
+  mid: {engage: 3, setup: 2, archetype: battle_mage, kite: 2, escape: 3, anti_dive: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
 Khazix:
-  jungle: {dive: 2, pick: 3, archetype: assassin, source: video, hard_gap_close: 2, escape: 2, reviewed: false, reviewed_kit: true}
+  jungle: {dive: 2, pick: 3, followup: 2, archetype: assassin, source: video, hard_gap_close: 2, escape: 2, reviewed: false, reviewed_kit: true}
 Kindred:
-  jungle: {disengage: 1, hypercarry: 2, archetype: farmer, archetype2: skirmisher, auto_reliant: 3, max_hp_damage: 2, kite: 2, escape: 2, reviewed: false, reviewed_kit: true}
+  jungle: {disengage: 1, hypercarry: 2, followup: 1, archetype: farmer, archetype2: skirmisher, auto_reliant: 3, max_hp_damage: 2, kite: 2, escape: 2, reviewed: false, reviewed_kit: true}
 Kled:
-  top: {engage: 3, dive: 3, archetype: diver, reviewed: false}
+  top: {engage: 3, dive: 3, setup: 2, archetype: diver, reviewed: false}
 KogMaw:
-  adc: {hypercarry: 3, archetype: scaler, source: video, auto_reliant: 3, max_hp_damage: 2, kite: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
+  adc: {hypercarry: 3, followup: 2, needs_team: 2, archetype: scaler, source: video, auto_reliant: 3, max_hp_damage: 2, kite: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
 KSante:
-  top: {engage: 2, disengage: 1, dive: 2, archetype: tank, source: video, auto_denial: 1, max_hp_damage: 2, hard_gap_close: 1, extend_fight: 2, reviewed: false, reviewed_kit: true}
+  top: {engage: 2, disengage: 1, dive: 2, setup: 2, archetype: tank, source: video, auto_denial: 1, max_hp_damage: 2, hard_gap_close: 1, extend_fight: 2, reviewed: false, reviewed_kit: true}
 Leblanc:
-  mid: {dive: 2, pick: 3, archetype: assassin, hard_gap_close: 2, escape: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
+  mid: {dive: 2, pick: 3, followup: 2, archetype: assassin, hard_gap_close: 2, escape: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
 LeeSin:
-  jungle: {engage: 2, dive: 2, pick: 2, archetype: tempo_ganker, source: video, hard_gap_close: 3, escape: 2, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
+  jungle: {engage: 2, dive: 2, pick: 2, setup: 2, archetype: tempo_ganker, source: video, hard_gap_close: 3, escape: 2, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
 Leona:
-  support: {engage: 3, dive: 1, pick: 2, archetype: engage, auto_denial: 1, hard_gap_close: 2, extend_fight: 2, anti_dive: 1, reviewed: false, reviewed_kit: true}
+  support: {engage: 3, dive: 1, pick: 2, setup: 3, archetype: engage, auto_denial: 1, hard_gap_close: 2, extend_fight: 2, anti_dive: 1, reviewed: false, reviewed_kit: true}
 Lillia:
-  jungle: {engage: 2, poke: 1, archetype: farmer, archetype2: skirmisher, max_hp_damage: 2, kite: 2, escape: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
+  jungle: {engage: 2, poke: 1, setup: 2, archetype: farmer, archetype2: skirmisher, max_hp_damage: 2, kite: 2, escape: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
 Lissandra:
-  mid: {engage: 3, disengage: 2, pick: 2, archetype: control_mage, escape: 2, extend_fight: 1, anti_dive: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
+  mid: {engage: 3, disengage: 2, pick: 2, setup: 3, archetype: control_mage, escape: 2, extend_fight: 1, anti_dive: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
 Locke:
   jungle: {archetype: assassin, archetype2: skirmisher, auto_reliant: 2, max_hp_damage: 2, hard_gap_close: 3, kite: 1, escape: 2, extend_fight: 2, sustain: 2, reviewed: false, reviewed_kit: true, reviewed_arch: true}
   mid: {archetype: assassin, archetype2: skirmisher, auto_reliant: 2, max_hp_damage: 2, hard_gap_close: 3, kite: 1, escape: 2, extend_fight: 2, sustain: 2, reviewed: false, reviewed_kit: true, reviewed_arch: true}
 Lucian:
-  mid: {dive: 1, archetype: skirmisher, auto_reliant: 2, hard_gap_close: 1, kite: 2, escape: 2, reviewed: false, reviewed_kit: true}
-  adc: {dive: 1, archetype: lane_bully, source: video, auto_reliant: 2, hard_gap_close: 1, kite: 2, escape: 2, reviewed: false, reviewed_kit: true}
+  mid: {dive: 1, followup: 2, archetype: skirmisher, auto_reliant: 2, hard_gap_close: 1, kite: 2, escape: 2, reviewed: false, reviewed_kit: true}
+  adc: {dive: 1, followup: 2, archetype: lane_bully, source: video, auto_reliant: 2, hard_gap_close: 1, kite: 2, escape: 2, reviewed: false, reviewed_kit: true}
 Lulu:
-  support: {disengage: 2, enchanter: 3, archetype: enchanter, kite: 1, anti_dive: 2, reviewed: false, reviewed_kit: true}
+  support: {disengage: 2, enchanter: 3, setup: 1, needs_team: 1, archetype: enchanter, kite: 1, anti_dive: 2, reviewed: false, reviewed_kit: true}
 Lux:
-  mid: {disengage: 1, poke: 2, pick: 2, archetype: artillery, kite: 1, anti_dive: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
-  support: {disengage: 1, poke: 2, pick: 2, archetype: mage, archetype2: catcher, kite: 1, anti_dive: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
+  mid: {disengage: 1, poke: 2, pick: 2, setup: 2, followup: 2, archetype: artillery, kite: 1, anti_dive: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
+  support: {disengage: 1, poke: 2, pick: 2, setup: 2, followup: 2, archetype: mage, archetype2: catcher, kite: 1, anti_dive: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
 Malphite:
-  top: {engage: 3, archetype: tank, source: video, auto_denial: 2, hard_gap_close: 3, extend_fight: 1, reviewed: false, reviewed_kit: true}
-  mid: {engage: 3, archetype: battle_mage, auto_denial: 2, hard_gap_close: 3, extend_fight: 1, reviewed: false, reviewed_kit: true}
-  support: {engage: 3, archetype: engage, auto_denial: 2, hard_gap_close: 3, extend_fight: 1, reviewed: false, reviewed_kit: true}
+  top: {engage: 3, setup: 3, archetype: tank, source: video, auto_denial: 2, hard_gap_close: 3, extend_fight: 1, reviewed: false, reviewed_kit: true}
+  mid: {engage: 3, setup: 3, archetype: battle_mage, auto_denial: 2, hard_gap_close: 3, extend_fight: 1, reviewed: false, reviewed_kit: true}
+  support: {engage: 3, setup: 3, archetype: engage, auto_denial: 2, hard_gap_close: 3, extend_fight: 1, reviewed: false, reviewed_kit: true}
 Malzahar:
-  mid: {disengage: 1, pick: 2, archetype: control_mage, extend_fight: 2, anti_dive: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
+  mid: {disengage: 1, pick: 2, setup: 2, archetype: control_mage, extend_fight: 2, anti_dive: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
 Maokai:
-  top: {engage: 2, disengage: 2, archetype: tank, reviewed: false}
-  jungle: {engage: 2, disengage: 2, archetype: tank, reviewed: false}
-  support: {engage: 2, disengage: 2, archetype: engage, archetype2: warden, reviewed: false}
+  top: {engage: 2, disengage: 2, setup: 3, archetype: tank, reviewed: false}
+  jungle: {engage: 2, disengage: 2, setup: 3, archetype: tank, reviewed: false}
+  support: {engage: 2, disengage: 2, setup: 3, archetype: engage, archetype2: warden, reviewed: false}
 MasterYi:
-  jungle: {dive: 1, hypercarry: 2, archetype: farmer, source: video, auto_reliant: 3, auto_denial: 2, max_hp_damage: 2, hard_gap_close: 2, escape: 2, sustain: 1, reviewed: false, reviewed_kit: true}
+  jungle: {dive: 1, hypercarry: 2, followup: 2, archetype: farmer, source: video, auto_reliant: 3, auto_denial: 2, max_hp_damage: 2, hard_gap_close: 2, escape: 2, sustain: 1, reviewed: false, reviewed_kit: true}
 Mel:
-  mid: {disengage: 2, poke: 2, pick: 1, archetype: control_mage, auto_denial: 2, anti_dive: 2, ability_range: 2, reviewed: false, reviewed_kit: true}
-  support: {disengage: 2, poke: 2, pick: 1, archetype: mage, auto_denial: 2, anti_dive: 2, ability_range: 2, reviewed: false, reviewed_kit: true}
+  mid: {disengage: 2, poke: 2, pick: 1, setup: 1, followup: 2, archetype: control_mage, auto_denial: 2, anti_dive: 2, ability_range: 2, reviewed: false, reviewed_kit: true}
+  support: {disengage: 2, poke: 2, pick: 1, setup: 1, followup: 2, archetype: mage, auto_denial: 2, anti_dive: 2, ability_range: 2, reviewed: false, reviewed_kit: true}
 Milio:
-  support: {disengage: 2, enchanter: 3, archetype: enchanter, kite: 1, anti_dive: 1, reviewed: false, reviewed_kit: true}
+  support: {disengage: 2, enchanter: 3, setup: 1, archetype: enchanter, kite: 1, anti_dive: 1, reviewed: false, reviewed_kit: true}
 MissFortune:
-  adc: {poke: 1, archetype: lane_bully, source: video, auto_reliant: 1, kite: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  adc: {poke: 1, followup: 3, archetype: lane_bully, source: video, auto_reliant: 1, kite: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
 MonkeyKing:
-  top: {engage: 2, dive: 2, archetype: diver, archetype2: skirmisher, auto_reliant: 1, hard_gap_close: 2, escape: 1, extend_fight: 1, reviewed: false, reviewed_kit: true}
-  jungle: {engage: 2, dive: 2, archetype: skirmisher, archetype2: tempo_ganker, auto_reliant: 1, hard_gap_close: 2, escape: 1, extend_fight: 1, reviewed: false, reviewed_kit: true}
+  top: {engage: 2, dive: 2, setup: 2, archetype: diver, archetype2: skirmisher, auto_reliant: 1, hard_gap_close: 2, escape: 1, extend_fight: 1, reviewed: false, reviewed_kit: true}
+  jungle: {engage: 2, dive: 2, setup: 2, archetype: skirmisher, archetype2: tempo_ganker, auto_reliant: 1, hard_gap_close: 2, escape: 1, extend_fight: 1, reviewed: false, reviewed_kit: true}
 Mordekaiser:
-  top: {pick: 2, splitpush: 1, archetype: juggernaut, source: video, extend_fight: 3, sustain: 2, reviewed: false, reviewed_kit: true}
+  top: {pick: 2, splitpush: 1, setup: 1, archetype: juggernaut, source: video, extend_fight: 3, sustain: 2, reviewed: false, reviewed_kit: true}
 Morgana:
-  mid: {disengage: 2, pick: 3, archetype: control_mage, auto_denial: 1, anti_dive: 3, ability_range: 2, reviewed: false, reviewed_kit: true}
-  support: {disengage: 2, pick: 3, archetype: catcher, archetype2: mage, auto_denial: 1, anti_dive: 3, ability_range: 2, reviewed: false, reviewed_kit: true}
+  mid: {disengage: 2, pick: 3, setup: 2, archetype: control_mage, auto_denial: 1, anti_dive: 3, ability_range: 2, reviewed: false, reviewed_kit: true}
+  support: {disengage: 2, pick: 3, setup: 2, archetype: catcher, archetype2: mage, auto_denial: 1, anti_dive: 3, ability_range: 2, reviewed: false, reviewed_kit: true}
 Naafiri:
-  mid: {dive: 3, pick: 2, archetype: assassin, reviewed: false}
+  mid: {dive: 3, pick: 2, followup: 2, archetype: assassin, reviewed: false}
 Nami:
-  support: {engage: 1, disengage: 2, enchanter: 2, archetype: enchanter, kite: 1, anti_dive: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  support: {engage: 1, disengage: 2, enchanter: 2, setup: 2, archetype: enchanter, kite: 1, anti_dive: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
 Nasus:
   top: {splitpush: 3, hypercarry: 1, archetype: juggernaut, source: video, auto_reliant: 1, auto_denial: 2, hard_gap_close: 2, extend_fight: 2, sustain: 2, reviewed: false, reviewed_kit: true}
 Nautilus:
-  support: {engage: 3, pick: 3, archetype: engage, archetype2: catcher, hard_gap_close: 2, extend_fight: 2, anti_dive: 1, reviewed: false, reviewed_kit: true}
+  support: {engage: 3, pick: 3, setup: 3, archetype: engage, archetype2: catcher, hard_gap_close: 2, extend_fight: 2, anti_dive: 1, reviewed: false, reviewed_kit: true}
 Neeko:
-  mid: {engage: 2, pick: 2, archetype: battle_mage, kite: 1, escape: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
-  support: {engage: 2, pick: 2, archetype: catcher, archetype2: engage, kite: 1, escape: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  mid: {engage: 2, pick: 2, setup: 2, archetype: battle_mage, kite: 1, escape: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  support: {engage: 2, pick: 2, setup: 2, archetype: catcher, archetype2: engage, kite: 1, escape: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
 Nidalee:
   jungle: {poke: 2, pick: 1, archetype: tempo_ganker, reviewed: false}
 Nilah:
-  adc: {engage: 1, dive: 2, hypercarry: 1, archetype: skirmisher, auto_reliant: 3, auto_denial: 2, hard_gap_close: 2, escape: 1, sustain: 1, reviewed: false, reviewed_kit: true}
+  adc: {engage: 1, dive: 2, hypercarry: 1, followup: 3, archetype: skirmisher, auto_reliant: 3, auto_denial: 2, hard_gap_close: 2, escape: 1, sustain: 1, reviewed: false, reviewed_kit: true}
 Nocturne:
-  jungle: {engage: 2, dive: 3, pick: 2, archetype: assassin, archetype2: skirmisher, auto_reliant: 2, hard_gap_close: 3, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
+  jungle: {engage: 2, dive: 3, pick: 2, setup: 2, archetype: assassin, archetype2: skirmisher, auto_reliant: 2, hard_gap_close: 3, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
 Nunu:
-  jungle: {engage: 2, pick: 2, archetype: tank, archetype2: tempo_ganker, source: video, max_hp_damage: 1, hard_gap_close: 2, extend_fight: 2, sustain: 3, reviewed: false, reviewed_kit: true}
+  jungle: {engage: 2, pick: 2, setup: 2, archetype: tank, archetype2: tempo_ganker, source: video, max_hp_damage: 1, hard_gap_close: 2, extend_fight: 2, sustain: 3, reviewed: false, reviewed_kit: true}
 Olaf:
   top: {dive: 3, archetype: diver, source: video, auto_reliant: 2, max_hp_damage: 1, hard_gap_close: 1, extend_fight: 2, sustain: 3, reviewed: false, reviewed_kit: true}
   jungle: {dive: 3, archetype: skirmisher, archetype2: tempo_ganker, auto_reliant: 2, max_hp_damage: 1, hard_gap_close: 1, extend_fight: 2, sustain: 3, reviewed: false, reviewed_kit: true}
 Orianna:
-  mid: {engage: 2, disengage: 2, poke: 1, archetype: control_mage, source: video, kite: 1, anti_dive: 2, ability_range: 2, reviewed: false, reviewed_kit: true}
+  mid: {engage: 2, disengage: 2, poke: 1, setup: 1, followup: 3, needs_team: 3, archetype: control_mage, source: video, kite: 1, anti_dive: 2, ability_range: 2, reviewed: false, reviewed_kit: true}
 Ornn:
-  top: {engage: 3, disengage: 1, archetype: tank, source: video, max_hp_damage: 2, hard_gap_close: 2, extend_fight: 2, reviewed: false, reviewed_kit: true}
+  top: {engage: 3, disengage: 1, setup: 3, archetype: tank, source: video, max_hp_damage: 2, hard_gap_close: 2, extend_fight: 2, reviewed: false, reviewed_kit: true}
 Pantheon:
-  top: {engage: 2, dive: 2, pick: 1, archetype: diver, source: video, auto_denial: 2, hard_gap_close: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
-  jungle: {engage: 2, dive: 2, pick: 1, archetype: tempo_ganker, auto_denial: 2, hard_gap_close: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
-  mid: {engage: 2, dive: 2, pick: 1, archetype: skirmisher, archetype2: assassin, auto_denial: 2, hard_gap_close: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
-  support: {engage: 2, dive: 2, pick: 1, archetype: engage, auto_denial: 2, hard_gap_close: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
+  top: {engage: 2, dive: 2, pick: 1, setup: 2, archetype: diver, source: video, auto_denial: 2, hard_gap_close: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
+  jungle: {engage: 2, dive: 2, pick: 1, setup: 2, archetype: tempo_ganker, auto_denial: 2, hard_gap_close: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
+  mid: {engage: 2, dive: 2, pick: 1, setup: 2, archetype: skirmisher, archetype2: assassin, auto_denial: 2, hard_gap_close: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
+  support: {engage: 2, dive: 2, pick: 1, setup: 2, archetype: engage, auto_denial: 2, hard_gap_close: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
 Poppy:
-  top: {engage: 2, disengage: 3, archetype: tank, reviewed: false}
-  jungle: {engage: 2, disengage: 3, archetype: tank, archetype2: tempo_ganker, reviewed: false}
-  support: {engage: 2, disengage: 3, archetype: warden, archetype2: engage, reviewed: false}
+  top: {engage: 2, disengage: 3, setup: 2, archetype: tank, reviewed: false}
+  jungle: {engage: 2, disengage: 3, setup: 2, archetype: tank, archetype2: tempo_ganker, reviewed: false}
+  support: {engage: 2, disengage: 3, setup: 2, archetype: warden, archetype2: engage, reviewed: false}
 Pyke:
-  support: {engage: 2, pick: 3, archetype: catcher, max_hp_damage: 1, hard_gap_close: 2, escape: 2, reviewed: false, reviewed_kit: true}
+  support: {engage: 2, pick: 3, setup: 2, archetype: catcher, max_hp_damage: 1, hard_gap_close: 2, escape: 2, reviewed: false, reviewed_kit: true}
 Qiyana:
-  jungle: {engage: 2, dive: 2, pick: 2, archetype: assassin, source: video, hard_gap_close: 3, escape: 2, reviewed: false, reviewed_kit: true}
-  mid: {engage: 2, dive: 2, pick: 2, archetype: assassin, hard_gap_close: 3, escape: 2, reviewed: false, reviewed_kit: true}
+  jungle: {engage: 2, dive: 2, pick: 2, setup: 2, archetype: assassin, source: video, hard_gap_close: 3, escape: 2, reviewed: false, reviewed_kit: true}
+  mid: {engage: 2, dive: 2, pick: 2, setup: 2, archetype: assassin, hard_gap_close: 3, escape: 2, reviewed: false, reviewed_kit: true}
 Quinn:
   top: {poke: 1, pick: 1, splitpush: 2, archetype: ranged, reviewed: false}
 Rakan:
-  support: {engage: 3, disengage: 2, archetype: engage, archetype2: enchanter, hard_gap_close: 2, escape: 2, anti_dive: 2, reviewed: false, reviewed_kit: true}
+  support: {engage: 3, disengage: 2, setup: 3, archetype: engage, archetype2: enchanter, hard_gap_close: 2, escape: 2, anti_dive: 2, reviewed: false, reviewed_kit: true}
 Rammus:
-  jungle: {engage: 2, dive: 2, archetype: tank, reviewed: false}
+  jungle: {engage: 2, dive: 2, setup: 3, archetype: tank, reviewed: false}
 RekSai:
   jungle: {engage: 1, dive: 2, pick: 2, archetype: tempo_ganker, reviewed: false}
 Rell:
-  support: {engage: 3, dive: 1, archetype: engage, hard_gap_close: 2, extend_fight: 1, anti_dive: 2, reviewed: false, reviewed_kit: true}
+  support: {engage: 3, dive: 1, setup: 3, archetype: engage, hard_gap_close: 2, extend_fight: 1, anti_dive: 2, reviewed: false, reviewed_kit: true}
 Renata:
   support: {disengage: 3, enchanter: 1, archetype: enchanter, archetype2: warden, reviewed: false}
 Renekton:
-  top: {dive: 2, archetype: diver, source: video, auto_reliant: 1, hard_gap_close: 3, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
+  top: {dive: 2, setup: 1, archetype: diver, source: video, auto_reliant: 1, hard_gap_close: 3, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
 Rengar:
-  top: {dive: 2, pick: 3, archetype: diver, archetype2: skirmisher, auto_reliant: 1, hard_gap_close: 3, escape: 1, sustain: 1, reviewed: false, reviewed_kit: true}
-  jungle: {dive: 2, pick: 3, archetype: assassin, auto_reliant: 1, hard_gap_close: 3, escape: 1, sustain: 1, reviewed: false, reviewed_kit: true}
+  top: {dive: 2, pick: 3, followup: 2, archetype: diver, archetype2: skirmisher, auto_reliant: 1, hard_gap_close: 3, escape: 1, sustain: 1, reviewed: false, reviewed_kit: true}
+  jungle: {dive: 2, pick: 3, followup: 2, archetype: assassin, auto_reliant: 1, hard_gap_close: 3, escape: 1, sustain: 1, reviewed: false, reviewed_kit: true}
 Riven:
-  top: {dive: 2, splitpush: 2, archetype: skirmisher, archetype2: diver, reviewed: false}
+  top: {dive: 2, splitpush: 2, setup: 1, archetype: skirmisher, archetype2: diver, reviewed: false}
 Rumble:
-  top: {engage: 2, archetype: ranged, source: video, reviewed: false}
-  jungle: {engage: 2, archetype: farmer, reviewed: false}
-  mid: {engage: 2, archetype: battle_mage, reviewed: false}
+  top: {engage: 2, setup: 1, archetype: ranged, source: video, reviewed: false}
+  jungle: {engage: 2, setup: 1, archetype: farmer, reviewed: false}
+  mid: {engage: 2, setup: 1, archetype: battle_mage, reviewed: false}
 Ryze:
-  mid: {splitpush: 1, hypercarry: 2, archetype: battle_mage, source: video, reviewed: false}
+  mid: {splitpush: 1, hypercarry: 2, followup: 1, needs_team: 3, archetype: battle_mage, source: video, reviewed: false}
 Samira:
-  adc: {dive: 3, hypercarry: 1, archetype: lane_bully, source: video, auto_reliant: 2, auto_denial: 2, hard_gap_close: 2, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
+  adc: {dive: 3, hypercarry: 1, followup: 3, archetype: lane_bully, source: video, auto_reliant: 2, auto_denial: 2, hard_gap_close: 2, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
 Sejuani:
-  jungle: {engage: 3, archetype: tank, source: video, reviewed: false}
+  jungle: {engage: 3, setup: 3, archetype: tank, source: video, reviewed: false}
 Senna:
-  adc: {poke: 2, enchanter: 1, hypercarry: 1, archetype: poke, archetype2: scaler, auto_reliant: 2, kite: 2, escape: 1, sustain: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
-  support: {poke: 2, enchanter: 1, hypercarry: 1, archetype: mage, auto_reliant: 2, kite: 2, escape: 1, sustain: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
+  adc: {poke: 2, enchanter: 1, hypercarry: 1, setup: 1, followup: 1, needs_team: 1, archetype: poke, archetype2: scaler, auto_reliant: 2, kite: 2, escape: 1, sustain: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
+  support: {poke: 2, enchanter: 1, hypercarry: 1, setup: 1, followup: 1, needs_team: 1, archetype: mage, auto_reliant: 2, kite: 2, escape: 1, sustain: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
 Seraphine:
-  mid: {engage: 1, poke: 2, enchanter: 2, archetype: control_mage, kite: 1, anti_dive: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
-  adc: {engage: 1, poke: 2, enchanter: 2, archetype: mage_bot, kite: 1, anti_dive: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
-  support: {engage: 1, poke: 2, enchanter: 2, archetype: enchanter, archetype2: mage, kite: 1, anti_dive: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
+  mid: {engage: 1, poke: 2, enchanter: 2, setup: 1, followup: 1, archetype: control_mage, kite: 1, anti_dive: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
+  adc: {engage: 1, poke: 2, enchanter: 2, setup: 1, followup: 1, archetype: mage_bot, kite: 1, anti_dive: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
+  support: {engage: 1, poke: 2, enchanter: 2, setup: 1, followup: 1, archetype: enchanter, archetype2: mage, kite: 1, anti_dive: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
 Sett:
-  top: {engage: 2, dive: 1, archetype: juggernaut, archetype2: diver, source: video, auto_reliant: 1, max_hp_damage: 2, hard_gap_close: 1, extend_fight: 2, sustain: 1, reviewed: false, reviewed_kit: true}
-  support: {engage: 2, dive: 1, archetype: engage, auto_reliant: 1, max_hp_damage: 2, hard_gap_close: 1, extend_fight: 2, sustain: 1, reviewed: false, reviewed_kit: true}
+  top: {engage: 2, dive: 1, setup: 2, archetype: juggernaut, archetype2: diver, source: video, auto_reliant: 1, max_hp_damage: 2, hard_gap_close: 1, extend_fight: 2, sustain: 1, reviewed: false, reviewed_kit: true}
+  support: {engage: 2, dive: 1, setup: 2, archetype: engage, auto_reliant: 1, max_hp_damage: 2, hard_gap_close: 1, extend_fight: 2, sustain: 1, reviewed: false, reviewed_kit: true}
 Shaco:
   jungle: {pick: 3, archetype: assassin, hard_gap_close: 2, escape: 2, reviewed: false, reviewed_kit: true}
   support: {pick: 3, archetype: catcher, hard_gap_close: 2, escape: 2, reviewed: false, reviewed_kit: true}
 Shen:
-  top: {engage: 2, dive: 1, splitpush: 2, archetype: tank, source: video, auto_denial: 3, hard_gap_close: 2, extend_fight: 2, reviewed: false, reviewed_kit: true}
+  top: {engage: 2, dive: 1, splitpush: 2, setup: 2, archetype: tank, source: video, auto_denial: 3, hard_gap_close: 2, extend_fight: 2, reviewed: false, reviewed_kit: true}
 Shyvana:
-  jungle: {dive: 1, hypercarry: 1, archetype: farmer, auto_reliant: 2, max_hp_damage: 1, hard_gap_close: 1, extend_fight: 1, reviewed: false, reviewed_kit: true}
+  jungle: {dive: 1, hypercarry: 1, followup: 1, archetype: farmer, auto_reliant: 2, max_hp_damage: 1, hard_gap_close: 1, extend_fight: 1, reviewed: false, reviewed_kit: true}
 Singed:
   top: {disengage: 1, splitpush: 2, archetype: tank, reviewed: false}
 Sion:
-  top: {engage: 3, splitpush: 1, archetype: tank, source: video, max_hp_damage: 1, hard_gap_close: 1, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
+  top: {engage: 3, splitpush: 1, setup: 3, archetype: tank, source: video, max_hp_damage: 1, hard_gap_close: 1, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
 Sivir:
-  adc: {engage: 1, disengage: 1, poke: 1, hypercarry: 1, archetype: scaler, archetype2: poke, auto_reliant: 2, kite: 2, escape: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  adc: {engage: 1, disengage: 1, poke: 1, hypercarry: 1, followup: 1, archetype: scaler, archetype2: poke, auto_reliant: 2, kite: 2, escape: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
 Skarner:
-  top: {engage: 2, pick: 3, archetype: tank, reviewed: false}
-  jungle: {engage: 2, pick: 3, archetype: tank, source: video, reviewed: false}
+  top: {engage: 2, pick: 3, setup: 3, archetype: tank, reviewed: false}
+  jungle: {engage: 2, pick: 3, setup: 3, archetype: tank, source: video, reviewed: false}
 Smolder:
-  mid: {poke: 1, hypercarry: 3, archetype: artillery, auto_reliant: 1, max_hp_damage: 1, kite: 2, escape: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
-  adc: {poke: 1, hypercarry: 3, archetype: scaler, source: video, auto_reliant: 1, max_hp_damage: 1, kite: 2, escape: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  mid: {poke: 1, hypercarry: 3, followup: 2, needs_team: 1, archetype: artillery, auto_reliant: 1, max_hp_damage: 1, kite: 2, escape: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  adc: {poke: 1, hypercarry: 3, followup: 2, needs_team: 1, archetype: scaler, source: video, auto_reliant: 1, max_hp_damage: 1, kite: 2, escape: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
 Sona:
-  support: {engage: 1, poke: 1, enchanter: 3, archetype: enchanter, kite: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  support: {engage: 1, poke: 1, enchanter: 3, setup: 1, archetype: enchanter, kite: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
 Soraka:
-  support: {disengage: 1, enchanter: 3, archetype: enchanter, anti_dive: 1, sustain: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  support: {disengage: 1, enchanter: 3, setup: 1, needs_team: 1, archetype: enchanter, anti_dive: 1, sustain: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
 Swain:
-  mid: {engage: 2, disengage: 1, archetype: battle_mage, extend_fight: 2, anti_dive: 1, sustain: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
-  adc: {engage: 2, disengage: 1, archetype: mage_bot, extend_fight: 2, anti_dive: 1, sustain: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
-  support: {engage: 2, disengage: 1, archetype: mage, extend_fight: 2, anti_dive: 1, sustain: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
+  mid: {engage: 2, disengage: 1, setup: 2, archetype: battle_mage, extend_fight: 2, anti_dive: 1, sustain: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
+  adc: {engage: 2, disengage: 1, setup: 2, archetype: mage_bot, extend_fight: 2, anti_dive: 1, sustain: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
+  support: {engage: 2, disengage: 1, setup: 2, archetype: mage, extend_fight: 2, anti_dive: 1, sustain: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
 Sylas:
-  jungle: {engage: 1, dive: 2, pick: 1, archetype: skirmisher, hard_gap_close: 2, escape: 1, sustain: 2, reviewed: false, reviewed_kit: true}
-  mid: {engage: 1, dive: 2, pick: 1, archetype: battle_mage, archetype2: skirmisher, hard_gap_close: 2, escape: 1, sustain: 2, reviewed: false, reviewed_kit: true}
+  jungle: {engage: 1, dive: 2, pick: 1, setup: 1, followup: 2, archetype: skirmisher, hard_gap_close: 2, escape: 1, sustain: 2, reviewed: false, reviewed_kit: true}
+  mid: {engage: 1, dive: 2, pick: 1, setup: 1, followup: 2, archetype: battle_mage, archetype2: skirmisher, hard_gap_close: 2, escape: 1, sustain: 2, reviewed: false, reviewed_kit: true}
 Syndra:
-  mid: {poke: 2, pick: 3, archetype: control_mage, source: video, escape: 2, anti_dive: 2, ability_range: 2, reviewed: false, reviewed_kit: true}
+  mid: {poke: 2, pick: 3, setup: 2, archetype: control_mage, source: video, escape: 2, anti_dive: 2, ability_range: 2, reviewed: false, reviewed_kit: true}
   adc: {archetype: mage_bot, source: video, escape: 2, anti_dive: 2, ability_range: 2, reviewed: false, reviewed_kit: true}
 TahmKench:
-  top: {engage: 1, disengage: 3, archetype: tank, auto_denial: 1, max_hp_damage: 1, extend_fight: 2, sustain: 2, reviewed: false, reviewed_kit: true}
-  support: {engage: 1, disengage: 3, archetype: warden, auto_denial: 1, max_hp_damage: 1, extend_fight: 2, sustain: 2, reviewed: false, reviewed_kit: true}
+  top: {engage: 1, disengage: 3, setup: 2, archetype: tank, auto_denial: 1, max_hp_damage: 1, extend_fight: 2, sustain: 2, reviewed: false, reviewed_kit: true}
+  support: {engage: 1, disengage: 3, setup: 2, archetype: warden, auto_denial: 1, max_hp_damage: 1, extend_fight: 2, sustain: 2, reviewed: false, reviewed_kit: true}
 Taliyah:
-  jungle: {engage: 1, poke: 1, pick: 2, archetype: tempo_ganker, reviewed: false}
-  mid: {engage: 1, poke: 1, pick: 2, archetype: control_mage, reviewed: false}
+  jungle: {engage: 1, poke: 1, pick: 2, setup: 2, archetype: tempo_ganker, reviewed: false}
+  mid: {engage: 1, poke: 1, pick: 2, setup: 2, archetype: control_mage, reviewed: false}
 Talon:
-  jungle: {dive: 2, pick: 3, archetype: assassin, hard_gap_close: 2, escape: 2, reviewed: false, reviewed_kit: true}
-  mid: {dive: 2, pick: 3, archetype: assassin, hard_gap_close: 2, escape: 2, reviewed: false, reviewed_kit: true}
+  jungle: {dive: 2, pick: 3, followup: 2, archetype: assassin, hard_gap_close: 2, escape: 2, reviewed: false, reviewed_kit: true}
+  mid: {dive: 2, pick: 3, followup: 2, archetype: assassin, hard_gap_close: 2, escape: 2, reviewed: false, reviewed_kit: true}
 Taric:
   support: {engage: 2, disengage: 2, enchanter: 1, archetype: warden, reviewed: false}
 Teemo:
   top: {poke: 2, splitpush: 1, archetype: ranged, source: video, auto_reliant: 1, auto_denial: 3, kite: 3, escape: 1, reviewed: false, reviewed_kit: true}
 Thresh:
-  support: {engage: 2, disengage: 2, pick: 3, archetype: catcher, archetype2: warden, hard_gap_close: 1, extend_fight: 1, anti_dive: 2, reviewed: false, reviewed_kit: true}
+  support: {engage: 2, disengage: 2, pick: 3, setup: 3, archetype: catcher, archetype2: warden, hard_gap_close: 1, extend_fight: 1, anti_dive: 2, reviewed: false, reviewed_kit: true}
 Tristana:
-  mid: {disengage: 1, dive: 2, hypercarry: 2, archetype: skirmisher, auto_reliant: 3, hard_gap_close: 2, kite: 1, escape: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
-  adc: {disengage: 1, dive: 2, hypercarry: 2, archetype: skirmisher, source: video, auto_reliant: 3, hard_gap_close: 2, kite: 1, escape: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
+  mid: {disengage: 1, dive: 2, hypercarry: 2, followup: 2, archetype: skirmisher, auto_reliant: 3, hard_gap_close: 2, kite: 1, escape: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
+  adc: {disengage: 1, dive: 2, hypercarry: 2, followup: 2, archetype: skirmisher, source: video, auto_reliant: 3, hard_gap_close: 2, kite: 1, escape: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
 Trundle:
   top: {dive: 1, splitpush: 2, archetype: juggernaut, reviewed: false}
   jungle: {dive: 1, splitpush: 2, archetype: skirmisher, reviewed: false}
 Tryndamere:
-  top: {splitpush: 3, hypercarry: 1, archetype: skirmisher, source: video, auto_reliant: 3, hard_gap_close: 2, escape: 1, extend_fight: 1, sustain: 2, reviewed: false, reviewed_kit: true}
+  top: {splitpush: 3, hypercarry: 1, followup: 1, archetype: skirmisher, source: video, auto_reliant: 3, hard_gap_close: 2, escape: 1, extend_fight: 1, sustain: 2, reviewed: false, reviewed_kit: true}
 TwistedFate:
-  mid: {pick: 3, splitpush: 1, archetype: control_mage, reviewed: false}
+  mid: {pick: 3, splitpush: 1, setup: 2, archetype: control_mage, reviewed: false}
 Twitch:
-  adc: {pick: 1, hypercarry: 3, archetype: scaler, source: video, auto_reliant: 3, kite: 2, escape: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
+  adc: {pick: 1, hypercarry: 3, followup: 2, archetype: scaler, source: video, auto_reliant: 3, kite: 2, escape: 1, ability_range: 1, reviewed: false, reviewed_kit: true}
 Udyr:
   top: {engage: 1, dive: 2, archetype: juggernaut, reviewed: false}
   jungle: {engage: 1, dive: 2, archetype: skirmisher, archetype2: farmer, reviewed: false}
 Urgot:
-  top: {pick: 1, splitpush: 1, archetype: juggernaut, auto_reliant: 1, max_hp_damage: 2, kite: 1, extend_fight: 2, reviewed: false, reviewed_kit: true}
+  top: {pick: 1, splitpush: 1, setup: 1, archetype: juggernaut, auto_reliant: 1, max_hp_damage: 2, kite: 1, extend_fight: 2, reviewed: false, reviewed_kit: true}
 Varus:
   top: {archetype: ranged, source: video, auto_reliant: 1, max_hp_damage: 1, kite: 1, anti_dive: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
-  adc: {engage: 1, poke: 2, pick: 2, archetype: poke, source: video, auto_reliant: 1, max_hp_damage: 1, kite: 1, anti_dive: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
+  adc: {engage: 1, poke: 2, pick: 2, setup: 2, followup: 1, archetype: poke, source: video, auto_reliant: 1, max_hp_damage: 1, kite: 1, anti_dive: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
 Vayne:
-  top: {splitpush: 1, hypercarry: 3, archetype: ranged, source: video, auto_reliant: 3, max_hp_damage: 3, kite: 3, escape: 2, reviewed: false, reviewed_kit: true}
-  adc: {splitpush: 1, hypercarry: 3, archetype: scaler, source: video, auto_reliant: 3, max_hp_damage: 3, kite: 3, escape: 2, reviewed: false, reviewed_kit: true}
+  top: {splitpush: 1, hypercarry: 3, followup: 1, needs_team: 1, archetype: ranged, source: video, auto_reliant: 3, max_hp_damage: 3, kite: 3, escape: 2, reviewed: false, reviewed_kit: true}
+  adc: {splitpush: 1, hypercarry: 3, followup: 1, needs_team: 1, archetype: scaler, source: video, auto_reliant: 3, max_hp_damage: 3, kite: 3, escape: 2, reviewed: false, reviewed_kit: true}
 Veigar:
-  mid: {disengage: 2, pick: 1, hypercarry: 2, archetype: control_mage, anti_dive: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
-  support: {disengage: 2, pick: 1, hypercarry: 2, archetype: mage, anti_dive: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
+  mid: {disengage: 2, pick: 1, hypercarry: 2, setup: 2, followup: 2, archetype: control_mage, anti_dive: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
+  support: {disengage: 2, pick: 1, hypercarry: 2, setup: 2, followup: 2, archetype: mage, anti_dive: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
 Velkoz:
-  mid: {poke: 3, archetype: artillery, max_hp_damage: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
+  mid: {poke: 3, setup: 1, followup: 2, archetype: artillery, max_hp_damage: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
   adc: {archetype: mage_bot, source: video, max_hp_damage: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
-  support: {poke: 3, archetype: mage, max_hp_damage: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
+  support: {poke: 3, setup: 1, followup: 2, archetype: mage, max_hp_damage: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
 Vex:
-  mid: {engage: 2, disengage: 2, pick: 2, archetype: control_mage, kite: 1, escape: 1, anti_dive: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
+  mid: {engage: 2, disengage: 2, pick: 2, setup: 2, archetype: control_mage, kite: 1, escape: 1, anti_dive: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
 Vi:
-  jungle: {engage: 2, dive: 3, pick: 2, archetype: tempo_ganker, auto_reliant: 1, max_hp_damage: 1, hard_gap_close: 3, extend_fight: 2, reviewed: false, reviewed_kit: true}
+  jungle: {engage: 2, dive: 3, pick: 2, setup: 3, archetype: tempo_ganker, auto_reliant: 1, max_hp_damage: 1, hard_gap_close: 3, extend_fight: 2, reviewed: false, reviewed_kit: true}
 Viego:
-  jungle: {dive: 2, hypercarry: 1, archetype: skirmisher, auto_reliant: 2, max_hp_damage: 1, hard_gap_close: 2, escape: 1, sustain: 1, reviewed: false, reviewed_kit: true}
+  jungle: {dive: 2, hypercarry: 1, followup: 2, archetype: skirmisher, auto_reliant: 2, max_hp_damage: 1, hard_gap_close: 2, escape: 1, sustain: 1, reviewed: false, reviewed_kit: true}
 Viktor:
-  mid: {disengage: 1, poke: 2, hypercarry: 2, archetype: control_mage, archetype2: artillery, kite: 1, anti_dive: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
+  mid: {disengage: 1, poke: 2, hypercarry: 2, setup: 1, followup: 2, needs_team: 1, archetype: control_mage, archetype2: artillery, kite: 1, anti_dive: 1, ability_range: 2, reviewed: false, reviewed_kit: true}
 Vladimir:
-  top: {dive: 1, hypercarry: 2, archetype: ranged, escape: 2, extend_fight: 1, sustain: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
-  mid: {dive: 1, hypercarry: 2, archetype: battle_mage, source: video, escape: 2, extend_fight: 1, sustain: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
+  top: {dive: 1, hypercarry: 2, followup: 2, archetype: ranged, escape: 2, extend_fight: 1, sustain: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
+  mid: {dive: 1, hypercarry: 2, followup: 2, archetype: battle_mage, source: video, escape: 2, extend_fight: 1, sustain: 3, ability_range: 1, reviewed: false, reviewed_kit: true}
 Volibear:
-  top: {engage: 2, dive: 3, archetype: juggernaut, archetype2: diver, auto_reliant: 1, max_hp_damage: 1, hard_gap_close: 2, extend_fight: 2, sustain: 2, reviewed: false, reviewed_kit: true}
-  jungle: {engage: 2, dive: 3, archetype: skirmisher, archetype2: tempo_ganker, auto_reliant: 1, max_hp_damage: 1, hard_gap_close: 2, extend_fight: 2, sustain: 2, reviewed: false, reviewed_kit: true}
+  top: {engage: 2, dive: 3, setup: 2, archetype: juggernaut, archetype2: diver, auto_reliant: 1, max_hp_damage: 1, hard_gap_close: 2, extend_fight: 2, sustain: 2, reviewed: false, reviewed_kit: true}
+  jungle: {engage: 2, dive: 3, setup: 2, archetype: skirmisher, archetype2: tempo_ganker, auto_reliant: 1, max_hp_damage: 1, hard_gap_close: 2, extend_fight: 2, sustain: 2, reviewed: false, reviewed_kit: true}
 Warwick:
-  top: {engage: 2, dive: 2, pick: 2, archetype: juggernaut, archetype2: diver, auto_reliant: 1, max_hp_damage: 1, hard_gap_close: 2, extend_fight: 2, sustain: 3, reviewed: false, reviewed_kit: true}
-  jungle: {engage: 2, dive: 2, pick: 2, archetype: skirmisher, auto_reliant: 1, max_hp_damage: 1, hard_gap_close: 2, extend_fight: 2, sustain: 3, reviewed: false, reviewed_kit: true}
+  top: {engage: 2, dive: 2, pick: 2, setup: 2, archetype: juggernaut, archetype2: diver, auto_reliant: 1, max_hp_damage: 1, hard_gap_close: 2, extend_fight: 2, sustain: 3, reviewed: false, reviewed_kit: true}
+  jungle: {engage: 2, dive: 2, pick: 2, setup: 2, archetype: skirmisher, auto_reliant: 1, max_hp_damage: 1, hard_gap_close: 2, extend_fight: 2, sustain: 3, reviewed: false, reviewed_kit: true}
 Xayah:
-  adc: {disengage: 2, hypercarry: 1, archetype: skirmisher, source: video, auto_reliant: 2, kite: 2, escape: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
+  adc: {disengage: 2, hypercarry: 1, followup: 2, archetype: skirmisher, source: video, auto_reliant: 2, kite: 2, escape: 2, ability_range: 1, reviewed: false, reviewed_kit: true}
 Xerath:
-  mid: {poke: 3, pick: 1, archetype: artillery, source: video, kite: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
+  mid: {poke: 3, pick: 1, setup: 1, followup: 2, archetype: artillery, source: video, kite: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
   adc: {archetype: mage_bot, source: video, kite: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
-  support: {poke: 3, pick: 1, archetype: mage, kite: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
+  support: {poke: 3, pick: 1, setup: 1, followup: 2, archetype: mage, kite: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
 XinZhao:
-  jungle: {engage: 2, dive: 3, archetype: tempo_ganker, auto_reliant: 2, auto_denial: 2, hard_gap_close: 2, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
+  jungle: {engage: 2, dive: 3, setup: 2, archetype: tempo_ganker, auto_reliant: 2, auto_denial: 2, hard_gap_close: 2, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
 Yasuo:
-  top: {dive: 2, hypercarry: 2, archetype: skirmisher, auto_reliant: 3, auto_denial: 2, hard_gap_close: 2, escape: 2, extend_fight: 1, reviewed: false, reviewed_kit: true}
-  mid: {dive: 2, hypercarry: 2, archetype: skirmisher, source: video, auto_reliant: 3, auto_denial: 2, hard_gap_close: 2, escape: 2, extend_fight: 1, reviewed: false, reviewed_kit: true}
+  top: {dive: 2, hypercarry: 2, followup: 3, archetype: skirmisher, auto_reliant: 3, auto_denial: 2, hard_gap_close: 2, escape: 2, extend_fight: 1, reviewed: false, reviewed_kit: true}
+  mid: {dive: 2, hypercarry: 2, followup: 3, archetype: skirmisher, source: video, auto_reliant: 3, auto_denial: 2, hard_gap_close: 2, escape: 2, extend_fight: 1, reviewed: false, reviewed_kit: true}
   adc: {archetype: skirmisher, auto_reliant: 3, auto_denial: 2, hard_gap_close: 2, escape: 2, extend_fight: 1, reviewed: false, reviewed_kit: true}
 Yone:
-  top: {engage: 2, dive: 3, hypercarry: 2, archetype: skirmisher, source: video, auto_reliant: 3, max_hp_damage: 1, hard_gap_close: 2, escape: 2, reviewed: false, reviewed_kit: true}
-  mid: {engage: 2, dive: 3, hypercarry: 2, archetype: skirmisher, source: video, auto_reliant: 3, max_hp_damage: 1, hard_gap_close: 2, escape: 2, reviewed: false, reviewed_kit: true}
+  top: {engage: 2, dive: 3, hypercarry: 2, followup: 3, archetype: skirmisher, source: video, auto_reliant: 3, max_hp_damage: 1, hard_gap_close: 2, escape: 2, reviewed: false, reviewed_kit: true}
+  mid: {engage: 2, dive: 3, hypercarry: 2, followup: 3, archetype: skirmisher, source: video, auto_reliant: 3, max_hp_damage: 1, hard_gap_close: 2, escape: 2, reviewed: false, reviewed_kit: true}
 Yorick:
-  top: {splitpush: 3, archetype: juggernaut, max_hp_damage: 1, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
+  top: {splitpush: 3, setup: 1, archetype: juggernaut, max_hp_damage: 1, extend_fight: 1, sustain: 1, reviewed: false, reviewed_kit: true}
 Yunara:
-  adc: {hypercarry: 2, archetype: scaler, auto_reliant: 3, kite: 2, escape: 1, reviewed: false, reviewed_kit: true}
+  adc: {hypercarry: 2, followup: 2, archetype: scaler, auto_reliant: 3, kite: 2, escape: 1, reviewed: false, reviewed_kit: true}
 Yuumi:
-  support: {enchanter: 3, archetype: enchanter, anti_dive: 1, reviewed: false, reviewed_kit: true}
+  support: {enchanter: 3, needs_team: 2, archetype: enchanter, anti_dive: 1, reviewed: false, reviewed_kit: true}
 Zaahen:
   top: {archetype: skirmisher, archetype2: juggernaut, auto_reliant: 2, max_hp_damage: 2, hard_gap_close: 2, escape: 1, extend_fight: 3, sustain: 3, ability_range: 1, reviewed: false, reviewed_kit: true, reviewed_arch: true}
 Zac:
-  top: {engage: 3, dive: 2, archetype: tank, max_hp_damage: 1, hard_gap_close: 3, extend_fight: 1, sustain: 2, reviewed: false, reviewed_kit: true}
-  jungle: {engage: 3, dive: 2, archetype: tank, source: video, max_hp_damage: 1, hard_gap_close: 3, extend_fight: 1, sustain: 2, reviewed: false, reviewed_kit: true}
-  support: {engage: 3, dive: 2, archetype: engage, max_hp_damage: 1, hard_gap_close: 3, extend_fight: 1, sustain: 2, reviewed: false, reviewed_kit: true}
+  top: {engage: 3, dive: 2, setup: 3, archetype: tank, max_hp_damage: 1, hard_gap_close: 3, extend_fight: 1, sustain: 2, reviewed: false, reviewed_kit: true}
+  jungle: {engage: 3, dive: 2, setup: 3, archetype: tank, source: video, max_hp_damage: 1, hard_gap_close: 3, extend_fight: 1, sustain: 2, reviewed: false, reviewed_kit: true}
+  support: {engage: 3, dive: 2, setup: 3, archetype: engage, max_hp_damage: 1, hard_gap_close: 3, extend_fight: 1, sustain: 2, reviewed: false, reviewed_kit: true}
 Zed:
-  jungle: {dive: 2, pick: 3, splitpush: 1, archetype: assassin, auto_reliant: 1, hard_gap_close: 3, escape: 2, reviewed: false, reviewed_kit: true}
-  mid: {dive: 2, pick: 3, splitpush: 1, archetype: assassin, auto_reliant: 1, hard_gap_close: 3, escape: 2, reviewed: false, reviewed_kit: true}
+  jungle: {dive: 2, pick: 3, splitpush: 1, followup: 2, archetype: assassin, auto_reliant: 1, hard_gap_close: 3, escape: 2, reviewed: false, reviewed_kit: true}
+  mid: {dive: 2, pick: 3, splitpush: 1, followup: 2, archetype: assassin, auto_reliant: 1, hard_gap_close: 3, escape: 2, reviewed: false, reviewed_kit: true}
 Zeri:
-  adc: {dive: 1, hypercarry: 3, archetype: skirmisher, source: video, auto_reliant: 2, hard_gap_close: 1, kite: 3, escape: 2, reviewed: false, reviewed_kit: true}
+  adc: {dive: 1, hypercarry: 3, followup: 2, needs_team: 1, archetype: skirmisher, source: video, auto_reliant: 2, hard_gap_close: 1, kite: 3, escape: 2, reviewed: false, reviewed_kit: true}
 Ziggs:
-  mid: {poke: 3, archetype: artillery, kite: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
-  adc: {poke: 3, archetype: mage_bot, source: video, kite: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
+  mid: {poke: 3, followup: 2, archetype: artillery, kite: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
+  adc: {poke: 3, followup: 2, archetype: mage_bot, source: video, kite: 1, ability_range: 3, reviewed: false, reviewed_kit: true}
 Zilean:
-  mid: {disengage: 2, poke: 1, enchanter: 2, archetype: control_mage, reviewed: false}
-  support: {disengage: 2, poke: 1, enchanter: 2, archetype: enchanter, reviewed: false}
+  mid: {disengage: 2, poke: 1, enchanter: 2, setup: 1, archetype: control_mage, reviewed: false}
+  support: {disengage: 2, poke: 1, enchanter: 2, setup: 1, archetype: enchanter, reviewed: false}
 Zoe:
   mid: {poke: 3, pick: 3, archetype: artillery, reviewed: false}
 Zyra:
-  mid: {disengage: 1, poke: 2, archetype: control_mage, kite: 1, anti_dive: 2, ability_range: 2, reviewed: false, reviewed_kit: true}
-  support: {disengage: 1, poke: 2, archetype: mage, kite: 1, anti_dive: 2, ability_range: 2, reviewed: false, reviewed_kit: true}
+  mid: {disengage: 1, poke: 2, setup: 2, followup: 1, archetype: control_mage, kite: 1, anti_dive: 2, ability_range: 2, reviewed: false, reviewed_kit: true}
+  support: {disengage: 1, poke: 2, setup: 2, followup: 1, archetype: mage, kite: 1, anti_dive: 2, ability_range: 2, reviewed: false, reviewed_kit: true}

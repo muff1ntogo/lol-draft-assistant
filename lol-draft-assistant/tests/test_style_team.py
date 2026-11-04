@@ -288,7 +288,7 @@ def test_shipped_team_rules_are_valid():
     cross = [r for r in rules if r.cross]
     assert len(own) >= 12 and len(cross) >= 4
     ids = {r.id for r in rules}
-    for needed in ("has_engage", "no_frontline", "peel_for_carry", "damage_imbalance", "curve_coherence",
+    for needed in ("has_fight_starter", "no_frontline", "peel_for_carry", "damage_imbalance", "curve_coherence",
                    "identity_coherence", "engage_vs_disengage", "poke_vs_engage", "pick_vs_immobile_carry"):
         assert needed in ids
 

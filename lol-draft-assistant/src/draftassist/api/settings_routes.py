@@ -26,7 +26,8 @@ def put_settings(request: Request, ban_weights: dict = Body(...), ban_declared_i
                  comfort_games_cap: int | None = Body(None), damage_balance: bool | None = Body(None),
                  damage_penalty: float | None = Body(None), ban_comp_synergy: bool | None = Body(None),
                  comp_coherence: bool | None = Body(None), comp_weight: float | None = Body(None),
-                 lane_weight: float | None = Body(None), role_weight_override: dict | None = Body(None)) -> dict:
+                 lane_weight: float | None = Body(None), role_weight_override: dict | None = Body(None),
+                 blind_weights: dict | None = Body(None), comfort_gate: dict | None = Body(None)) -> dict:
     svc: Services = request.app.state.services
     db = db_of(svc)
     try:
@@ -37,7 +38,8 @@ def put_settings(request: Request, ban_weights: dict = Body(...), ban_declared_i
                              damage_balance=damage_balance, damage_penalty=damage_penalty,
                              ban_comp_synergy=ban_comp_synergy, comp_coherence=comp_coherence,
                              comp_weight=comp_weight, lane_weight=lane_weight,
-                             role_weight_override=role_weight_override)
+                             role_weight_override=role_weight_override, blind_weights=blind_weights,
+                             comfort_gate=comfort_gate)
         if comfort_games_cap is not None:
             from draftassist.learning.comfort import rescore
 

@@ -75,6 +75,13 @@
       </div>
     {:else if center.mode === 'our_ban' || center.mode === 'our_pick'}
       <div class="grouphead"><h2>{center.title}</h2>{#if center.mode === 'our_ban'}<ComponentLegend />{/if}</div>
+      {#if center.check}
+        <div class="checkstrip">
+          <span>Picking: {center.check.picking}</span>
+          <span class:no={!center.check.fight_starter}>Fight starter: {center.check.fight_starter ? 'yes' : 'no'}</span>
+          <span class:no={!center.check.frontline}>Frontline: {center.check.frontline ? 'yes' : 'no'}</span>
+        </div>
+      {/if}
       {#each center.cards as card, i}
         <article class="card" class:highlighted={card.highlighted} class:compact={center.cards.length > 3}>
           <span class="rank">{i + 1}</span>
@@ -174,6 +181,8 @@
 </main>
 
 <style>
+  .checkstrip { display: flex; gap: 14px; margin: 0 0 8px; font-size: 14px; color: var(--muted); }
+  .checkstrip .no { color: #e0a640; font-weight: 600; }
   .plantag { font-size: 13px; font-weight: 600; color: #8ec5ff; border: 1px solid #2f6fb7; border-radius: 4px;
              padding: 0 5px; margin-left: 6px; vertical-align: middle; }
   .top { display: grid; grid-template-columns: 1fr auto 1fr auto; align-items: center; gap: 24px;

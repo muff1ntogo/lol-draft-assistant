@@ -33,7 +33,7 @@ from draftassist.engine.traits import ChampionTraits, term_role_averages, term_v
 Comp = Sequence[tuple[int, str]]  # (champ, role); any subset of the five roles
 ROLE_INDEX = {"top": 0, "jungle": 1, "mid": 2, "adc": 3, "support": 4}
 PRIOR_SD_PP = 1.0
-AGGS = ("max", "mean", "sum", "lack", "excess", "protect", "all", "special")
+AGGS = ("max", "max_any", "none", "mean", "sum", "lack", "excess", "protect", "all", "special")
 SPECIALS = ("damage_imbalance", "curve_coherence", "identity_coherence")
 DAMAGE_TERMS = ("dmg_phys", "dmg_magic", "dmg_true")
 IMBALANCE_FROM = 0.70  # share of one damage type where the imbalance feature starts (1 at 100%)
@@ -54,6 +54,8 @@ def _spec_terms(spec: Mapping) -> list[str]:
         return [t for terms in IDENTITY_TERMS.values() for t, _ in terms]
     if "protect" in spec:
         return [spec["protect"], *spec["by"]]
+    if "max_any" in spec or "none" in spec:
+        return list(spec.get("max_any") or spec["none"])
     agg = next(k for k in spec if k in AGGS)
     return [spec[agg]]
 
@@ -71,6 +73,10 @@ def _validate_spec(spec, where: str) -> dict:
     elif agg == "special":
         if spec["special"] not in SPECIALS:
             raise ValueError(f"{where}: special must be one of {', '.join(SPECIALS)}")
+    elif agg in ("max_any", "none"):
+        out[agg] = [validate_term(t) for t in spec[agg]]
+        if not out[agg]:
+            raise ValueError(f"{where}: {agg} needs terms")
     elif agg == "protect":
         out["protect"] = validate_term(spec["protect"])
         out["by"] = [validate_term(t) for t in spec.get("by") or []]
@@ -256,6 +262,9 @@ class TeamModel:
             return best
         if "max" in spec:
             return self._term(a, spec["max"]).max(axis=1)
+        if "max_any" in spec or "none" in spec:  # the comp's strongest champion on any of these terms, or its absence
+            best = np.max(np.stack([self._term(a, t).max(axis=1) for t in spec.get("max_any") or spec["none"]]), axis=0)
+            return best if "max_any" in spec else 1.0 - best
         if "mean" in spec:
             count = a.M.sum(axis=1)
             return np.where(count > 0, self._term(a, spec["mean"]).sum(axis=1) / np.maximum(count, 1), 0.0)

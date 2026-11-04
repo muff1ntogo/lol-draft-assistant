@@ -14,11 +14,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from sqlalchemy import Engine, text
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from draftassist.data.synergy import ALL, latest_window
 from draftassist.data.traits_map import TRAIT_SOURCES
-from draftassist.db.models import Champion, ChampionTraitRow
+from draftassist.db.models import Champion, ChampionTraitRow, MatchupFit
 from draftassist.engine.comp import LONG_S, SHORT_S
 from draftassist.engine.traits import ChampionTraits, KitTraits, percentiles, power_curve_slope, ranged
 
@@ -127,4 +127,11 @@ def load_traits(db: Engine, window: str | None = None, bracket: str = ALL) -> Ch
     fields = ("cc", "frontline", "peel", "dmg_phys", "dmg_magic", "dmg_true", "power_curve", "power_curve_slope",
               "lane_pressure", "ranged", "cc_all", "frontline_all", "peel_all")
     measured = {(r.champ_id, r.role): {f: getattr(r, f) for f in fields} | {"games": r.games} for r in rows}
+    with Session(db) as s:  # win rate when 300+ gold behind at 15 minutes (data/matchup_model.py)
+        behind = s.exec(select(MatchupFit).where(MatchupFit.window == window, col(MatchupFit.param).startswith("behind:"))
+                        ).all() if window else []
+    for r in behind:
+        key = (int(r.param.split(":")[1]), r.role)
+        if key in measured:
+            measured[key]["behind_value"] = r.value
     return ChampionTraits(measured, load_tags(db), ranges, KitTraits(load_kit(db)))

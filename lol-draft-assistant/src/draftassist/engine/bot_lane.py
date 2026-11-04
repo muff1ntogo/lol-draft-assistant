@@ -18,6 +18,9 @@ import numpy as np
 from draftassist.engine.matchup_model import LANE_PRIOR_SD_GOLD, PP_PER_LOGODDS, PRIOR_SD_PP, _logistic
 
 
+PARTNER_TIER_WEIGHT = {"main": 3.0, "comfortable": 2.0, "learning": 1.0}  # who we expect in a role that isn't locked
+
+
 def bot_features(adc_blue: np.ndarray, sup_blue: np.ndarray, adc_red: np.ndarray, sup_red: np.ndarray) -> np.ndarray:
     """One row per match, blue's view. Columns: the cross table, then the pair table, each (ADC archetype, support one)."""
     def outer(a, s):

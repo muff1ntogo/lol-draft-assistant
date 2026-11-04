@@ -1,15 +1,15 @@
 # Whole-comp rules (feature) and cross-team rules (ours x theirs), docs/synergy-v2.md, Stage 2b.
 # Features are 0-1: {max: t}, {mean: t}, {sum: t, cap: c}, {lack: t, need: c}, {excess: t, over: x, cap: c},
 # {protect: t, by: [..]},
-# {all: [f, f]} (product), {special: damage_imbalance | curve_coherence | identity_coherence}.
+# {max_any: [t, t]} (the comp's strongest on any), {none: [t, t]} (1 - max_any), {all: [f, f]} (product), {special: damage_imbalance | curve_coherence | identity_coherence}.
 # prior_pp is the effect of the feature going 0 -> 1; the logistic fit on crawled matches moves it (ridge,
 # prior SD 1pp). Drafted by Claude; priors are edited on the Rules page.
 
 # ---------- our comp ----------
-- id: has_engage
-  feature: {max: engage}
+- id: has_fight_starter
+  feature: {max_any: [engage, setup]}
   prior_pp: +1.5
-  note: "A reliable engage"
+  note: "Someone to start the fight"
 - id: layered_engage
   feature: {sum: engage, cap: 2.0}
   prior_pp: +0.5
@@ -30,6 +30,18 @@
   feature: {sum: cc_all, cap: 3.5}
   prior_pp: +0.8
   note: "Lots of crowd control"
+- id: followup_without_setup
+  feature: {all: [{sum: followup, cap: 2.0}, {none: [engage, setup]}]}
+  prior_pp: -1.0
+  note: "Fight enders with nobody to start the fight"
+- id: needs_followup
+  feature: {all: [{max: needs_team}, {max_any: [setup, dive]}]}
+  prior_pp: +1.0
+  note: "A team-dependent win condition with the team to play it"
+- id: needs_team_alone
+  feature: {all: [{max: needs_team}, {none: [setup, dive]}]}
+  prior_pp: -1.0
+  note: "A team-dependent win condition with no follow-up"
 - id: has_disengage
   feature: {max: disengage}
   prior_pp: +0.5

@@ -56,6 +56,9 @@ LANE_PREFIX = "lane:"
 LANE_K = LANE_PREFIX + K_PARAM
 SLOPE_PREFIX = "slope:"
 ROLE_WEIGHT, ROLE_WEIGHT_SE = "role_weight", "role_weight_se"
+BEHIND_PREFIX = "behind:"  # Stage 6: win rate when BEHIND_GOLD+ behind at 15 minutes
+BEHIND_GOLD = 300
+BEHIND_K = 50
 BOT_ROLE = "bot"  # Stage 5: bot_game:cross:a|s, bot_game:pair:a|s, bot_gold:cross:a|s, bot_gold:pair:a|s
 LANE_STRENGTH_K = 100  # a champion's own mean lead shrinks towards 0 by this many lanes
 LANE_MIN_GAMES = 30  # champions with fewer lane games in the window get no lane matchups
@@ -188,6 +191,22 @@ def _fit_bot(role_games: Mapping, inputs: Mapping, window: str) -> list:
     return out
 
 
+def _behind_rows(role: str, lanes: list, window: str) -> list:
+    """Each champion's win rate when 300+ gold behind at 15 minutes, shrunk towards the role's own."""
+    games: dict[int, float] = {}
+    wins: dict[int, float] = {}
+    for _, _, x, y, win, gold, w in lanes:
+        if gold is None or abs(gold) < BEHIND_GOLD:
+            continue
+        trailing, won = (x, win) if gold < 0 else (y, 1 - win)
+        games[trailing] = games.get(trailing, 0.0) + w
+        wins[trailing] = wins.get(trailing, 0.0) + w * won
+    total = sum(games.values())
+    mean = sum(wins.values()) / total if total else 0.5
+    return [MatchupFit(window=window, role=role, param=f"{BEHIND_PREFIX}{c}",
+                       value=(wins[c] + BEHIND_K * mean) / (n + BEHIND_K), support=round(n)) for c, n in games.items()]
+
+
 def _group_by_match(role_games: Mapping) -> dict:
     out: dict = {}
     for role, rows in role_games.items():
@@ -269,6 +288,7 @@ def fit_matchup_model(db: Engine, window: str | None = None, priors_path: Path =
         rows += _fit_slopes(role, role_lanes, by_champ,
                             lambda c: resolve_archetype(written, c, role, classes.get(c)), window)
         role_games[role] = _loo_edges(role_lanes, feats, coefs, strength, k)
+        rows += _behind_rows(role, role_lanes, window)
         bot_inputs[role] = (role_lanes, feats, gold_pred)
     rows += _fit_role_weights(role_games, window)
     rows += _fit_bot(role_games, bot_inputs, window)
@@ -403,7 +423,7 @@ def load_matchup_model(db: Engine, window: str | None = None) -> MatchupModel | 
             lane_ks[r.role] = r.value
         elif r.param == ROLE_WEIGHT:
             weights[r.role] = r.value
-        elif r.param == ROLE_WEIGHT_SE:
+        elif r.param == ROLE_WEIGHT_SE or r.param.startswith(BEHIND_PREFIX):
             continue
         elif r.param.startswith(LANE_PREFIX):
             lane_coefs.setdefault(r.role, {})[r.param[len(LANE_PREFIX):]] = r.value

@@ -154,6 +154,16 @@
           <h3>{LABELS[role]}
             {#if proposals(entries) > 1}<button class="link" onclick={() => acceptTier(role)}>accept all {proposals(entries)}</button>{/if}
           </h3>
+          {#if data?.health?.[role]}
+            {@const h = data.health[role]}
+            <div class="health">
+              <div class:missing={!h.blind.ok}>Blind pick: {h.blind.ok ? h.blind.name : `none safe${h.blind.name ? ` (best ${h.blind.name})` : ''}`}</div>
+              {#if h.setup.applies}<div class:missing={!h.setup.ok}>Setup: {h.setup.ok ? h.setup.name : 'none'}</div>{/if}
+              {#if h.counter.main}<div class:missing={!h.counter.ok}
+                title={h.counter.worst.map((w) => `${w.name} ${w.main_pp}pp${w.answered ? `: ${w.answer} ${w.answer_pp}pp` : ': no answer'}`).join(' · ')}>
+                Counters to {h.counter.main}'s worst: {h.counter.worst.filter((w) => w.answered).length} of {h.counter.worst.length}</div>{/if}
+            </div>
+          {/if}
           {#each entries as e}
             <div class="entry">
               <Champ champ={e.champ} size={32} />
@@ -199,6 +209,8 @@
 </main>
 
 <style>
+  .health { font-size: 12px; color: var(--muted); margin: 0 0 8px; display: flex; flex-direction: column; gap: 2px; }
+  .health .missing { color: #e0a640; }
   .page { max-width: 1440px; margin: 0 auto; padding: 20px 28px 60px; }
   h1 { font-size: 32px; margin: 8px 0 16px; }
   h2 { font-size: 20px; margin: 28px 0 10px; }

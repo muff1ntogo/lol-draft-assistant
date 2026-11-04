@@ -121,6 +121,7 @@ class EngineData:
     # instead of `synergy` alone, and the team model's damage rule replaces the damage-balance penalty.
     synergy_v2: object | None = None
     bot: object | None = None  # docs/matchup-archetypes.md, Stage 5: engine/bot_lane.BotLane
+    traits: object | None = None  # Stage 6: engine/traits.ChampionTraits, for blind safety and the check strip
 
     def champions(self) -> frozenset[int]:
         ids = set(self.names)
@@ -220,6 +221,9 @@ class EngineConfig:
     # docs/matchup-archetypes.md, Stage 4
     lane_weight: float = 0.5  # lane vs game matchup in lane ban Resp, counter risk and History (1 = lane only)
     role_weights: Mapping[str, float] | None = None  # role -> how much its matchups count (None = all 1)
+    # docs/matchup-archetypes.md, Stage 6
+    blind_weights: Mapping[str, float] = field(default_factory=dict)  # part or "comfort" -> weight (missing = 1)
+    comfort_gate: Mapping[str, float] = field(default_factory=dict)  # tier -> share of a counter pick's edge it keeps
     ban_comp_synergy: bool = False  # ban phase 2: Comp also counts synergy with the enemy's locked picks
     min_ban_relevance: float = 0.10  # bans below this share of still-open roles are wasted
     role_share_floor: float = 0.001  # P(champ in role) for roles with no data, when inferring filled roles
