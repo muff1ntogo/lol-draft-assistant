@@ -38,8 +38,15 @@ No real games, crawl data or fit exist in the cloud: `.env`, `data/*.sqlite*`, `
 - Re-read the 12 real games: comfort's new scale changes P0, so verdicts will shift.
 - Delete both `cache/*.ps1` scripts.
 - Look again at `timing_gold` (decision 19).
-- `cd web; npm run build`, then restart the app: the strip, trends and Live change need the new code.
-- Lint: `ruff` isn't installed in either environment, so it hasn't run on this work.
+- `uv sync` (pywebview is new), `cd web; npm run build`, then restart the app: the strip, trends and Live change need the new code.
+- Lint: ruff ran once in the cloud (`uvx ruff check --isolated --select F`); it isn't a project dependency.
+
+## The app window and installer (6 Nov 2026, after the above)
+
+Three stages, each tested: the launcher opens a pywebview window (`draftassist-app.exe` has no console); the installed app
+keeps its data in `%LOCALAPPDATA%\DraftAssistant` and runs the jobs as subcommands; `packaging/` builds the installer
+(see `packaging/README.md`). Not yet seen on Windows by a person: the WebView2 window itself, and the installer's
+shortcuts. To move to the installed app, stop the crawl and run `draftassist-cli import-data <this folder>` once.
 
 ## Rules the user set
 
