@@ -2,7 +2,7 @@
 
 Read `CLAUDE.md` and `docs/draft-vs-execution.md` first: the doc has the spec and decisions 1–36.
 
-The cloud session's work is on branch `claude/eager-ramanujan-5zh36v`, which contains `claude/draft-vs-execution` plus the cloud session's commits. Neither is merged to `main`. Everything was built on the session's recommendations; the user then answered the open decisions (decision 36), and Stage 6 was built with its flag off (decision 35). The branch is ready to merge once checked on the user's PC.
+Merged to `main` on 6 Nov 2026 at the user's request, from branch `claude/eager-ramanujan-5zh36v` (which contains `claude/draft-vs-execution` plus the cloud session's commits). Everything was built on the session's recommendations; the user then answered the open decisions (decision 36), and Stage 6 was built with its flag off (decision 35). It still needs checking on the user's PC (below).
 
 ## Where things stand
 

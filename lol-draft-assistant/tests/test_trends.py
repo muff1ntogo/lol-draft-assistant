@@ -77,6 +77,13 @@ def test_team_means_and_verdict_counts():
     assert sum(t["verdicts"].values()) == 10  # every verdict listed, zeros included
 
 
+def test_verdict_counts_list_every_verdict_stage_3_can_give():
+    from draftassist.learning.execution import VERDICT_PART
+    from draftassist.learning.trends import VERDICTS
+
+    assert sorted(VERDICTS) == sorted([*VERDICT_PART, "Inconclusive"])
+
+
 # ---------- biggest lever ----------
 def test_the_lever_is_the_most_negative_part_when_its_band_excludes_zero():
     parts = {"draft": Band(-1.0, 3.0, 10), "conversion": Band(-8.0, 2.0, 10), "top": Band(-2.0, 0.5, 10)}

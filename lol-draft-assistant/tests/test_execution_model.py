@@ -27,7 +27,6 @@ from draftassist.engine.execution import (
     LaneTarget,
     PoissonMatchups,
     SdTable,
-    StateModel,
     brier,
     early_of_leader,
     fit_draft_scale,

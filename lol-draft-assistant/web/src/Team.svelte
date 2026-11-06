@@ -1,4 +1,6 @@
 <script>
+  import { signed, statName } from './format.js';
+
   let data = $state(null);
   let message = $state('');
 
@@ -30,12 +32,6 @@
 
   const PART_NAMES = { draft: 'Draft', early: 'Early game', conversion: 'Conversion' };
   const EARLY_NAMES = { top: 'Top', jungle: 'Jungle', mid: 'Mid', bot: 'Bot', objectives: 'Objectives and team' };
-  const STAT_NAMES = { gold: 'Gold lead', cs: 'CS lead at 14', deaths_solo: 'Solo deaths before 14', jungle_cs: 'Jungle CS at 15',
-                       kp: 'Kill participation', vision: 'Vision per minute' };
-  const signed = (x, digits) => {
-    const shown = Math.abs(x).toFixed(digits);
-    return `${Number(shown) === 0 ? '' : x > 0 ? '+' : '−'}${shown}`;
-  };
   const bandText = (b, digits, unit = '') => `${signed(b.mean, digits)}${unit}${b.se != null ? ` ± ${b.se.toFixed(digits)}` : ''}`;
   const excludesZero = (b) => b.se != null && (b.mean + b.se < 0 || b.mean - b.se > 0);
   // Teal = in our favour, amber = against, grey = the band reaches 0. z is raw, so for deaths a positive mean is against us
@@ -109,7 +105,7 @@
                 <table>
                   <tbody>
                     {#each r.stats as s}
-                      <tr><td>{STAT_NAMES[s.stat] ?? s.stat}</td>
+                      <tr><td>{statName(s.stat)}</td>
                         <td class="n {tone(s, s.lower_is_better)}">{bandText(s, 2)}</td></tr>
                     {/each}
                   </tbody>
@@ -121,7 +117,7 @@
                   <table>
                     <tbody>
                       {#each c.stats as s}
-                        <tr><td>{STAT_NAMES[s.stat] ?? s.stat}</td><td class="n {tone(s, s.lower_is_better)}">{bandText(s, 2)}</td></tr>
+                        <tr><td>{statName(s.stat)}</td><td class="n {tone(s, s.lower_is_better)}">{bandText(s, 2)}</td></tr>
                       {/each}
                     </tbody>
                   </table>

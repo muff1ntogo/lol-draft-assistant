@@ -1,22 +1,12 @@
 <script>
   // docs/draft-vs-execution.md, Stage 4. Teal = moved in our favour, amber = against, grey = within 1pp. Validated on the
   // panel surface (CLAUDE.md); the signed number and the label are always written too.
+  import { STATS, signed as signedNum } from './format.js';
+
   let { e } = $props();
   let openBot = $state(false);
   let openTable = $state(false);
 
-  const STATS = {
-    gold: ['Gold lead', 'lead'], xp: ['XP lead', 'lead'], cs: ['CS lead at 14', 'lead1'], gold_25: ['Gold lead at 25', 'lead'],
-    deaths_solo: ['Solo deaths before 14', 'count'], deaths_ganked: ['Ganked deaths before 14', 'count'],
-    jungle_cs: ['Jungle CS at 15', 'count'], kp: ['Kill participation before 15', 'pct'], vision: ['Wards placed + killed per minute', 'count'],
-    dragons: ['Dragons by 15 (us − them)', 'lead1'], grubs: ['Grubs by 15 (us − them)', 'lead1'],
-    towers: ['Towers by 15 (us − them)', 'lead1'], plates: ['Plates by 15 (us − them)', 'lead1'],
-  };
-  // Rounded first, so a value that shows as zero has no sign (never "−0.0")
-  function signedNum(x, digits) {
-    const shown = Math.abs(x).toFixed(digits);
-    return `${Number(shown) === 0 ? '' : x > 0 ? '+' : '−'}${shown}`;
-  }
   function value(stat, x) {
     const kind = STATS[stat]?.[1];
     if (kind === 'lead') return signedNum(x, 0);
@@ -114,18 +104,20 @@
             {/each}
           </tbody>
         </table>
-        <table class="after">
-          <thead><tr><th>After 15:00</th><th class="n">Us</th><th class="n">Them</th></tr></thead>
-          <tbody>
-            {#each after as [name, key]}
-              <tr><td>{name}</td><td class="n">{e.detail[key][0]}</td><td class="n">{e.detail[key][1]}</td></tr>
-            {/each}
-            {#if e.detail.gold_25}
-              <tr><td>{STATS.gold_25[0]}: expected {value('gold_25', e.detail.gold_25.expected)}, {e.detail.gold_25.label}</td>
-                <td class="n" colspan="2">{value('gold_25', e.detail.gold_25.actual)}</td></tr>
-            {/if}
-          </tbody>
-        </table>
+        {#if e.detail}
+          <table class="after">
+            <thead><tr><th>After 15:00</th><th class="n">Us</th><th class="n">Them</th></tr></thead>
+            <tbody>
+              {#each after as [name, key]}
+                {#if e.detail[key]}<tr><td>{name}</td><td class="n">{e.detail[key][0]}</td><td class="n">{e.detail[key][1]}</td></tr>{/if}
+              {/each}
+              {#if e.detail.gold_25}
+                <tr><td>{STATS.gold_25[0]}: expected {value('gold_25', e.detail.gold_25.expected)}, {e.detail.gold_25.label}</td>
+                  <td class="n" colspan="2">{value('gold_25', e.detail.gold_25.actual)}</td></tr>
+              {/if}
+            </tbody>
+          </table>
+        {/if}
       </div>
     {/if}
   {:else}
