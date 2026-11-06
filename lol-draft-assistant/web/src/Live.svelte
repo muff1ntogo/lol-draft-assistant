@@ -147,8 +147,14 @@
       {/each}
     {:else if center.mode === 'locked'}
       <h2>LOCKED IN</h2>
-      <div class="winprob">{Math.round(center.win_prob * 100)}%</div>
-      <p class="muted">model win probability</p>
+      {#if center.calibrated_win_prob != null}
+        <div class="winprob">{Math.round(center.calibrated_win_prob * 100)}%</div>
+        <p class="muted" title="The draft and our comfort, scaled as crawled games say draft numbers should be. History starts each game's strip from this figure.">
+          win probability, calibrated · draft model's raw figure {Math.round(center.win_prob * 100)}%</p>
+      {:else}
+        <div class="winprob">{Math.round(center.win_prob * 100)}%</div>
+        <p class="muted">model win probability</p>
+      {/if}
       <h3>Biggest threats</h3>
       {#each center.threats as t}
         <article class="card enemy">

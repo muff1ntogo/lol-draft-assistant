@@ -1,68 +1,50 @@
-# Handoff: Draft vs execution, 6 Nov 2026
+# Handoff: Draft vs execution, 6 Nov 2026 (after the cloud session)
 
-For the next session, which runs in the cloud. Read `CLAUDE.md` and `docs/draft-vs-execution.md` first: the doc has the spec and decisions 1–27.
+Read `CLAUDE.md` and `docs/draft-vs-execution.md` first: the doc has the spec and decisions 1–33.
 
-Work is on branch `claude/draft-vs-execution`. It is not merged to `main`.
+The cloud session's work is on branch `claude/eager-ramanujan-5zh36v`, which contains `claude/draft-vs-execution` plus the commits below. Neither is merged to `main`. The user asked for everything to be built on the session's own recommendations, with the open decisions gathered here for one final change before merging.
 
 ## Where things stand
 
 | Work | State |
 | --- | --- |
-| Stages 1–3 (timeline stats, expected values and state model, per-game split) | Built, tested, and run on real data on a scratch copy |
-| Ban Threat now follows real pick rate (`docs/ban-value-matchups.md`, "Later change") | Built, tested, checked on real data |
-| Comfort takes the draft's scale in P0 (decision 26) | Built and tested. Not re-run on real games since the change |
-| **Stage 4: the History strip** | **Backend tested, UI builds. Nobody has looked at it yet** |
-| Stage 5: trends on the Team page | Not started |
-| Live shows calibrated P(win) | Not started. Agreed as a small separate change after this feature |
-| Stage 6: execution-aware comfort | Not started. **Ask the user before building it** |
+| Stages 1–3 | Built, tested, run on real data (earlier sessions) |
+| Stage 4: the History strip | Built; looked at in a browser at 1920×1080 and 1000 px on synthetic rows; four fixes after the user's review (decision 28) |
+| Stage 5: trends on the Team page | Built and tested; looked at in a browser on 16 synthetic games |
+| Live shows calibrated P(win) | Built and tested; looked at in demo mode with a hand-made fit row |
+| Stage 6: execution-aware comfort | Not built (decision 33) |
 
-`uv run pytest`: 1,233 passed on this branch. `ruff` isn't installed locally, so lint hasn't run.
+`data/execution_model.py` and `learning/execution.py` were not changed, so the fit running on the user's PC isn't affected. Live imports `DraftScorer` from `learning/execution.py` as it is.
 
-## Next steps, in order
+## Decisions for the user (one final change before `main`)
 
-1. **Finish Stage 4's visual check.** The spec asks for a screenshot of the strip at 1920×1080 and at 1000 px wide. The session stopped just before this, so `web/src/ExecutionStrip.svelte` has never been rendered. Look for label collisions, overflow at 1000 px, the bot chip opening, the "Show every stat" table, the draft-only state, and the verdict chip in the game list. Then stop for the user's review.
-2. **Stage 5**, as specified in the doc, tests first, then stop for review.
-3. **Calibrated P(win) on Live**, as a small separate change. It uses `DraftScorer`'s formula: `sigmoid(scale × (draft log-odds + comfort))`.
+1. **Stage 6.** Build it (behind its Settings flag, default off) or drop it for now? Recommendation: wait until there are 30+ logged games with timelines; with 12 the per-champion hint is noise.
+2. **Trends count only games with the whole split** (decision 29). Alternative: count draft-only games for the Draft mean. Recommendation: keep, so the three means are over the same games.
+3. **The lever tests only the most negative part** (decision 30). Alternative: the most negative part whose band excludes 0. Recommendation: keep, as the doc words it.
+4. **"Per player" is per role, 10-game threshold for players, 5 for champions** (decision 31). Alternatives: group by the logged in-game name, or no player threshold.
+5. **Live's lock-in shows calibrated P(win) big and the raw figure small** (decision 32). Alternatives: calibrated only, or also calibrate the step-by-step figures (suggestion cards, History's timeline). Recommendation: keep; step-by-step figures compare picks with each other, and the scale doesn't change their order.
+6. **Colours:** teal / amber for good / bad everywhere (decision 28), not the red / green the user mentioned, because red / green failed the colour-blind check in `CLAUDE.md`. Say if red / green is wanted anyway.
 
-## What the cloud session can't do
+## What wasn't checked (needs the user's PC)
 
-These live only on the user's PC and are never committed: `.env` (the Riot key), `data/*.sqlite*`, `cache/`, `tests/screenshots/`, `fixtures/lcu/recorded/`. So the cloud session has no real games, no crawl data, no fit and no League client.
+No real games, crawl data or fit exist in the cloud: `.env`, `data/*.sqlite*`, `cache/` and `tests/screenshots/` are never committed. So:
+- The strip, trends and calibrated P(win) were only seen on synthetic rows and a hand-made scale of 0.21.
+- With 12 real games, the Team page will show "too few games for a trend" for windows of 10+ until 10 games have a timeline and a split.
 
-- Tests run on synthetic data, so they work as usual. Run `uv sync`, and `npm install` in `web/` before building.
-- For screenshots, use a scratch database (`DRAFTASSIST_DB`) with `DRAFTASSIST_LCU=demo` and `DRAFTASSIST_DEMO_LOG=1`, and insert `GameExecution` and `GameExecutionRole` rows by hand. `attributed()` in `tests/test_recap.py` shows the shape. Don't commit the screenshots.
-- Anything needing real data has to wait for the user's machine. Say what you couldn't check, rather than implying you did.
+## Next time on the user's PC
 
-## Still running on the user's PC
-
-These don't depend on the cloud session and need nothing from it:
-
-- **The refetch** (`cache/crawl-chain.ps1`, log `cache/refetch.log`) was at 10,884 of 19,531 at 03:15 on 6 Nov, at about 2,700 an hour, so it should finish around 06:30.
-- **The full fit** (`cache/fit-after-refetch.ps1`) starts when the refetch ends, writes `cache/execution-fit.log`, then fills in `game_execution` for the logged games.
-
-The fit reads the code on disk at that moment. If the user pulls or switches branches on that PC before it runs, a breaking change to `data/execution_model.py` or `learning/execution.py` would break it. Until the fit is done, keep those modules compatible or tell the user.
-
-**Next time the session is back on that PC:**
-- Read `cache/execution-fit.log` and confirm Stage 2's numbers on all six tiers. The earlier fits covered only part of the data, three tiers in the printed per-tier table.
+- Read `cache/execution-fit.log` and confirm Stage 2's numbers on all six tiers.
 - Re-read the 12 real games: comfort's new scale changes P0, so verdicts will shift.
 - Delete both `cache/*.ps1` scripts.
 - Look again at `timing_gold` (decision 19).
-- Restart the app: the ban change and the strip need new code.
-
-## Findings worth knowing
-
-- **Latest fit (10,454 matches, 2,031 held out):** state Brier 0.166, draft-only 0.250, coin flip 0.250. Draft scale 0.21. Log-odds per unit: gold +0.366, towers −0.099, plates +0.034, dragons +0.302, grubs +0.032, herald 0, timing_gold −0.254.
-- **The draft signal is small:** raw draft log-odds are about 5× too sure of themselves, and on real games the neutral draft stays within 43–53%.
-- **Comfort is today's value** (decision 25), so a past game's P0 reads comfort learned partly from that game. Our data has only 12 games.
-- **`deaths_while_ahead` looks high but is real:** 33 in one of our games, against a crawl mean of 6.0 and a 99th percentile of 30.
-- **Ban list after the fix:** Irelia, Pyke, Kha'Zix, Darius, Aatrox, Talon, Sett, Ekko, Sion, Briar. Aurelion Sol fell from 4th to 91st. Leona has the top Threat but is 12th, because our pools handle her. Popular picks under 50% still rank low, on purpose.
-- **Left alone on purpose:** the enemy pick estimate (`log(pick rate) + 10 × logit(win rate)`) still drives "likely enemy picks" and the "N% likely" text on ban reasons.
+- `cd web; npm run build`, then restart the app: the strip, trends and Live change need the new code.
+- Lint: `ruff` isn't installed in either environment, so it hasn't run on this work.
 
 ## Rules the user set
 
-- Make edits with Edit or Write, **not Python scripts**. Scripts are for read-only checks. This was slipped on once, on one test file; don't repeat it.
-- Build in stages, plan first, tests first, and stop after each stage for review.
+- Make edits with Edit or Write, not scripts. Scripts are for read-only checks.
+- Build in stages, plan first, tests first.
 - Neutral wording: "ahead of / behind expectation", never "fault" or "blame".
-- Display patches as players see them (26.22). Stored keys stay 16.x: use `web/src/patch.js` or `display_patch`.
-- Commit or push only when asked. End commit messages with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
-- Ask before adding dependencies outside the spec's stack. Only one crawl at a time. Never write to the League client.
+- Display patches as players see them (26.22); stored keys stay 16.x.
+- Commit or push only when asked. Ask before adding dependencies. Only one crawl at a time. Never write to the League client.
 - Never commit raw timelines, PUUIDs, player names or the key.

@@ -167,6 +167,7 @@ class Services:
         data = with_synergy_v2(self.db, inputs, self.style_rules_path, self.team_rules_path)
         live.engine, live.catalog = DraftEngine(data, inputs.team, engine_config(self.db)), inputs.catalog
         live.data_source, live.note = inputs.data_source, inputs.note
+        live.draft_scale = load_draft_scale(self.db)
         self._synergy_v2 = None
         if self.players is not None:
             self.players.invalidate()
@@ -212,6 +213,8 @@ class Services:
         Returns 'unchanged', 'deferred' (in a draft; retried next time) or 'reloaded'."""
         if self._synergy_pending is not None and not self.in_draft():
             self._swap_synergy(self._synergy_pending)
+        if self.db is not None and not self.in_draft():
+            self.live.draft_scale = load_draft_scale(self.db)  # a new execution fit doesn't change the stats version
         if self.db is None or stats_version(self.db) == self.loaded_version:
             return "unchanged"
         if self.in_draft():
@@ -276,6 +279,7 @@ def build_services(settings: Settings) -> Services:
 
     live = LiveService(engine, inputs.catalog, hub, inputs.data_source, inputs.note, settings.draft_format,
                        recorder, logger, players, verify_later)
+    live.draft_scale = load_draft_scale(db)
     if logger is not None:
         logger.context = lambda: (live.engine, live.catalog)
     svc = Services(hub, live, db, players, settings.lcu_mode, settings, stats_version(db))
@@ -308,6 +312,24 @@ async def run_demo(live: LiveService, interval: float = 1.5, seed: int = 0) -> N
         await asyncio.sleep(interval)
         live.handle_phase("Lobby", None)  # back in the lobby: screen clears
         await asyncio.sleep(interval * 2)
+
+
+def load_draft_scale(db: Engine) -> float | None:
+    """The draft log-odds scale from the latest execution fit (docs/draft-vs-execution.md, decision 17), or None before the
+    first fit. Only that one number, so Live doesn't load the whole model."""
+    import json
+
+    from sqlmodel import select
+
+    from draftassist.db.models import ExecutionFit
+
+    with Session(db) as s:
+        rows = s.exec(select(ExecutionFit)).all()
+    if not rows:
+        return None
+    latest = max(rows, key=lambda r: tuple(int(x) for x in r.window.split(".")))
+    scale = json.loads(latest.body).get("draft_scale")
+    return float(scale) if scale is not None else None
 
 
 async def refresh_stats_forever(svc: Services, every_s: float) -> None:

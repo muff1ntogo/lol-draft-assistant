@@ -271,6 +271,7 @@ class _View:
     ev: Evaluation
     ban_bonus: dict[int, float] | None
     pick_bonus: dict[int, float] | None
+    draft_scale: float | None = None  # from the latest execution fit; None before the first fit
 
     @property
     def st(self) -> DraftState:
@@ -334,8 +335,22 @@ def _their_slots(v: _View) -> list[dict]:
             for s in v.live.their_slots]
 
 
+def _calibrated(v: _View) -> float | None:
+    """History's P0 for this draft (docs/draft-vs-execution.md, decisions 2, 20 and 26): the draft and our comfort, scaled as
+    crawled games say the draft should be. None before the first fit, or without all ten roles."""
+    ours = {r: c for c, r in v.ev.our_roles.items()}
+    theirs = {r: c for c, r in v.ev.their_roles.items()}
+    if v.draft_scale is None or len(ours) != len(ROLES) or len(theirs) != len(ROLES):
+        return None
+    from draftassist.learning.execution import DraftScorer
+
+    return DraftScorer(v.engine, v.draft_scale).p0(ours, theirs)
+
+
 def _center_locked(v: _View) -> dict:
+    calibrated = _calibrated(v)
     return {"mode": "locked", "win_prob": round(v.ev.win_prob, 4),
+            "calibrated_win_prob": None if calibrated is None else round(calibrated, 4),
             "threats": [{"champ": v.card(t.champ_id), "reason": t.reason} for t in v.engine.threats(v.st, k=2)]}
 
 
@@ -402,7 +417,7 @@ def _center_enemy_turn(v: _View) -> dict:
 
 
 def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDraft,
-                    data_source: str, note: str | None, pin: dict | None = None) -> dict:
+                    data_source: str, note: str | None, pin: dict | None = None, draft_scale: float | None = None) -> dict:
     st = live.state
     ev = engine.evaluate(st)
     effects = None
@@ -411,7 +426,7 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
 
         effects = pin_effects(pin, st, live.enemy_hovers, frozenset(ev.our_roles.values()))
     v = _View(engine, catalog, live, ev, effects.ban_bonus if effects else None,
-              effects.pick_bonus if effects else None)
+              effects.pick_bonus if effects else None, draft_scale)
     step = st.step
     finished = step is None or live.timer_phase in ("FINALIZATION", "GAME_STARTING")
     ours = v.ours
@@ -464,6 +479,7 @@ class LiveService:
         self.current: LiveDraft | None = None  # latest parsed champ select (Prep page: "Use current draft")
         self.pin_provider: Callable[[], dict | None] | None = None  # the pinned plan (docs/synergy-v2.md, Stage 6)
         self._session: dict | None = None  # latest champ select session, to rebuild the view on a pin change
+        self.draft_scale: float | None = None  # calibrated P(win) at lock-in, from the latest execution fit
 
     def refresh(self) -> None:
         """Re-publish the current screen (after a pin or unpin) without waiting for the next client event.
@@ -490,7 +506,7 @@ class LiveService:
             live = parse_session(session, self.draft_format, roles)
             self.current = live
             pin = self.pin_provider() if self.pin_provider else None
-            return build_live_view(self.engine, self.catalog, live, self.data_source, self.note, pin), live
+            return build_live_view(self.engine, self.catalog, live, self.data_source, self.note, pin, self.draft_scale), live
         except SessionParseError as e:
             log.error("could not parse champ select session: %s", e)
             return {"status": "error", "message": str(e)}, None
