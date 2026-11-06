@@ -178,6 +178,10 @@
                       onclick={() => removeChamp(role, e)}>×</button>
               <span class="rec" title="Last 60 days in this role · comfort {e.comfort}">{record(e)} · comfort {e.comfort}</span>
               {#if e.badge?.text}<span class="badge" title="Comp type and fight style (Champions page)">{e.badge.text}</span>{/if}
+              {#if e.execution_hint}
+                <span class="lanehint {e.execution_hint.kind}" title={e.execution_hint.text}>
+                  {e.execution_hint.kind === 'behind_in_lane' ? 'Wins, behind in lane' : 'Loses, ahead in lane'}</span>
+              {/if}
               {#if e.proposal}
                 <button class="proposal" title="Scored from recent games: click to accept" onclick={() => acceptTier(role, e.champ.id)}>
                   → {e.proposal}
@@ -250,6 +254,11 @@
   .tier.main { color: var(--good); }
   .tier.comfortable { color: var(--blue); }
   .tier.learning { color: var(--warn); }
+  /* docs/draft-vs-execution.md, Stage 6: a hint only. Teal / amber as validated; the text is always written */
+  .lanehint { grid-column: 2 / -1; justify-self: start; margin-top: -2px; font-size: 11px; border-radius: 4px; padding: 0 6px;
+              background: var(--panel-2); }
+  .lanehint.behind_in_lane { color: #c98500; }
+  .lanehint.ahead_in_lane { color: #1baf7a; }
   .muted { color: var(--muted); }
   .warn { color: var(--gold); }
   .ok { color: var(--good); }

@@ -17,6 +17,7 @@
                          behind: 'Win rate 300+ gold behind', kit: 'Range and escape' };
   let blindWeights = $state({ comfort: 1, matchup: 1, synergy: 1, worst: 1, behind: 1, kit: 1 });
   let gateTau = $state(0.75);
+  let executionComfort = $state(false);
   // engine/model.py comfort_gate: the share of a counter pick's edge a player keeps
   const gateShare = (comfort, games) => Math.round(100 * (1 - Math.exp(-(Math.max(comfort + 0.3, 0) + games / 20) / gateTau)));
   let message = $state('');
@@ -41,6 +42,7 @@
     roleOverride = { ...s.role_weight_override };
     blindWeights = { ...blindWeights, ...s.blind_weights };
     gateTau = s.gate_tau;
+    executionComfort = s.execution_comfort;
     if (s.synergy_v2) syn = { ...s.synergy_v2 };
   });
 
@@ -69,7 +71,7 @@
                              comp_coherence: compCoherence, comp_weight: compWeight, lane_weight: laneWeight,
                              role_weight_override: Object.fromEntries(Object.entries(roleOverride)
                                .filter(([, v]) => v !== '' && v != null).map(([r, v]) => [r, +v])),
-                             blind_weights: blindWeights, gate_tau: gateTau }),
+                             blind_weights: blindWeights, gate_tau: gateTau, execution_comfort: executionComfort }),
     });
     const body = await res.json();
     if (res.ok) {
@@ -125,6 +127,14 @@
       Comfort grows with recent games on the champion, up to the cap: games beyond it add nothing more
       (at {cap} games the games part tops out at {(0.4 * Math.log(1 + cap)).toFixed(2)} log-odds, × β = {(beta * 0.4 * Math.log(1 + cap)).toFixed(2)}).
       Tiers still count every game.
+    </p>
+    <label class="check">
+      <input type="checkbox" bind:checked={executionComfort} />
+      Lane hint on the Pools page: flag a champion we win on but are behind expectation in lane with, or lose on but are ahead with
+    </label>
+    <p class="muted">
+      From each logged game's lane gold against expectation (History's strip), shrunk towards 0 by games, so one game can't
+      show a hint. It's a hint only: tiers and comfort don't change.
     </p>
 
     <p class="muted">

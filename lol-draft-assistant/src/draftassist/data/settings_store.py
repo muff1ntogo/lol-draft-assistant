@@ -64,7 +64,8 @@ def get_engine_settings(db: Engine) -> dict:
             "lane_weight": float(v.get("lane_weight", d.lane_weight)),
             "role_weight_override": dict(v.get("role_weight_override") or {}),
             "blind_weights": dict(v.get("blind_weights") or {}), "gate_tau": float(v.get("gate_tau", d.gate_tau)),
-            "tree_patch_half_life": float(v.get("tree_patch_half_life", 0.0))}  # 0: every game counts the same
+            "tree_patch_half_life": float(v.get("tree_patch_half_life", 0.0)),  # 0: every game counts the same
+            "execution_comfort": bool(v.get("execution_comfort", False))}  # Pools page lane hint (docs/draft-vs-execution.md, Stage 6)
 
 
 def save_engine_settings(db: Engine, alpha: float | None = None, beta: float | None = None,
@@ -73,7 +74,7 @@ def save_engine_settings(db: Engine, alpha: float | None = None, beta: float | N
                          comp_coherence: bool | None = None, comp_weight: float | None = None,
                          lane_weight: float | None = None, role_weight_override: dict | None = None,
                          blind_weights: dict | None = None, gate_tau: float | None = None,
-                         tree_patch_half_life: float | None = None) -> None:
+                         tree_patch_half_life: float | None = None, execution_comfort: bool | None = None) -> None:
     """Update only the values given; the others keep what was saved."""
     current = get_engine_settings(db)
     for name, value, hi in (("alpha", alpha, 5), ("beta", beta, 5)):
@@ -106,7 +107,8 @@ def save_engine_settings(db: Engine, alpha: float | None = None, beta: float | N
                         ("ban_comp_synergy", ban_comp_synergy), ("comp_coherence", comp_coherence),
                         ("comp_weight", comp_weight), ("lane_weight", lane_weight),
                         ("role_weight_override", role_weight_override), ("blind_weights", blind_weights),
-                        ("gate_tau", gate_tau), ("tree_patch_half_life", tree_patch_half_life)):
+                        ("gate_tau", gate_tau), ("tree_patch_half_life", tree_patch_half_life),
+                        ("execution_comfort", execution_comfort)):
         merged[name] = current[name] if value is None else value
     with Session(db) as s:
         row = s.get(AppSetting, ENGINE_KEY) or AppSetting(key=ENGINE_KEY, value="{}")
@@ -149,6 +151,7 @@ def settings_payload(db: Engine) -> dict:
             "comp_coherence": engine["comp_coherence"], "comp_weight": engine["comp_weight"],
             "lane_weight": engine["lane_weight"], "role_weight_override": engine["role_weight_override"],
             "blind_weights": engine["blind_weights"], "gate_tau": engine["gate_tau"],
+            "execution_comfort": engine["execution_comfort"],
             "role_weights_fitted": _fitted_role_weights(db),
             "synergy_v2": get_synergy_v2_settings(db)}
 

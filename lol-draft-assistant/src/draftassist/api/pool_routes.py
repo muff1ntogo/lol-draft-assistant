@@ -15,10 +15,12 @@ from draftassist.data.pools import (
     set_players,
     set_pool_entry,
 )
+from draftassist.data.settings_store import get_engine_settings
 from draftassist.engine.blind import pool_health
 from draftassist.engine.comp import badge
 from draftassist.learning.comfort import accept as accept_tiers
-from draftassist.learning.comfort import set_locked
+from draftassist.learning.comfort import set_locked, wr_adj
+from draftassist.learning.execution_comfort import execution_hint, lane_z_by_entry
 
 if TYPE_CHECKING:
     from draftassist.api.main import Services
@@ -82,6 +84,13 @@ def _pools_payload(svc: Services) -> dict:
     pools = load_pools(db)
     profiles = svc.profiles()
     tier_order = {"main": 0, "comfortable": 1, "learning": 2}
+    lane_z = lane_z_by_entry(db) if get_engine_settings(db)["execution_comfort"] else None
+
+    def hint(e) -> dict | None:  # docs/draft-vs-execution.md, Stage 6: a hint only, tiers and comfort unchanged
+        if lane_z is None:
+            return None
+        return execution_hint(wr_adj(e.manual_tier, e.games, e.wins), lane_z.get((e.role, e.champ_id), []))
+
     return {
         "players": list_players(db),
         "learning": svc.learning or {"running": False},
@@ -91,7 +100,8 @@ def _pools_payload(svc: Services) -> dict:
                        "comfort": round(e.comfort, 2),
                        "last_played": e.last_played.isoformat() if e.last_played else None,
                        "proposal": (e.scored_tier if e.scored_tier and e.scored_tier != e.manual_tier
-                                    and not e.tier_locked else None)}
+                                    and not e.tier_locked else None),
+                       "execution_hint": hint(e)}
                       for e in sorted(entries, key=lambda e: (tier_order.get(e.manual_tier, 9), e.champ_id))]
                   for r, entries in pools.items()},
         "using_placeholder_pools": not any(pools.values()),
