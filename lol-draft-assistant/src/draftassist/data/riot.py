@@ -197,6 +197,10 @@ class RiotClient:
         path = f"/lol/league/v4/entries/RANKED_SOLO_5x5/{tier}/{division}"
         return self.get(PLATFORM, path, {"page": page}, ttl=7 * DAY) or []
 
+    def apex_league(self, tier: str) -> dict:
+        """One whole apex ladder ("challenger", "grandmaster", "master"), which has no divisions or pages."""
+        return self.get(PLATFORM, f"/lol/league/v4/{tier}leagues/by-queue/RANKED_SOLO_5x5", ttl=7 * DAY) or {}
+
     def match_ids(self, puuid: str, queue: int | None, start_time: int, count: int = 20, start: int = 0,
                   end_time: int | None = None) -> list[str]:
         """Ranked match ids since start_time (and before end_time); queue None = every ranked queue (Solo/Duo, Flex,

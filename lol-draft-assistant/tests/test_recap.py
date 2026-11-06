@@ -9,7 +9,13 @@ from sqlmodel import Session, select
 
 from draftassist.api.main import create_app
 from draftassist.api.recap import lane_matchup
-from draftassist.db.models import Champion, DraftAction, Matchup
+from draftassist.db.models import (
+    Champion,
+    DraftAction,
+    GameExecution,
+    GameExecutionRole,
+    Matchup,
+)
 from draftassist.engine.formats import TOURNAMENT
 from draftassist.lcu.demo import demo_sessions
 
@@ -118,3 +124,83 @@ def test_history_filters(svc):
         assert [g["result"] for g in client.get("/api/history?result=win").json()["games"]] == ["win"]
         assert client.get("/api/history/999").status_code == 404
         assert client.get("/api/art/16.21.1/square/..%2F..%2Fsecret").status_code == 404
+
+
+# docs/draft-vs-execution.md, Stage 4 ---------------------------------------------------------------
+def line(stat, label="as expected", actual=100.0, expected=50.0):
+    return {"stat": stat, "actual": actual, "expected": expected, "sd": 100.0, "z": 0.5, "label": label}
+
+
+def attributed(svc, p15=0.8, result="loss"):
+    """A logged game with its split stored: 0.48 at lock-in, 0.8 at 15:00, then lost."""
+    draft_id = play(svc, demo_sessions(svc.engine, TOURNAMENT, "blue", game_id=7_200_000_020), 7_200_000_020, "blue", result == "win")
+    outcome = 1.0 if result == "win" else 0.0
+    shares = {"top": 0.1, "jungle": 0.05, "mid": 0.08, "bot": 0.06, "adc": 0.04, "support": 0.02, "objectives": 0.03}
+    with Session(svc.db) as s:
+        s.add(GameExecution(draft_id=draft_id, window="16.22", p0=0.48, p15=p15, draft=-0.02, early=p15 - 0.48, conversion=outcome - p15,
+                            verdict="Lost from ahead", contributors_json=json.dumps(["−80pp conversion (Baron lost)", "+32pp early (Top ahead)"]),
+                            detail_json=json.dumps({"deaths_while_ahead": [3.0, 1.0], "barons": [0.0, 1.0], "dragons_after_15": [1.0, 2.0],
+                                                    "towers_after_15": [2.0, 4.0], "gold_25": line("gold_25")})))
+        s.flush()
+        for role, share in shares.items():
+            s.add(GameExecutionRole(draft_id=draft_id, role=role, share=share, label="ahead", headline_json=json.dumps(line("gold", "ahead")),
+                                    stats_json=json.dumps([line("gold", "ahead")] if role != "jungle" else [line("jungle_cs")])))
+        s.commit()
+    return draft_id
+
+
+def test_a_game_with_a_timeline_has_the_whole_strip(svc):
+    draft_id = attributed(svc)
+    recap, listing = get_recap(svc, draft_id)
+    e = recap["execution"]
+    assert e["available"] is True
+    assert (e["p0"], e["p15"], e["result"]) == (0.48, 0.8, 0)
+    assert e["model_p0"] == recap["header"]["pred_win_prob"]  # what the screen showed on the day, for hover
+    assert e["parts"] == {"draft": pytest.approx(-2.0), "early": pytest.approx(32.0), "conversion": pytest.approx(-80.0)}
+    assert e["verdict"] == "Lost from ahead" and len(e["contributors"]) == 2
+    assert listing["games"][0]["verdict"] == "Lost from ahead"
+
+
+def test_the_parts_read_from_50_percent_to_the_result(svc):
+    e = get_recap(svc, attributed(svc))[0]["execution"]
+    assert 50 + sum(e["parts"].values()) == pytest.approx(0)  # a loss
+
+
+def test_the_chips_are_four_roles_and_objectives_with_bot_opening_to_its_players(svc):
+    e = get_recap(svc, attributed(svc))[0]["execution"]
+    assert [c["role"] for c in e["chips"]] == ["top", "jungle", "mid", "bot", "objectives"]
+    assert [c["name"] for c in e["chips"]] == ["Top", "Jungle", "Mid", "Bot", "Objectives and team"]
+    bot = e["chips"][3]
+    assert [p["role"] for p in bot["players"]] == ["adc", "support"]
+    assert [p["name"] for p in bot["players"]] == ["ADC", "Support"]
+    assert all(not c["players"] for c in e["chips"] if c["role"] != "bot")
+    assert sum(c["share_pp"] for c in e["chips"]) == pytest.approx(32.0)
+    assert all(c["label"] for c in e["chips"])  # always written, not colour alone
+
+
+def test_each_chip_carries_its_table_and_the_game_its_conversion_detail(svc):
+    e = get_recap(svc, attributed(svc))[0]["execution"]
+    jungle = e["chips"][1]
+    assert jungle["stats"] == [line("jungle_cs")]
+    assert jungle["headline"]["stat"] == "gold"  # its label's source, which isn't a shown stat
+    assert e["detail"]["barons"] == [0.0, 1.0] and e["detail"]["gold_25"]["stat"] == "gold_25"
+
+
+def test_a_game_without_a_timeline_shows_the_draft_only(svc):
+    draft_id = play(svc, demo_sessions(svc.engine, TOURNAMENT, "blue", game_id=7_200_000_021), 7_200_000_021, "blue", True)
+    with Session(svc.db) as s:
+        s.add(GameExecution(draft_id=draft_id, window="16.22", p0=0.53, draft=0.03))
+        s.commit()
+    recap, listing = get_recap(svc, draft_id)
+    e = recap["execution"]
+    assert e["available"] is False
+    assert e["parts"] == {"draft": pytest.approx(3.0), "early": None, "conversion": None}
+    assert e["p15"] is None and e["verdict"] is None and e["chips"] == [] and e["detail"] is None
+    assert listing["games"][0]["verdict"] is None
+
+
+def test_a_game_nothing_was_worked_out_for_has_no_strip(svc):
+    draft_id = play(svc, demo_sessions(svc.engine, TOURNAMENT, "blue", game_id=7_200_000_022), 7_200_000_022, "blue", True)
+    recap, listing = get_recap(svc, draft_id)
+    assert recap["execution"] is None
+    assert listing["games"][0]["verdict"] is None

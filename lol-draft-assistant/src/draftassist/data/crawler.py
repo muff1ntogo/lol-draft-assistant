@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 import httpx
-from sqlalchemy import Engine
+from sqlalchemy import Engine, true
 from sqlmodel import Session, col, func, select
 
 from draftassist.data.riot import RiotClient
@@ -37,6 +37,8 @@ log = logging.getLogger(__name__)
 LEAGUE_TIERS = ("iron", "bronze", "silver", "gold", "platinum", "emerald", "diamond")  # league-v4 tiers with divisions
 BRACKETS = LEAGUE_TIERS[: LEAGUE_TIERS.index("emerald") + 1]  # crawled by default: every tier up to Emerald
 DIVISIONS = ("I", "II", "III", "IV")
+MASTER_PLUS = "master"  # one bracket for Master, Grandmaster and Challenger, crawled into its own database (data/master.py)
+APEX_TIERS = ("challenger", "grandmaster", "master")
 QUEUES = (420, 440)  # ranked Solo/Duo, ranked Flex
 POSITIONS = {"TOP": "top", "JUNGLE": "jungle", "MIDDLE": "mid", "BOTTOM": "adc", "UTILITY": "support"}
 MIN_DURATION_S = 300  # shorter games are remakes
@@ -52,6 +54,19 @@ def brackets_in_use(db: Engine, enemy_bracket: str = "gold") -> tuple[str, ...]:
         used = {p.bracket for p in s.exec(select(Player)).all()}
     used |= set(BRACKETS) | {enemy_bracket}
     return tuple(t for t in LEAGUE_TIERS if t in used) + tuple(sorted(used - set(LEAGUE_TIERS)))
+
+
+def display_patch(patch: str | None) -> str | None:
+    """Riot's data calls this year's patches 16.x (match gameVersion, Data Dragon); players know them as 26.x. Everything
+    stored and queried keeps Riot's number, and only what a person reads changes. Same rule as web/src/patch.js."""
+    if not patch:
+        return patch
+    major, *rest = patch.split(".")
+    return ".".join([str(int(major) + 10), *rest]) if int(major) >= 16 else patch
+
+
+def _patch_key(patch: str) -> tuple[int, ...]:
+    return tuple(int(x) for x in patch.split("."))
 
 
 def patch_of(version: str) -> str:
@@ -124,11 +139,26 @@ class CrawlStats:
 
 class Crawler:
     def __init__(self, riot: RiotClient, db: Engine, patch: str, brackets: Iterable[str] = BRACKETS,
-                 clock=time.time, timelines: bool = False):
+                 clock=time.time, timelines: bool = False, queues: Iterable[int] = QUEUES, newer_patches: bool = False):
         self.riot, self.db, self.patch = riot, db, patch
         self.timelines = timelines  # one more request per match, for gold leads (data/timelines.py)
         self.brackets = tuple(brackets)
+        self.queues = tuple(queues)
+        self.newer_patches = newer_patches  # keep `patch` and everything after it, instead of `patch` alone
         self._clock = clock
+
+    def _ladder(self, bracket: str, pages: int) -> Iterable[tuple[str | None, str, str]]:
+        """(puuid, tier, division) for everyone seeded for a bracket."""
+        if bracket == MASTER_PLUS:
+            for tier in APEX_TIERS:
+                league = self.riot.apex_league(tier)
+                for e in league.get("entries", []):
+                    yield e.get("puuid"), league.get("tier", tier.upper()), e.get("rank", "I")
+            return
+        for division in DIVISIONS:
+            for page in range(1, pages + 1):
+                for e in self.riot.league_entries(bracket.upper(), division, page):
+                    yield e.get("puuid"), e.get("tier", bracket.upper()), e.get("rank", division)
 
     def seed(self, pages: int = 1) -> int:
         """Store ladder players for each bracket. Returns the number of new seeds."""
@@ -136,16 +166,12 @@ class Crawler:
         with Session(self.db) as s:
             known = set(s.exec(select(SeedPlayer.puuid)).all())
             for bracket in self.brackets:
-                for division in DIVISIONS:
-                    for page in range(1, pages + 1):
-                        for e in self.riot.league_entries(bracket.upper(), division, page):
-                            puuid = e.get("puuid")
-                            if not puuid or puuid in known:
-                                continue
-                            s.add(SeedPlayer(puuid=puuid, bracket=bracket, tier=e.get("tier", bracket.upper()),
-                                             division=e.get("rank", division)))
-                            known.add(puuid)
-                            added += 1
+                for puuid, tier, division in self._ladder(bracket, pages):
+                    if not puuid or puuid in known:
+                        continue
+                    s.add(SeedPlayer(puuid=puuid, bracket=bracket, tier=tier, division=division))
+                    known.add(puuid)
+                    added += 1
             s.commit()
         return added
 
@@ -171,7 +197,7 @@ class Crawler:
         last_checkpoint = self._clock()
         with Session(self.db) as s:
             have = {b: len(s.exec(select(CrawledMatch.match_id).where(
-                CrawledMatch.patch == self.patch, CrawledMatch.bracket == b)).all()) for b in self.brackets}
+                self._wanted_clause(), CrawledMatch.bracket == b)).all()) for b in self.brackets}
         while not done():
             # Serve the bracket with the fewest matches so far, so every bracket fills up evenly
             # even when some brackets' seeds turn out inactive.
@@ -185,6 +211,14 @@ class Crawler:
                 last_checkpoint = self._clock()
         return stats
 
+    def _wanted(self, patch: str) -> bool:
+        if self.newer_patches:
+            return _patch_key(patch) >= _patch_key(self.patch)
+        return patch == self.patch
+
+    def _wanted_clause(self):
+        return true() if self.newer_patches else CrawledMatch.patch == self.patch
+
     def _start_time(self) -> int:
         """How far back to list games. Older games are on another patch: fetching one to find that out costs a request,
         which after a new patch is most of the budget. So stop at the patch's earliest stored game, less a day."""
@@ -195,17 +229,19 @@ class Crawler:
 
     def _end_time(self) -> int | None:
         """Crawling an older patch: nothing after the next patch's earliest stored game. None on the newest."""
+        if self.newer_patches:
+            return None
         with Session(self.db) as s:
             rows = s.exec(select(CrawledMatch.patch, func.min(CrawledMatch.game_start_ms))
                           .group_by(CrawledMatch.patch)).all()
-        mine = tuple(int(x) for x in self.patch.split("."))
-        later = [ms for p, ms in rows if tuple(int(x) for x in p.split(".")) > mine and ms]
+        mine = _patch_key(self.patch)
+        later = [ms for p, ms in rows if _patch_key(p) > mine and ms]
         return min(later) // 1000 if later else None
 
     def _crawl_player(self, player: SeedPlayer, bracket: str, start_time: int, ids_per_queue: int,
                       stats: CrawlStats, done, end_time: int | None = None) -> None:
         try:
-            ids = [m for q in QUEUES
+            ids = [m for q in self.queues
                    for m in self.riot.match_ids(player.puuid, q, start_time, ids_per_queue, end_time=end_time)]
         except httpx.HTTPStatusError as e:
             if e.response.status_code != 400:
@@ -225,14 +261,14 @@ class Crawler:
             if parsed is None:
                 stats.skipped_invalid += 1
                 continue
-            if parsed.patch != self.patch:
+            if not self._wanted(parsed.patch):
                 stats.skipped_other_patch += 1
                 continue
             self._store(parsed, bracket)
             if self.timelines:
-                from draftassist.data.timelines import lane_diffs, store_leads
+                from draftassist.data.timelines import store_timeline
 
-                store_leads(self.db, match_id, lane_diffs(self.riot.timeline(match_id), raw))
+                store_timeline(self.db, match_id, self.riot.timeline(match_id), raw)
             known.add(match_id)
             stats.stored[bracket] += 1
         with Session(self.db) as s:

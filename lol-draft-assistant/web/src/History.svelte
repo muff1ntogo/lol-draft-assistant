@@ -1,5 +1,7 @@
 <script>
   import Champ from './Champ.svelte';
+  import ExecutionStrip from './ExecutionStrip.svelte';
+  import { patchLabel } from './patch.js';
   import Timeline from './Timeline.svelte';
 
   // Favourability colours: teal = we're favoured, amber = they are, grey = within ±1pp. Validated
@@ -70,7 +72,7 @@
       {#each [['queue', 'Queue'], ['side', 'Side'], ['result', 'Result'], ['patch', 'Patch']] as [key, label]}
         <select bind:value={chosen[key]} onchange={loadList} aria-label={label}>
           <option value="">{label}: all</option>
-          {#each filters[key] as v}<option value={v}>{v}</option>{/each}
+          {#each filters[key] as v}<option value={v}>{key === 'patch' ? patchLabel(v) : v}</option>{/each}
         </select>
       {/each}
     </div>
@@ -89,8 +91,9 @@
           </span>
           <span class="meta">
             <span>{pct(g.pred_win_prob)} predicted</span>
-            <span class="muted">{g.queue} · <span class="side {g.side}">{g.side}</span> · {g.patch ?? '—'} · {day(g.played_at)}</span>
+            <span class="muted">{g.queue} · <span class="side {g.side}">{g.side}</span> · {patchLabel(g.patch) ?? '—'} · {day(g.played_at)}</span>
             {#if g.plan}<span class="plan {g.plan.followed}" title="Plan picks made: {g.plan.picked} of {g.plan.total}">plan {g.plan.followed === 'yes' ? 'followed' : g.plan.followed === 'partly' ? 'partly followed' : 'not followed'}</span>{/if}
+            {#if g.verdict}<span class="vchip">{g.verdict}</span>{/if}
           </span>
         </button>
       {/each}
@@ -104,7 +107,7 @@
       <header class="head {h.result}">
         <div class="big">{BIG[h.result] ?? 'RESULT UNKNOWN'}</div>
         <div class="facts">
-          <span>{h.queue}</span><span>Patch {h.patch ?? '—'}</span><span>{when(h.played_at)}</span>
+          <span>{h.queue}</span><span>Patch {patchLabel(h.patch) ?? '—'}</span><span>{when(h.played_at)}</span>
           {#if h.game_length_s}<span>{length(h.game_length_s)}</span>{/if}
           <span class="side {ours}">{ours} side</span>
         </div>
@@ -115,6 +118,7 @@
         {/if}
       </header>
       {#if recap.note}<p class="note">{recap.note}</p>{/if}
+      {#if recap.execution}<ExecutionStrip e={recap.execution} />{/if}
       {#if recap.report}
         {@const r = recap.report}
         <div class="report">
@@ -251,6 +255,7 @@
   .plan.yes { background: #0f3d2e; color: #4fd1a1; }
   .plan.partly { background: #3d2e0a; color: #e0a640; }
   .plan.no { background: #2d3540; color: #c9d1d9; }
+  .vchip { font-size: 11px; border-radius: 4px; padding: 0 5px; width: fit-content; background: #2d3540; color: #c9d1d9; }
   .planline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; margin-top: 6px; }
   .pc { display: inline-flex; align-items: center; gap: 4px; }
   .pc.miss { opacity: 0.5; text-decoration: line-through; }

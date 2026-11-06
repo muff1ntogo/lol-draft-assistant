@@ -1,9 +1,11 @@
 <script>
-  // Prep page, top half (docs/synergy-v2.md, Stage 4): the synergy visualiser (5 role columns from our pools),
-  // the plan panel and the synergy table. Clicking a node (or a table row) locks it into the plan; locked nodes
-  // collapse their column and every other node shows its Overall gain if added.
+  // Prep page, top half (docs/synergy-v2.md, Stage 4): the synergy visualiser (our five role pools: columns in-lane, a
+  // pentagon of icons in teamfight, see ringLayout.js), the plan panel and the synergy table. Clicking a node (or a table
+  // row) locks it into the plan; locked nodes collapse their group and every other node shows its Overall gain if added.
   // Edge colour: teal = positive, amber = negative, grey = within ±0.5pp (red/green fails colour-blind checks).
   import Champ from './Champ.svelte';
+  import { patchLabel } from './patch.js';
+  import { ringLayout } from './ringLayout.js';
 
   let { locks = $bindable({}), onplan = () => {} } = $props();
 
@@ -90,9 +92,11 @@
   // ---------- layout ----------
   const cols = $derived(data?.columns ?? []);
   const maxRows = $derived(Math.max(1, ...cols.map((c) => c.nodes.length)));
-  const graphH = $derived(HEAD_H + maxRows * ROW_H + FOOT_H);
+  const ring = $derived(data?.scope === 'teamfight' ? ringLayout(cols, width) : null);
+  const graphH = $derived(ring ? ring.height : HEAD_H + maxRows * ROW_H + FOOT_H);
   const colX = (i) => PAD + (i * (width - CARD_W - 2 * PAD)) / (ROLES.length - 1);
   const positions = $derived.by(() => {
+    if (ring) return ring.nodes;
     const pos = {};
     cols.forEach((c, i) => {
       const offset = ((maxRows - c.nodes.length) * ROW_H) / 2;
@@ -108,17 +112,41 @@
     for (const e of data.edges) {
       const pa = positions[key(e.a.role, e.a.id)], pb = positions[key(e.b.role, e.b.id)];
       if (!pa || !pb) continue;
-      const [l, r] = pa.col < pb.col ? [pa, pb] : [pb, pa];
-      const x1 = l.x + CARD_W, x2 = r.x, dx = (x2 - x1) * 0.45;
-      out.push({ ...e, k: `${key(e.a.role, e.a.id)}|${key(e.b.role, e.b.id)}`, hot: touches(e, hovered),
-                 d: `M${x1},${l.y} C${x1 + dx},${l.y} ${x2 - dx},${r.y} ${x2},${r.y}`,
+      let d;
+      if (ring) d = `M${pa.x},${pa.y} L${pb.x},${pb.y}`;
+      else {
+        const [l, r] = pa.col < pb.col ? [pa, pb] : [pb, pa];
+        const x1 = l.x + CARD_W, x2 = r.x, dx = (x2 - x1) * 0.45;
+        d = `M${x1},${l.y} C${x1 + dx},${l.y} ${x2 - dx},${r.y} ${x2},${r.y}`;
+      }
+      out.push({ ...e, k: `${key(e.a.role, e.a.id)}|${key(e.b.role, e.b.id)}`, hot: touches(e, hovered), d,
                  w: 1 + Math.min(Math.abs(e.value_pp), 6) * 1.0 });
     }
     return out.sort((a, b) => a.hot - b.hot || Math.abs(a.value_pp) - Math.abs(b.value_pp));
   });
   const opacity = (e) => {
-    if (hovered) return e.hot ? 1 : 0.05;
-    return (e.core ? 0.7 : 0.22) * (e.low_data ? 0.6 : 1);
+    if (hovered) return e.hot ? 1 : 0;
+    return (ring ? 0.5 : 0.7) * (e.low_data ? 0.6 : 1);
+  };
+  // Hover isolates a champion: only their lines stay, and only the champions those lines reach stay at full strength.
+  const linked = $derived.by(() => {
+    if (!hovered) return null;
+    const keep = new Set([key(hovered.role, hovered.id)]);
+    for (const e of edges) {
+      if (e.hot) {
+        keep.add(key(e.a.role, e.a.id));
+        keep.add(key(e.b.role, e.b.id));
+      }
+    }
+    return keep;
+  });
+  const isolatedOut = (role, id) => linked != null && !linked.has(key(role, id));
+  const ringTitle = (n) => {
+    const lines = [n.unavailable ? `${n.name}: banned or picked` : n.locked ? `${n.name}: click to unlock` : `Lock ${n.name} into the plan`];
+    if (!n.tier && !n.locked) lines.push('Off-pool');
+    if (n.untagged) lines.push('No judgement tags: measured traits only');
+    if (n.badge?.text) lines.push(n.badge.text);
+    return lines.join('\n');
   };
   const tip = (e) => {
     const a = champById[e.a.id]?.name, b = champById[e.b.id]?.name;
@@ -186,13 +214,42 @@
           {/each}
         </svg>
         {#if view === 'team'}<p class="teamnote muted">Team has no edges: it is in the plan panel.</p>{/if}
+        {#snippet addBox(col)}
+          <input list="prep-champ-names" placeholder="+ add champion" bind:value={adding[col.role]} onchange={() => add(col.role)} />
+        {/snippet}
+        {#if ring}
+          {#each cols as col (col.role)}
+            {@const h = ring.heads[col.role]}
+            <div class="ringhead {h.place}" style="left:{h.x}px; top:{h.y}px">
+              <div><strong>{col.label}</strong>{#if col.player} <span>{col.player.split('#')[0]}</span>{/if}</div>
+              {#if !locks[col.role] && !draftLocked(col.role) && col.nodes.length < 15}
+                <form onsubmit={(e) => { e.preventDefault(); add(col.role); }}>{@render addBox(col)}</form>
+              {/if}
+            </div>
+            {#each col.nodes as n (n.id)}
+              {@const p = positions[key(col.role, n.id)]}
+              <div class="ringnode" class:locked={n.locked} class:unavailable={n.unavailable} class:isolated-out={isolatedOut(col.role, n.id)}
+                   class:hot={hovered && hovered.role === col.role && hovered.id === n.id}
+                   style="left:{p.x}px; top:{p.y}px" role="button" tabindex="0" aria-label={ringTitle(n)}
+                   onclick={() => !n.unavailable && toggleLock(col.role, n.id)}
+                   onkeydown={(e) => e.key === 'Enter' && !n.unavailable && toggleLock(col.role, n.id)}
+                   onmouseenter={() => (hovered = { role: col.role, id: n.id })} onmouseleave={() => (hovered = null)}
+                   title={ringTitle(n)}>
+                <Champ champ={n} size={ring.icon} banned={n.unavailable} />
+                {#if n.tier}<span class="tier {n.tier}" title={n.tier}>{n.tier[0].toUpperCase()}</span>{/if}
+                {#if n.gain_pp != null}<span class="chip gain {cls(n.gain_pp)}" title="Overall gain if added to the plan">{signed(n.gain_pp)}</span>{/if}
+                {#if !n.locked}<button class="x" title="Remove {n.name}" onclick={(e) => remove(n, e)}>×</button>{/if}
+              </div>
+            {/each}
+          {/each}
+        {:else}
         {#each cols as col, i (col.role)}
           <div class="colhead" style="left:{colX(i)}px; width:{CARD_W}px">
             <strong>{col.label}</strong>{#if col.player}<span>{col.player.split('#')[0]}</span>{/if}
           </div>
           {#each col.nodes as n (n.id)}
             {@const p = positions[key(col.role, n.id)]}
-            <div class="node" class:locked={n.locked} class:unavailable={n.unavailable}
+            <div class="node" class:locked={n.locked} class:unavailable={n.unavailable} class:isolated-out={isolatedOut(col.role, n.id)}
                  class:hot={hovered && hovered.role === col.role && hovered.id === n.id}
                  style="left:{p.x}px; top:{p.y - ROW_H / 2 + 3}px; width:{CARD_W}px; height:{ROW_H - 6}px"
                  role="button" tabindex="0" onclick={() => !n.unavailable && toggleLock(col.role, n.id)}
@@ -216,10 +273,11 @@
           {#if !locks[col.role] && !draftLocked(col.role) && col.nodes.length < 15}
             <form class="add" style="left:{colX(i)}px; top:{graphH - FOOT_H + 4}px; width:{CARD_W}px"
                   onsubmit={(e) => { e.preventDefault(); add(col.role); }}>
-              <input list="prep-champ-names" placeholder="+ add champion" bind:value={adding[col.role]} onchange={() => add(col.role)} />
+              {@render addBox(col)}
             </form>
           {/if}
         {/each}
+        {/if}
         <datalist id="prep-champ-names">{#each data.champions as c}<option value={c.name}></option>{/each}</datalist>
       </div>
 
@@ -319,7 +377,7 @@
       {/if}
       <p class="muted small legend">
         <span class="sw pos"></span>positive <span class="sw neg"></span>negative <span class="sw"></span>within ±0.5pp ·
-        dashed = low data · faint = not an in-lane pair · tier M / C / L · data {data.synergy_bracket === 'all' ? 'all brackets' : data.synergy_bracket}, patch {data.window ?? '—'}
+        dashed = low data · tier M / C / L · data {data.synergy_bracket === 'all' ? 'all brackets' : data.synergy_bracket}, patch {patchLabel(data.window) ?? '—'}
       </p>
     </aside>
   </div>
@@ -372,6 +430,23 @@
   .node:hover .x { visibility: visible; }
   .add { position: absolute; margin: 0; }
   .add input { width: 100%; font-size: 13px; box-sizing: border-box; }
+
+  .ringhead { position: absolute; width: 134px; font-size: 15px; }
+  .ringhead.above { transform: translate(-50%, -100%); text-align: center; }
+  .ringhead.left { transform: translate(-100%, -50%); text-align: right; }
+  .ringhead.right { transform: translateY(-50%); }
+  .ringhead span { color: var(--muted); font-size: 13px; margin-left: 6px; }
+  .ringhead form { margin: 3px 0 0; }
+  .ringhead input { width: 100%; font-size: 12px; box-sizing: border-box; }
+  .ringnode { position: absolute; transform: translate(-50%, -50%); display: grid; place-items: center; border-radius: 6px;
+              background: var(--panel); cursor: pointer; user-select: none; }
+  .ringnode:hover, .ringnode.hot { outline: 2px solid var(--gold); z-index: 2; }
+  .ringnode.locked { outline: 2px solid var(--gold); }
+  .ringnode.unavailable { opacity: 0.45; cursor: not-allowed; }
+  .ringnode .chip.gain { position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%); line-height: 13px; font-size: 10px; }
+  .ringnode:hover .x { visibility: visible; }
+  .node.isolated-out, .ringnode.isolated-out { opacity: 0.25; }
+  .ringnode .x { right: -9px; top: -9px; width: 16px; height: 16px; padding: 0; line-height: 14px; background: #0d1117; border: 1px solid var(--line); border-radius: 50%; }
 
   section.table, .panel { background: var(--panel); border-radius: 8px; padding: 12px 14px; }
   h2 { font-size: 17px; margin: 0 0 8px; }

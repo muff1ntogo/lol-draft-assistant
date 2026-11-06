@@ -63,7 +63,8 @@ def get_engine_settings(db: Engine) -> dict:
             "comp_weight": float(v.get("comp_weight", d.comp_weight)),
             "lane_weight": float(v.get("lane_weight", d.lane_weight)),
             "role_weight_override": dict(v.get("role_weight_override") or {}),
-            "blind_weights": dict(v.get("blind_weights") or {}), "gate_tau": float(v.get("gate_tau", d.gate_tau))}
+            "blind_weights": dict(v.get("blind_weights") or {}), "gate_tau": float(v.get("gate_tau", d.gate_tau)),
+            "tree_patch_half_life": float(v.get("tree_patch_half_life", 0.0))}  # 0: every game counts the same
 
 
 def save_engine_settings(db: Engine, alpha: float | None = None, beta: float | None = None,
@@ -71,7 +72,8 @@ def save_engine_settings(db: Engine, alpha: float | None = None, beta: float | N
                          damage_penalty: float | None = None, ban_comp_synergy: bool | None = None,
                          comp_coherence: bool | None = None, comp_weight: float | None = None,
                          lane_weight: float | None = None, role_weight_override: dict | None = None,
-                         blind_weights: dict | None = None, gate_tau: float | None = None) -> None:
+                         blind_weights: dict | None = None, gate_tau: float | None = None,
+                         tree_patch_half_life: float | None = None) -> None:
     """Update only the values given; the others keep what was saved."""
     current = get_engine_settings(db)
     for name, value, hi in (("alpha", alpha, 5), ("beta", beta, 5)):
@@ -95,14 +97,16 @@ def save_engine_settings(db: Engine, alpha: float | None = None, beta: float | N
             raise ValueError(f"blind weight {name!r} must be one of {', '.join(BLIND_KEYS)}, between 0 and 5")
     if gate_tau is not None and not 0.05 <= gate_tau <= 5:
         raise ValueError("the comfort curve must be between 0.05 and 5")
-    merged = {"alpha": current["alpha"] if alpha is None else alpha,
+    if tree_patch_half_life and not 0.1 <= tree_patch_half_life <= 24:
+        raise ValueError("the Matchup tree's half-life must be 0 (equal) or between 0.1 and 24 patches")
+    merged ={"alpha": current["alpha"] if alpha is None else alpha,
               "beta": current["beta"] if beta is None else beta,
               "comfort_games_cap": current["comfort_games_cap"] if comfort_games_cap is None else comfort_games_cap}
     for name, value in (("damage_balance", damage_balance), ("damage_penalty", damage_penalty),
                         ("ban_comp_synergy", ban_comp_synergy), ("comp_coherence", comp_coherence),
                         ("comp_weight", comp_weight), ("lane_weight", lane_weight),
                         ("role_weight_override", role_weight_override), ("blind_weights", blind_weights),
-                        ("gate_tau", gate_tau)):
+                        ("gate_tau", gate_tau), ("tree_patch_half_life", tree_patch_half_life)):
         merged[name] = current[name] if value is None else value
     with Session(db) as s:
         row = s.get(AppSetting, ENGINE_KEY) or AppSetting(key=ENGINE_KEY, value="{}")

@@ -165,6 +165,18 @@ def role_ban_table(
     return RoleBanTable(role, expected_quality(w, resp), tuple(rows), enemy_filled)
 
 
+def enemy_role_shares(tables: Iterable[RoleBanTable]) -> dict[int, dict[str, float]]:
+    """champ -> role -> the chance the enemy's player in that role is on it, for the roles they still have open."""
+    out: dict[int, dict[str, float]] = {}
+    for table in tables:
+        total = sum(row.w for row in table.rows)
+        if table.enemy_filled or total <= 0:
+            continue
+        for row in table.rows:
+            out.setdefault(row.opp, {})[table.role] = row.w / total
+    return out
+
+
 def team_lane_ban(tables: Iterable[RoleBanTable], role_weights: Mapping[str, float] | None = None) -> dict[int, float]:
     """`role_weights`: how much each role's matchups count (docs/matchup-archetypes.md, Stage 4)."""
     total: dict[int, float] = {}

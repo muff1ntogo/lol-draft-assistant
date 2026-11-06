@@ -171,6 +171,19 @@ def empirical_k_gold(games: np.ndarray, mean: np.ndarray, predicted: np.ndarray,
     return float(min(max(sigma2 / tau2, K_MIN), K_MAX))
 
 
+LANE_STRENGTH_K = 100  # a champion's own mean lead shrinks towards 0 by this many lanes
+
+
+def lane_strength(pairs: Sequence, champs: Sequence[int]) -> np.ndarray:
+    """Each champion's mean lead against everyone, shrunk towards 0. `pairs`: (anything, a, b, lanes, a's summed lead)."""
+    lanes = dict.fromkeys(champs, 0.0)
+    gold = dict.fromkeys(champs, 0.0)
+    for _, a, b, n, g in pairs:
+        lanes[a], gold[a] = lanes[a] + n, gold[a] + g
+        lanes[b], gold[b] = lanes[b] + n, gold[b] - g
+    return np.array([gold[c] / (lanes[c] + LANE_STRENGTH_K) for c in champs])
+
+
 DEFAULT_SLOPE = 1.0  # log-odds per 1,000 gold
 SLOPE_PRIOR_SD = 0.5  # log-odds, around the role's own slope
 ROLE_WEIGHT_PRIOR_SD = 0.5

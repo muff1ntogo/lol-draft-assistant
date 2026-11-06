@@ -27,11 +27,11 @@ def _version_key(patch: str) -> tuple[int, ...]:
     return tuple(int(x) for x in patch.split("."))
 
 
-def window_weights(patches: Iterable[str], current: str) -> dict[str, float]:
-    """patch -> 0.5 ** (patches_ago / 6), where patches_ago counts the distinct patches in the window
-    newer than it. Patches after `current` are left out."""
+def window_weights(patches: Iterable[str], current: str, half_life: float = DECAY_PATCHES) -> dict[str, float]:
+    """patch -> 0.5 ** (patches_ago / half_life), where patches_ago counts the distinct patches in the window
+    newer than it; half_life 0 weighs every patch the same. Patches after `current` are left out."""
     ordered = sorted({p for p in patches if _version_key(p) <= _version_key(current)}, key=_version_key, reverse=True)
-    return {p: 0.5 ** (i / DECAY_PATCHES) for i, p in enumerate(ordered)}
+    return {p: 0.5 ** (i / half_life) if half_life else 1.0 for i, p in enumerate(ordered)}
 
 
 def weights_cte(weights: Mapping[str, float]) -> tuple[str, dict]:
@@ -43,11 +43,11 @@ def weights_cte(weights: Mapping[str, float]) -> tuple[str, dict]:
     return values, params
 
 
-def crawl_weights(conn, current: str) -> dict[str, float]:
+def crawl_weights(conn, current: str, half_life: float = DECAY_PATCHES) -> dict[str, float]:
     """The pooling window ending at `current`: every crawled patch up to it, decayed. `current` counts even with no
     matches yet, so the older patches' weights don't jump when its first match arrives."""
     patches = [r[0] for r in conn.execute(text("SELECT DISTINCT patch FROM crawled_matches"))]
-    return window_weights([*patches, current], current)
+    return window_weights([*patches, current], current, half_life)
 
 
 def aggregate_synergy(conn, window: str, patches: Mapping[str, float] | None = None) -> None:

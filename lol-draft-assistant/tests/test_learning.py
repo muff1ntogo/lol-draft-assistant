@@ -333,7 +333,7 @@ def test_comfort_cap_setting_drives_engine_and_pools(make_services, db):
         top = client.get("/api/pools").json()["pools"]["top"][0]
     assert get_engine_settings(db) == {"alpha": 1.5, "beta": 0.3, "comfort_games_cap": 5, "damage_balance": True,
                                        "lane_weight": 0.5, "role_weight_override": {}, "blind_weights": {},
-                                       "gate_tau": 0.75,
+                                       "gate_tau": 0.75, "tree_patch_half_life": 0.0,
                                       "damage_penalty": -0.05, "ban_comp_synergy": False, "comp_coherence": True,
                                           "comp_weight": 0.15}  # alpha/beta kept
     assert top["comfort"] == pytest.approx(round(comfort_score("main", 30, 20, games_cap=5), 2))  # 20W 10L

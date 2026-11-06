@@ -158,6 +158,15 @@ def test_parse_match_and_filters():
 
 
 # ---------- crawler + aggregation ----------
+def test_a_patch_is_shown_as_players_know_it_and_stored_as_riot_has_it():
+    from draftassist.data.crawler import display_patch
+
+    assert display_patch("16.22") == "26.22" and display_patch("16.1") == "26.1"
+    assert display_patch("15.24") == "15.24"  # last year's numbers were the same in both
+    assert display_patch(None) is None
+    assert patch_of("16.22.1") == "16.22"  # what's stored and matched against Riot doesn't change
+
+
 def add_champions(session, ids, patch="16.21.1"):
     for c in ids:
         session.add(Champion(champ_id=c, key=f"C{c}", name=f"Champ{c}", patch=patch))

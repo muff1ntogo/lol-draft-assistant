@@ -15,6 +15,7 @@ from sqlalchemy import Engine
 from draftassist.data.pools import backfill_player_ids, list_players, set_players
 from draftassist.data.riot import RiotAuthError, RiotClient
 from draftassist.learning.comfort import TierChange, rescore
+from draftassist.learning.execution import refresh_executions
 from draftassist.learning.history import collect_logged, fetch_history
 
 log = logging.getLogger(__name__)
@@ -47,6 +48,10 @@ def run_learning(db: Engine, make_riot: Callable[[], RiotClient] | None = None) 
                 result.history_error = f"match history unavailable ({type(e).__name__})"
         result.logged_games = collect_logged(db)
         result.proposals = rescore(db)
+        try:
+            refresh_executions(db, only_missing=True)
+        except Exception:  # the Draft vs execution strip waits; tiers above are already learned
+            log.exception("attributing games failed")
         return result
 
 

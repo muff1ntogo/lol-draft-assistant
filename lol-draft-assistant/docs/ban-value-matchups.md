@@ -19,7 +19,7 @@ Ban suggestions lean too much on "how likely is the enemy to pick X". They must 
 
 All three are in log-odds units, so they can be added:
 
-1. **Threat (meta):** `P(enemy picks X) × strength(X)`, where `strength(X)` = logit of X's bracket win rate in the roles the enemy still has open. This is independent of our pools.
+1. **Threat (meta):** `Σ share(X, role) × strength(X, role)` over the roles the enemy still has open. `share` is the chance the enemy's player in that role is on X, from the same ban-adjusted pick rates as Matchup. `strength` is the logit of X's bracket win rate there. This is independent of our pools. (See "Later change" below.)
 2. **Matchup (our pools):** `0.04 × TeamLaneBan(X)`, from `ban-score.md`. It is the expected improvement in our players' lane matchups, from their own pools, if X is banned.
    - It is **signed**: if our pools counter X, it is negative and *lowers* the ban value. Don't clip it at 0.
    - Resp uses each player's **eligible** pool champions only (not banned or picked; locked pick only once the player has locked).
@@ -65,3 +65,9 @@ ban_value(X) = relevance(X) × (1 − P(enemy team bans X))
 - `uv run pytest` passes.
 - The audit output (Step 1) and the new top-10 breakdown (after the change) are both printed for me, on the same simulated draft, so I can compare them.
 - Ban suggestions still return in under 200 ms (single turn) or 300 ms (Flex group turn).
+
+## Later change: Threat follows real pick rate (user, 6 Nov 2026)
+
+Threat first used `P(enemy picks X)` from the enemy model, `log(pick rate) + 10 × logit(win rate)`. There, 5pp of win rate counts as much as being picked 7 times more often, so a 1% pick on a 59% win rate had about 5 times the Threat of a 6% pick on 53%. "A high win rate niche pick is not worth a ban over a high pick rate slight win pick." Threat now uses the role's real share, as in step 2 above, in the same units as Matchup.
+
+The enemy model stays as it was for everything else: the "likely enemy picks" list, and the "N% likely" figure in a ban's reason. A popular champion under 50% still has negative Threat: this asks how much worse X makes a game, not how often it appears.

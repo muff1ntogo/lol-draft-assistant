@@ -23,6 +23,7 @@ from draftassist.engine.guards import validate_suggestions
 from draftassist.engine.lane_ban import (
     BracketLaneData,
     RoleBanTable,
+    enemy_role_shares,
     role_ban_table,
     team_lane_ban,
 )
@@ -441,6 +442,20 @@ class DraftEngine:
     def win_prob(self, state: DraftState) -> float:
         return self.evaluate(state).win_prob
 
+    def draft_logodds(self, ours: Mapping[str, int], theirs: Mapping[str, int]) -> float:
+        """A finished draft's log-odds with no home side: alpha only weighs "our" picks, so both views are averaged, and
+        comfort is left out because a crawled game has no players of ours (docs/draft-vs-execution.md, Stage 2)."""
+        def one(a: Mapping[str, int], b: Mapping[str, int]) -> float:
+            a_roles, b_roles = {c: r for r, c in a.items()}, {c: r for r, c in b.items()}
+            terms = self._terms(list(a_roles), a_roles, list(b_roles), b_roles)
+            return terms.total - terms.comfort
+
+        return (one(ours, theirs) - one(theirs, ours)) / 2
+
+    def draft_comfort(self, ours: Mapping[str, int]) -> float:
+        """What our players' comfort adds to a finished draft, the part `draft_logodds` leaves out."""
+        return sum(self.cfg.beta * self._comfort(c, r) for r, c in ours.items())
+
     # ---------- wasted-ban filter ----------
     def role_filled_probs(self, state: DraftState) -> dict[str, float]:
         """P(enemy role r is filled), from a softmax over every assignment of their revealed picks
@@ -534,14 +549,15 @@ class DraftEngine:
         }
 
     def resp_data(self, unavailable, our_by_role: dict[str, int] | None = None, enemy: dict[str, int] | None = None,
-                  base=None):
+                  base=None, bot=None):
         """What a lane answer is scored on: the blend, in 2v2 for the bot lane with our partner (locked, else expected
-        from the pool) and the enemy's. `base`: another source for the 1v1s."""
+        from the pool) and the enemy's. `base`: another source for the 1v1s. `bot`: another source for the 2v2."""
         base = base if base is not None else self._lane_data
-        if self.data.bot is None:
+        bot = bot if bot is not None else self.data.bot
+        if bot is None:
             return base
         partners = {r: self._expected_partners(r, (our_by_role or {}).get(r), unavailable) for r in ("adc", "support")}
-        return BotLaneData(base, self.data.bot, partners, enemy or {}, self.cfg.lane_weight)
+        return BotLaneData(base, bot, partners, enemy or {}, self.cfg.lane_weight)
 
     def _expected_partners(self, role: str, locked: int | None, unavailable) -> list[tuple[int, float]]:
         """Who plays `role` on our team: the locked champion, else the pool weighted by tier."""
@@ -564,7 +580,9 @@ class DraftEngine:
 
             ban value = relevance * discount * (a * Threat + b * Matchup + c * Comp)
 
-        Threat  = P(enemy picks X next) * logit of X's enemy-bracket win rate in their open roles.
+        Threat  = sum over the enemy's open roles of X's share of that role (the chance their player is on X, the
+                  same ban-adjusted rate Matchup uses) * logit of X's enemy-bracket win rate. 0 once they have
+                  no picks left.
         Matchup = 0.04 * TeamLaneBan(X): our players' expected lane matchup gain, from their own
                   eligible pools, if X is gone. Signed: negative when our pools counter X.
         Comp    = sum over our locked picks of X's lane edge (logit) against them, weighted by the
@@ -589,8 +607,10 @@ class DraftEngine:
         filled = self.role_filled_probs(state)
         tables = self._lane_ban_tables(state, ev, plan)
         team_lane = team_lane_ban(tables.values(), cfg.role_weights)
+        enemy_picks_left = state.picks_left(state.their_side, after=len(state.actions) - 1)
+        role_shares = enemy_role_shares(tables.values()) if enemy_picks_left else {}
         enemy = self._enemy()
-        blind = state.format.simultaneous_bans and state.step is not None and state.step.kind == "ban"
+        blind =state.format.simultaneous_bans and state.step is not None and state.step.kind == "ban"
         locked = [(o, r) for o, r in ev.our_roles.items()]
         locked += [(c, r) for r, c in (plan or {}).items()
                    if r not in ev.our_roles.values() and c not in ev.our_roles and c not in unavailable]
@@ -606,8 +626,7 @@ class DraftEngine:
                 continue
             rp = role_probs.get(c, {})
             p = sum(rp.values())
-            threat = sum(prob * logit(stat.win_rate) for r, prob in rp.items()
-                         if (stat := enemy.role_stat(c, r)) is not None)
+            threat = sum(share * logit(enemy.role_stat(c, r).win_rate) for r, share in role_shares.get(c, {}).items())
             matchup = cfg.lane_ban.pp_to_logodds * team_lane.get(c, 0.0)
             comp, comp_target, comp_wr, comp_best = 0.0, None, 0.5, 0.0
             for o, r in locked:

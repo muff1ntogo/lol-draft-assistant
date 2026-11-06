@@ -20,7 +20,7 @@ from sqlalchemy import Engine
 from sqlmodel import Session, select
 
 from draftassist.data.aggregate import PAIR_K, ROLE_K, shrink
-from draftassist.data.crawler import brackets_in_use
+from draftassist.data.crawler import brackets_in_use, display_patch
 from draftassist.data.ddragon import BASE_URL
 from draftassist.data.matchup_model import (
     STRENGTH_K,
@@ -220,9 +220,9 @@ def load_engine_inputs(db: Engine, use_matchup_model: bool = True) -> EngineInpu
             if boot is None:
                 note = f"Stats: our crawl only ({games} games)"
             elif not any(crawled.values()):
-                note = f"Stats: OP.GG all-tier (patch {boot.patch}); crawl not started"
+                note = f"Stats: OP.GG all-tier (patch {display_patch(boot.patch)}); crawl not started"
             else:
-                note = f"Stats: OP.GG all-tier (patch {boot.patch}) blended with our crawl: {games} games"
+                note = f"Stats: OP.GG all-tier (patch {display_patch(boot.patch)}) blended with our crawl: {games} games"
             team = load_team(db)
             if team is None:
                 team, note = placeholder_team(data), f"{note}; {PLACEHOLDER_POOL_NOTE}"

@@ -2,6 +2,8 @@
   // Synergy v2 rules (docs/synergy-v2.md, Stage 2). Written rules with a prior effect, fitted to crawled data
   // (ridge regression centred on the priors). Flagged = the data disagrees: more than 1.5pp from the prior,
   // or the other sign. Editing a prior writes data/style_rules.yaml or data/team_rules.yaml and refits.
+  import { patchLabel } from './patch.js';
+
   const PAIRS = ['TOP-JG', 'JG-MID', 'ADC-SUP'];
   let data = $state(null);
   let tab = $state('style');
@@ -71,7 +73,7 @@
       <label><input type="checkbox" bind:checked={onlyFlagged} /> Flagged only
         ({flaggedCount(tab === 'style' ? data.style : data.team)})</label>
       <span class="muted small right">
-        Window {data.window ?? '—'} · {data.matches.toLocaleString()} matches · prior SD {data.prior_sd_pp}pp
+        Window {patchLabel(data.window) ?? '—'} ·{data.matches.toLocaleString()} matches · prior SD {data.prior_sd_pp}pp
       </span>
     </div>
     <p class="muted small">

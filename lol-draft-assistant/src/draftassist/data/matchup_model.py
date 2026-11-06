@@ -16,7 +16,7 @@ from draftassist.data.archetypes import (
     ARCHETYPES,
     resolve_archetype,
 )
-from draftassist.data.synergy import crawl_weights, latest_window, weights_cte
+from draftassist.data.synergy import DECAY_PATCHES, crawl_weights, latest_window, weights_cte
 from draftassist.data.tags import load_archetypes, load_kit
 from draftassist.db.models import Champion, MatchupFit
 from draftassist.engine.bot_lane import BotLane
@@ -29,6 +29,7 @@ from draftassist.engine.matchup_model import (
     param_names,
     smooth,
 )
+from draftassist.engine.matchup_model import lane_strength as _lane_strength
 from draftassist.engine.model import ROLES, BracketStats, RoleStat
 from draftassist.engine.traits import KitTraits
 
@@ -49,7 +50,6 @@ BEHIND_GOLD = 300
 BEHIND_K = 50
 MIN_EXPLAINED = 0.002  # log-odds (0.05pp): a term below this doesn't explain a matchup
 BOT_ROLE = "bot"  # Stage 5: bot_game:cross:a|s, bot_game:pair:a|s, bot_gold:cross:a|s, bot_gold:pair:a|s
-LANE_STRENGTH_K = 100  # a champion's own mean lead shrinks towards 0 by this many lanes
 LANE_MIN_GAMES = 30  # champions with fewer lane games in the window get no lane matchups
 DEFAULT_SIGMA2 = 1000.0 ** 2  # one lane's variance in gold^2, when there's no data to measure it
 
@@ -73,16 +73,6 @@ def _lane_pairs(conn, values: str, params: dict) -> list:
         "FROM matchups JOIN w USING (patch) WHERE lane_n > 0 GROUP BY role, champ_a, champ_b"), params).all()
 
 
-def _lane_strength(pairs: list, champs: list[int]) -> np.ndarray:
-    """Each champion's mean gold lead against everyone, shrunk towards 0."""
-    lanes = dict.fromkeys(champs, 0.0)
-    gold = dict.fromkeys(champs, 0.0)
-    for _, a, b, n, g in pairs:
-        lanes[a], gold[a] = lanes[a] + n, gold[a] + g
-        lanes[b], gold[b] = lanes[b] + n, gold[b] - g
-    return np.array([gold[c] / (lanes[c] + LANE_STRENGTH_K) for c in champs])
-
-
 @dataclass
 class MatchupModel:
     window: str
@@ -100,6 +90,7 @@ class MatchupModel:
     _lane_table: dict | None = None
     _bot: Mapping[str, float] = field(default_factory=dict)
     _feats: dict = field(default_factory=dict)
+    half_life: float = DECAY_PATCHES  # of the observed matchups and lane leads; the fitted terms keep their own window
 
     def coefs(self, role: str) -> Mapping[str, float]:
         return self._coefs.get(role, {})
@@ -204,8 +195,9 @@ class MatchupModel:
         return self._matrices[role]
 
 
-def load_matchup_model(db: Engine, window: str | None = None) -> MatchupModel | None:
-    """The stored fit of `window` (default: the latest), or None before the first fit."""
+def load_matchup_model(db: Engine, window: str | None = None, half_life: float = DECAY_PATCHES) -> MatchupModel | None:
+    """The stored fit of `window` (default: the latest), or None before the first fit. `half_life` decays the observed
+    lane leads and `pooled_stats`, for the Matchup tree's own setting; the fit itself isn't refitted."""
     window = window or latest_window(db)
     if window is None:
         return None
@@ -239,9 +231,10 @@ def load_matchup_model(db: Engine, window: str | None = None) -> MatchupModel | 
             coefs.setdefault(r.role, {})[r.param] = r.value
     written, classes, kit = _labels(db)
     with db.connect() as conn:
-        values, params = weights_cte(crawl_weights(conn, window))
+        values, params = weights_cte(crawl_weights(conn, window, half_life))
         pairs = _lane_pairs(conn, values, params)
-    return MatchupModel(window, coefs, ks, written, classes, kit, {}, lane_coefs, lane_ks, slopes, weights, pairs, None, bot)
+    return MatchupModel(window, coefs, ks, written, classes, kit, {}, lane_coefs, lane_ks, slopes, weights, pairs, None, bot,
+                        half_life=half_life)
 
 
 def load_lane_slope(db: Engine, role: str, window: str | None = None) -> float:
@@ -299,9 +292,9 @@ def smoothed_matchups(model: MatchupModel, meta: Mapping[int, Mapping[str, RoleS
 
 def pooled_stats(db: Engine, model: MatchupModel, bracket: str) -> BracketStats:
     """Matchups over the whole window, for the Matchup tree: every crawled patch, decayed, and every tier for the sample
-    size, with pick rates from `bracket`. Live stays on the current patch."""
+    size, with pick rates from `bracket`. Patches decay by the model's half-life. Live stays on the current patch."""
     with db.connect() as conn:
-        values, params = weights_cte(crawl_weights(conn, model.window))
+        values, params = weights_cte(crawl_weights(conn, model.window, model.half_life))
         cte = f"WITH w(patch, weight) AS (VALUES {values}) "
         rows = conn.execute(text(
             cte + "SELECT role, champ_a, champ_b, SUM(games * weight) AS games, SUM(wins_a * weight) AS wins_a "

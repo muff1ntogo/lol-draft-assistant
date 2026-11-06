@@ -25,7 +25,8 @@ from draftassist.data.settings_store import (
     save_engine_settings,
     settings_payload,
 )
-from draftassist.data.timelines import backfill_timelines, lane_diffs, store_leads
+from draftassist.data.timeline_map import parse_timeline
+from draftassist.data.timelines import backfill_timelines, store_timeline
 from draftassist.db.models import (
     Champion,
     ChampionTag,
@@ -108,8 +109,12 @@ def _timeline(minute15=True):
     return {"info": {"frames": frames}}
 
 
+def _leads(timeline, match):
+    return {c: (p["lane_gold_15"], p["lane_xp_15"]) for c, p in parse_timeline(timeline, match).participants.items()}
+
+
 def test_lead_is_against_the_enemy_in_the_same_position():
-    diffs = lane_diffs(_timeline(), _match())
+    diffs = _leads(_timeline(), _match())
     assert diffs[100] == (5000 - 5500, 7000 - 7050)  # blue top against red top
     assert diffs[105] == (500, 50)
     assert diffs[104] == (5400 - 5900, 7040 - 7090)
@@ -117,15 +122,15 @@ def test_lead_is_against_the_enemy_in_the_same_position():
 
 
 def test_a_game_that_ended_before_15_minutes_has_no_lead():
-    assert lane_diffs(_timeline(minute15=False), _match()) == {}
-    assert lane_diffs(None, _match()) == {}
+    assert parse_timeline(_timeline(minute15=False), _match()) is None
+    assert parse_timeline(None, _match()) is None
 
 
-def test_a_lane_without_both_positions_is_left_out():
+def test_a_lane_without_both_positions_has_no_lead():
     match = _match()
     match["info"]["participants"][0]["teamPosition"] = ""
-    diffs = lane_diffs(_timeline(), match)
-    assert 100 not in diffs and 105 not in diffs and 101 in diffs
+    diffs = _leads(_timeline(), match)
+    assert diffs[100] == (None, None) and diffs[105] == (None, None) and diffs[101][0] is not None
 
 
 class _Riot:
@@ -467,8 +472,8 @@ def test_recap_shows_lane_and_game(db):
     assert other_way["lane_gold"] == -m["lane_gold"]
 
 
-def test_store_leads_marks_the_match_done(engine):
+def test_storing_no_timeline_marks_the_match_done(engine):
     _unfetched(engine, ["EUW1_1"])
-    store_leads(engine, "EUW1_1", {})
+    store_timeline(engine, "EUW1_1", None, _match())
     with Session(engine) as s:
         assert s.get(CrawledMatch, "EUW1_1").timeline_done

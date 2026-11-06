@@ -76,6 +76,65 @@ def test_slider_extremes_rank_by_one_component():
         assert by_value == by_component, component
 
 
+# 3b. Threat follows how often X is really played -----------------------------------------------------
+def threat_data(meta_extra=None, ban_rates=None):
+    """Two enemy options that matter, with the rest of the top lane at an even 50%."""
+    meta = {P: {"top": RoleStat(0.50, 0.0)},
+            X1: {"top": RoleStat(0.59, 0.01)},  # niche, high win rate
+            X2: {"top": RoleStat(0.53, 0.06)},  # popular, slightly winning
+            **{o: {"top": RoleStat(0.50, 0.2325)} for o in OTHERS},
+            **(meta_extra or {})}
+    names = {c: f"C{c}" for c in meta}
+    return EngineData({"gold": BracketStats(meta, {}, ban_rates=ban_rates or {})}, names)
+
+
+def logit(p):
+    import math
+    return math.log(p / (1 - p))
+
+
+def test_threat_is_share_of_the_role_times_strength():
+    rows = rows_by_champ(DraftEngine(threat_data(), team({P: "main"})))
+    assert rows[X1]["Threat"] == pytest.approx(0.01 * logit(0.59))
+    assert rows[X2]["Threat"] == pytest.approx(0.06 * logit(0.53))
+
+
+def test_popular_slight_winner_outranks_niche_high_win_rate():
+    rows = rows_by_champ(DraftEngine(threat_data(), team({P: "main"})))
+    assert rows[X2]["Threat"] > rows[X1]["Threat"]
+
+
+def test_threat_of_a_popular_loser_stays_negative():
+    data = threat_data({Y: {"top": RoleStat(0.47, 0.20)}})
+    assert rows_by_champ(DraftEngine(data, team({P: "main"})))[Y]["Threat"] < 0
+
+
+def test_threat_counts_a_champion_held_back_by_bans():
+    """The same share as Matchup: what it would be played at if nobody banned it."""
+    rows = rows_by_champ(DraftEngine(threat_data(ban_rates={X2: 0.5}), team({P: "main"})))
+    share = (0.06 / 0.5) / (0.06 / 0.5 + 0.01 + 4 * 0.2325)
+    assert rows[X2]["Threat"] == pytest.approx(share * logit(0.53))
+
+
+def test_threat_sums_only_the_roles_the_enemy_still_has_open():
+    meta = {X1: {"top": RoleStat(0.55, 0.10), "mid": RoleStat(0.55, 0.20)},
+            X2: {"top": RoleStat(0.50, 0.90)}, Y: {"mid": RoleStat(0.50, 0.80)},
+            P: {"top": RoleStat(0.50, 0.0)}}
+    data = EngineData({"gold": BracketStats(meta, {})}, {c: f"C{c}" for c in meta})
+    engine = DraftEngine(data, team({P: "main"}))
+    assert rows_by_champ(engine)[X1]["Threat"] == pytest.approx((0.10 + 0.20) * logit(0.55))
+    filled = DraftState(TOURNAMENT, "blue", (SKIPPED,) * 6 + (P, Y))  # the enemy locks their mid
+    assert rows_by_champ(engine, filled)[X1]["Threat"] == pytest.approx(0.10 * logit(0.55))
+
+
+def test_no_threat_once_the_enemy_has_no_picks_left():
+    data, t = synthetic_data()
+    final, _ = run_draft(DraftEngine(data, t), TOURNAMENT, "red")
+    state = DraftState(TOURNAMENT, "red", final.actions[:-1])  # red picks last: only our own pick to come
+    assert state.picks_left("blue", after=len(state.actions) - 1) == 0
+    assert all(r["Threat"] == 0 for r in DraftEngine(data, t).ban_breakdown(state))
+
+
 # 4. Eligibility ---------------------------------------------------------------------------------
 def test_banned_pool_champion_is_no_longer_an_answer():
     data = top_data(extra_matchups={("top", P2, X2): 0.52}, extra_meta={P2: {"top": RoleStat(0.50, 0.0)}})
@@ -200,7 +259,8 @@ def test_no_penalty_once_that_role_is_locked():
 
 def test_own_pick_ban_carries_a_warning():
     data = top_data(extra_meta={P2: {"top": RoleStat(0.60, 0.30)}})  # a meta monster: still worth banning?
-    engine = DraftEngine(data, team({P: "main", P2: "main"}), EngineConfig(ban_weights=BanWeights(own=0.05)))
+    # matchup 0: the player's own answer to it is good, and that isn't what this test is about
+    engine = DraftEngine(data, team({P: "main", P2: "main"}), EngineConfig(ban_weights=BanWeights(matchup=0.0, own=0.05)))
     sugs = {s.champ_id: s for s in engine.suggest_bans(EMPTY, k=50)}
     assert P2 in sugs  # a low penalty weight still lets a strong enough own-pool ban through...
     assert "our top's best pick" in " ".join(sugs[P2].warnings)  # ...flagged on the card

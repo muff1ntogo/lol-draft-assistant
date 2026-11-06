@@ -8,7 +8,11 @@ from sqlalchemy import text
 
 from draftassist.api.deps import db_of
 from draftassist.data.archetypes import ARCHETYPES, load_archetype_plans
+from draftassist.data.crawler import MASTER_PLUS
+from draftassist.data.master import MIN_MATCHES, master_matches, usable_master
 from draftassist.data.matchup_model import load_matchup_model, pooled_stats
+from draftassist.data.settings_store import get_engine_settings, save_engine_settings
+from draftassist.data.synergy import crawl_weights
 from draftassist.engine.blind import pool_health
 from draftassist.engine.engine import DraftEngine
 from draftassist.engine.formats import TOURNAMENT
@@ -83,7 +87,14 @@ def prep_matchup_tree(request: Request) -> dict:
     """Per role: each enemy archetype, our best answer, and the pool health card (docs/matchup-archetypes.md, Stage 7)."""
     svc: Services = request.app.state.services
     engine = svc.engine
-    model = load_matchup_model(db_of(svc))
+    half_life = get_engine_settings(db_of(svc))["tree_patch_half_life"]
+    master = usable_master(db_of(svc))
+    model = load_matchup_model(master, half_life=half_life) if master is not None else None
+    if model is None:
+        master = None
+        model = load_matchup_model(db_of(svc), half_life=half_life)
+    source = master if master is not None else db_of(svc)
+    bot = model.bot() if master is not None else None
     plans = load_archetype_plans()
 
     def with_card(item: dict | None) -> dict | None:
@@ -92,20 +103,33 @@ def prep_matchup_tree(request: Request) -> dict:
     pooled = {}
     roles = []
     for role in ROLES:
-        bracket = engine.team.brackets.get(role)
+        bracket = MASTER_PLUS if master is not None else engine.team.brackets.get(role)
         if model is not None and bracket not in pooled:
-            pooled[bracket] = pooled_stats(db_of(svc), model, bracket)
+            pooled[bracket] = pooled_stats(source, model, bracket)
         expected = (lambda a, b, r=role: model.expected(r, a, b)) if model is not None else None
-        rows = matchup_tree(engine, role, ARCHETYPES[role], plans.get(role), expected, pooled.get(bracket))
+        rows = matchup_tree(engine, role, ARCHETYPES[role], plans.get(role), expected, pooled.get(bracket), bot)
         for row in rows:
             row["champs"] = [with_card(c) for c in row["champs"]]
             row["best"] = with_card(row["best"])
+            row["answers"] = [with_card(a) for a in row["answers"]]
         roles.append({"role": role, "role_label": ROLE_LABELS[role], "bracket": bracket,
                       "rows": rows, "health": pool_health(engine, role)})
-    with db_of(svc).connect() as conn:
-        counts = [{"patch": p, "matches": n} for p, n in conn.execute(text(
+    with source.connect() as conn:
+        weights = crawl_weights(conn, model.window, half_life) if model is not None else {}
+        counts = [{"patch": p, "matches": n, "weight": weights.get(p)} for p, n in conn.execute(text(
             "SELECT patch, COUNT(*) FROM crawled_matches GROUP BY patch ORDER BY patch"))]
-    return {"roles": roles, "matches": counts}
+    return {"roles": roles, "matches": counts, "half_life": half_life, "master": master is not None,
+            "master_matches": master_matches(db_of(svc)), "master_needed": MIN_MATCHES}
+
+
+@router.put("/api/prep/matchup-tree/half-life")
+def put_tree_half_life(request: Request, half_life: float = Body(..., embed=True)) -> dict:
+    """How fast the Matchup tree forgets older patches. Only the tree reads it, so the engine isn't reloaded."""
+    try:
+        save_engine_settings(db_of(request.app.state.services), tree_patch_half_life=half_life)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from None
+    return {"half_life": half_life}
 
 
 @router.get("/api/learning")

@@ -143,6 +143,7 @@ class Draft(SQLModel, table=True):
     players_json: str | None = None  # our role -> in-game name
     recap_cache: str | None = None  # JSON: lane matchups computed on first view
     plan_json: str | None = None  # JSON: the plan pinned for this game (docs/synergy-v2.md, Stage 6)
+    timeline_version: int = 0  # data/timelines.TIMELINE_VERSION: own_game_participants filled, or the game has none
 
 
 class DraftAction(SQLModel, table=True):
@@ -181,9 +182,29 @@ class CrawledMatch(SQLModel, table=True):
     game_start_ms: int
     game_duration_s: int | None = None  # None for matches stored before it was recorded (data.backfill)
     timeline_done: bool = False  # data/timelines.py: leads stored, or there are none
+    timeline_version: int = 0  # data/timelines.TIMELINE_VERSION: everything is stored, or the game has none
 
 
-class MatchParticipant(SQLModel, table=True):
+class ParticipantTimeline(SQLModel):
+    """What one player's timeline gives (data/timeline_map.py; docs/draft-vs-execution.md, Stage 1). None = unknown, stored
+    before it was recorded, or the game ended before 15:00."""
+    lane_gold_15: float | None = None  # lead over the enemy in the same position at 15 minutes
+    lane_xp_15: float | None = None
+    lane_cs_14: float | None = None  # minions + jungle minions lead at 14:00
+    cs_15: float | None = None
+    jungle_cs_10: float | None = None
+    jungle_cs_15: float | None = None
+    level_15: float | None = None
+    deaths_solo_14: float | None = None  # before 14:00; the killer had no assists
+    deaths_ganked_14: float | None = None  # before 14:00; 2+ enemies, one from outside the lane (ADC + support = one lane)
+    deaths_other_14: float | None = None
+    kp_15: float | None = None  # (kills + assists) / team kills before 15:00; None if the team had none
+    plates_14: float | None = None  # credited to this player before 14:00; a third of plates credit nobody
+    wards_placed_15: float | None = None  # real wards, not the ability objects typed UNDEFINED
+    wards_killed_15: float | None = None
+
+
+class MatchParticipant(ParticipantTimeline, table=True):
     __tablename__ = "match_participants"
 
     match_id: str = Field(primary_key=True, foreign_key="crawled_matches.match_id")
@@ -202,8 +223,84 @@ class MatchParticipant(SQLModel, table=True):
     self_mitigated: float | None = None  # damageSelfMitigated
     heal_shield: float | None = None  # heals + shields on teammates
     lane_adv: float | None = None  # challenges.laningPhaseGoldExpAdvantage (or the early-laning key): only 0 or 1
-    lane_gold_15: float | None = None  # lead over the enemy in the same position at 15 minutes (data/timelines.py)
-    lane_xp_15: float | None = None
+
+
+class OwnGameParticipant(ParticipantTimeline, table=True):
+    """Our logged games, all ten players. Not in match_participants: aggregation reads that, and these aren't crawl data."""
+    __tablename__ = "own_game_participants"
+
+    draft_id: int = Field(primary_key=True, foreign_key="drafts.draft_id")
+    champ_id: int = Field(primary_key=True)
+    match_id: str = Field(index=True)
+    team_id: int
+    role: str | None = None  # from the match; None if Riot didn't give a position
+
+
+class MatchTeamState(SQLModel, table=True):
+    """One team's game state, for crawled matches and our own games alike (no foreign key: ours aren't in crawled_matches).
+    Nothing aggregates it. None = unknown, or gold_25 in a game that ended first."""
+    __tablename__ = "match_team_state"
+
+    match_id: str = Field(primary_key=True)
+    team_id: int = Field(primary_key=True)
+    gold_15: float | None = None
+    kills_15: float | None = None
+    towers_15: float | None = None
+    plates_15: float | None = None
+    dragons_15: float | None = None
+    grubs_15: float | None = None
+    herald_15: float | None = None
+    gold_25: float | None = None
+    dragons_after_15: float | None = None
+    barons: float | None = None
+    towers_after_15: float | None = None
+    deaths_while_ahead: float | None = None  # after 15:00, with a lead of 2,000+ at the previous minute frame
+
+
+class MatchDraftLogOdds(SQLModel, table=True):
+    """The draft model's view of a crawled match, from blue's side (docs/draft-vs-execution.md, Stage 2). A batch job: cached."""
+    __tablename__ = "match_draft_logodds"
+
+    match_id: str = Field(primary_key=True)
+    window: str  # the fit it came from; another window is recomputed
+    value: float
+
+
+class ExecutionFit(SQLModel, table=True):
+    """The fitted expectations and state model, as JSON (data/execution_model.py). The latest fit is the one read."""
+    __tablename__ = "execution_fits"
+
+    window: str = Field(primary_key=True)
+    body: str
+
+
+class GameExecution(SQLModel, table=True):
+    """One logged game split into draft, early game and conversion (learning/execution.py). All from our team's view, as
+    fractions of a win. Only the draft part without a timeline: p15, early, conversion and verdict stay None."""
+    __tablename__ = "game_execution"
+
+    draft_id: int = Field(primary_key=True, foreign_key="drafts.draft_id")
+    window: str  # the fit it came from
+    p0: float
+    p15: float | None = None
+    draft: float
+    early: float | None = None
+    conversion: float | None = None
+    verdict: str | None = None
+    contributors_json: str | None = None  # JSON: the verdict's top two
+    detail_json: str | None = None  # JSON: what happened after 15:00, each as [ours, theirs], and gold at 25
+
+
+class GameExecutionRole(SQLModel, table=True):
+    """A role's part of the early game: top, jungle, mid, bot (adc + support), adc, support, objectives (what's left)."""
+    __tablename__ = "game_execution_roles"
+
+    draft_id: int = Field(primary_key=True, foreign_key="drafts.draft_id")
+    role: str = Field(primary_key=True)
+    share: float
+    label: str
+    headline_json: str  # JSON: the stat line the label comes from
+    stats_json: str  # JSON: the stat lines shown for this role
 
 
 class MatchBan(SQLModel, table=True):

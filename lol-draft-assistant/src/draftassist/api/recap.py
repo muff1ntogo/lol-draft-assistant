@@ -19,7 +19,13 @@ from draftassist.data.matchup_model import load_lane_slope
 from draftassist.data.pools import list_players
 from draftassist.data.provider import ChampionCatalog
 from draftassist.data.settings_store import get_engine_settings
-from draftassist.db.models import Draft, DraftAction, Matchup
+from draftassist.db.models import (
+    Draft,
+    DraftAction,
+    GameExecution,
+    GameExecutionRole,
+    Matchup,
+)
 from draftassist.engine.engine import DraftEngine
 from draftassist.engine.formats import get_format
 from draftassist.engine.model import ROLE_LABELS, ROLES, sigmoid
@@ -99,6 +105,7 @@ def history_rows(db: Engine, catalog: ChampionCatalog, queue: str | None = None,
     with Session(db) as s:
         drafts = s.exec(select(Draft).order_by(col(Draft.played_at).desc(), col(Draft.draft_id).desc()).limit(limit)).all()
         acts = _actions(s, [d.draft_id for d in drafts])
+        verdicts = {e.draft_id: e.verdict for e in s.exec(select(GameExecution)).all()}
     rows = []
     for d in drafts:
         label = queue_label(d)
@@ -118,8 +125,43 @@ def history_rows(db: Engine, catalog: ChampionCatalog, queue: str | None = None,
             "followed_top": sum(1 for a in followed if a.our_rank == 1), "our_turns": len(followed),
             "match_verified": d.match_verified, "result_source": d.result_source,
             "plan": plan_adherence(d, acts[d.draft_id]),
+            "verdict": verdicts.get(d.draft_id),
         })
     return rows
+
+
+# ---------- draft vs execution (docs/draft-vs-execution.md, Stage 4) ----------
+CHIPS = ("top", "jungle", "mid", "bot", "objectives")
+BOT_PLAYERS = ("adc", "support")
+CHIP_NAMES = {**ROLE_LABELS, "bot": "Bot", "objectives": "Objectives and team"}
+
+
+def _pp100(x: float | None) -> float | None:
+    return None if x is None else 100 * x
+
+
+def _chip(row: GameExecutionRole) -> dict:
+    return {"role": row.role, "name": CHIP_NAMES[row.role], "share_pp": _pp100(row.share), "label": row.label,
+            "headline": json.loads(row.headline_json), "stats": json.loads(row.stats_json), "players": []}
+
+
+def execution_payload(db: Engine, draft: Draft) -> dict | None:
+    """What History's strip shows. None if nothing was worked out; `available` False if there's only the draft part."""
+    with Session(db) as s:
+        row = s.get(GameExecution, draft.draft_id)
+        roles = {r.role: _chip(r) for r in s.exec(select(GameExecutionRole).where(GameExecutionRole.draft_id == draft.draft_id)).all()}
+    if row is None:
+        return None
+    if "bot" in roles:
+        roles["bot"]["players"] = [roles[r] for r in BOT_PLAYERS]
+    return {
+        "available": row.p15 is not None, "p0": row.p0, "model_p0": draft.pred_win_prob, "p15": row.p15,
+        "result": 1 if draft.result == "win" else 0,
+        "parts": {"draft": _pp100(row.draft), "early": _pp100(row.early), "conversion": _pp100(row.conversion)},
+        "verdict": row.verdict, "contributors": json.loads(row.contributors_json) if row.contributors_json else [],
+        "chips": [roles[r] for r in CHIPS if r in roles],
+        "detail": json.loads(row.detail_json) if row.detail_json else None,
+    }
 
 
 def history_filters(rows: list[dict]) -> dict:
@@ -320,6 +362,7 @@ def recap(db: Engine, engine: DraftEngine, catalog: ChampionCatalog, draft_id: i
             for a, step in zip(actions, steps)]
     played = draft.played_at if isinstance(draft.played_at, datetime) else datetime.fromisoformat(str(draft.played_at))
     return {
+        "execution": execution_payload(db, draft),
         "plan": _plan_detail(draft, actions, card),
         "draft_id": draft.draft_id,
         "header": {"result": draft.result, "queue": queue_label(draft), "patch": draft.patch,
