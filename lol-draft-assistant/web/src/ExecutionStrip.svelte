@@ -12,7 +12,11 @@
     dragons: ['Dragons by 15 (us − them)', 'lead1'], grubs: ['Grubs by 15 (us − them)', 'lead1'],
     towers: ['Towers by 15 (us − them)', 'lead1'], plates: ['Plates by 15 (us − them)', 'lead1'],
   };
-  const signedNum = (x, digits) => `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(x).toFixed(digits)}`;
+  // Rounded first, so a value that shows as zero has no sign (never "−0.0")
+  function signedNum(x, digits) {
+    const shown = Math.abs(x).toFixed(digits);
+    return `${Number(shown) === 0 ? '' : x > 0 ? '+' : '−'}${shown}`;
+  }
   function value(stat, x) {
     const kind = STATS[stat]?.[1];
     if (kind === 'lead') return signedNum(x, 0);
@@ -20,6 +24,10 @@
     if (kind === 'pct') return `${Math.round(x * 100)}%`;
     return x.toFixed(1);
   }
+  // The SD in the stat's own unit: a percentage stat's spread is a percentage too
+  const spread = (stat, sd) => (STATS[stat]?.[1] === 'pct' ? `${Math.round(sd * 100)}%` : sd.toFixed(1));
+  // Whether the label is good or bad for us. z stays raw (for deaths a positive z is bad), so the colour says which way it went
+  const fav = (label) => (label.endsWith('ahead') ? 'good' : label.endsWith('behind') ? 'bad' : '');
   const pp = (x, digits = 0) => `${signedNum(x, digits)}pp`;
   const pct = (p) => `${Math.round(p * 100)}%`;
   const tone = (x) => (x >= 1 ? 'up' : x <= -1 ? 'down' : 'flat');
@@ -103,14 +111,14 @@
               {#if !c.stats.some((s) => s.stat === c.headline.stat)}
                 <tr class="basis">
                   <td>{STATS[c.headline.stat][0]} (what the label reads)</td><td class="n">{value(c.headline.stat, c.headline.actual)}</td>
-                  <td class="n">{value(c.headline.stat, c.headline.expected)}</td><td class="n">{c.headline.sd.toFixed(1)}</td>
-                  <td class="n">{signedNum(c.headline.z, 1)}</td><td>{c.headline.label}</td>
+                  <td class="n">{value(c.headline.stat, c.headline.expected)}</td><td class="n">{spread(c.headline.stat, c.headline.sd)}</td>
+                  <td class="n {fav(c.headline.label)}">{signedNum(c.headline.z, 1)}</td><td class={fav(c.headline.label)}>{c.headline.label}</td>
                 </tr>
               {/if}
               {#each c.stats as s}
                 <tr>
                   <td>{STATS[s.stat][0]}</td><td class="n">{value(s.stat, s.actual)}</td><td class="n">{value(s.stat, s.expected)}</td>
-                  <td class="n">{s.sd.toFixed(1)}</td><td class="n">{signedNum(s.z, 1)}</td><td>{s.label}</td>
+                  <td class="n">{spread(s.stat, s.sd)}</td><td class="n {fav(s.label)}">{signedNum(s.z, 1)}</td><td class={fav(s.label)}>{s.label}</td>
                 </tr>
               {/each}
             {/each}
@@ -173,6 +181,8 @@
   .group td { padding-top: 8px; font-weight: 700; }
   .group span { font-weight: 400; color: #8b96a3; }
   .basis td { color: #8b96a3; }
+  td.good { color: #1baf7a; }
+  td.bad { color: #c98500; }
   @media (max-width: 1100px) {
     .tables { grid-template-columns: 1fr; }
     .step, .scale { grid-template-columns: 76px minmax(0, 1fr) 48px; }

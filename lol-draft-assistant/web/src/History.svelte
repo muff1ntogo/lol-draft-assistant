@@ -92,8 +92,12 @@
           <span class="meta">
             <span>{pct(g.pred_win_prob)} predicted</span>
             <span class="muted">{g.queue} · <span class="side {g.side}">{g.side}</span> · {patchLabel(g.patch) ?? '—'} · {day(g.played_at)}</span>
-            {#if g.plan}<span class="plan {g.plan.followed}" title="Plan picks made: {g.plan.picked} of {g.plan.total}">plan {g.plan.followed === 'yes' ? 'followed' : g.plan.followed === 'partly' ? 'partly followed' : 'not followed'}</span>{/if}
-            {#if g.verdict}<span class="vchip">{g.verdict}</span>{/if}
+            {#if g.plan || g.verdict}
+              <span class="tags">
+                {#if g.plan}<span class="plan {g.plan.followed}" title="Plan picks made: {g.plan.picked} of {g.plan.total}">plan {g.plan.followed === 'yes' ? 'followed' : g.plan.followed === 'partly' ? 'partly followed' : 'not followed'}</span>{/if}
+                {#if g.verdict}<span class="vchip">{g.verdict}</span>{/if}
+              </span>
+            {/if}
           </span>
         </button>
       {/each}
@@ -264,7 +268,7 @@
   /* list */
   .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
   select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px; font: inherit; font-size: 13px; }
-  .row { width: 100%; display: grid; grid-template-columns: 64px 1fr; grid-template-rows: auto auto; gap: 4px 10px; align-items: center;
+  .row { width: 100%; display: grid; grid-template-columns: 56px minmax(0, 1fr); grid-template-rows: auto auto; gap: 4px 10px; align-items: center;
          background: var(--panel); border: 1px solid transparent; border-radius: 8px; padding: 8px 10px; margin-bottom: 6px;
          color: var(--text); font: inherit; text-align: left; cursor: pointer; }
   .row.active { border-color: #e3b341; }
@@ -273,10 +277,12 @@
   .chip.win { color: #1baf7a; }
   .chip.loss { color: #e5737d; }
   .chip.remake, .chip.unknown { color: #8b96a3; }
-  .teams { display: flex; align-items: center; gap: 6px; }
+  .teams { display: flex; align-items: center; gap: 4px; }
   .five { display: inline-flex; gap: 2px; }
   .vs { font-size: 11px; color: #8b96a3; }
   .meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; font-size: 12px; }
+  /* Plan and verdict on their own line, so rows with and without them line up */
+  .tags { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; }
   .side { text-transform: uppercase; font-weight: 700; }
   .side.blue { color: #5b9be0; }
   .side.red { color: #e5737d; }
