@@ -21,6 +21,10 @@ Personal, local pick/ban assistant for one 5-stack on EUW. Read `docs/SPEC.md` b
 - After changing the UI: `cd web; npm run build`. After changing Python: restart the app (stats refresh live, code doesn't).
 
 ### Commands
+Each job is also a subcommand of the app (`draftassist crawl --hours 8`, or `DraftAssistant.exe crawl --hours 8` when installed): crawl, fit, learn, split, postgame, ddragon, opgg, coverage, backfill, pools (`src/draftassist/commands.py`).
+
+**Where files live.** A source checkout keeps everything in itself, as below. The installed app (PyInstaller, `config.is_frozen()`) reads its bundled files from the bundle (`config.RESOURCE_ROOT`: `web/dist`, `data/archetype_matchups.yaml`, sample fixtures) and writes to `%LOCALAPPDATA%\DraftAssistant` (`config.DATA_ROOT`: the databases, `cache/`, `.env`, recordings, and the tags and rules YAML, seeded from the bundle on first run and never overwritten). `DRAFTASSIST_HOME` overrides the data folder. `draftassist import-data <checkout>` copies a checkout's databases, `.env` and edited YAML into it (`--with-cache` for `cache/`).
+
 | What | Command |
 | --- | --- |
 | Champion names/icons (each patch) | `uv run python -m draftassist.data.ddragon` |

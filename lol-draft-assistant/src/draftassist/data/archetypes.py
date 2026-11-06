@@ -13,10 +13,10 @@ from pathlib import Path
 
 import yaml
 
-from draftassist.config import PROJECT_ROOT
+from draftassist.config import RESOURCE_ROOT
 from draftassist.engine.traits import UNREVIEWED_WEIGHT
 
-PRIORS_FILE = PROJECT_ROOT / "data" / "archetype_matchups.yaml"
+PRIORS_FILE = RESOURCE_ROOT / "data" / "archetype_matchups.yaml"  # read only: ships with the app
 DEFAULT_PRIOR_PP = 0.5
 TARGETS = {"lane": ("lane",), "game": ("game",), "both": ("lane", "game")}
 

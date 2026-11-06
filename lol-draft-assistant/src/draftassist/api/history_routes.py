@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from draftassist.api.deps import db_of
 from draftassist.api.recap import history_filters, history_rows, recap
-from draftassist.config import PROJECT_ROOT
+from draftassist.config import DATA_ROOT
 from draftassist.data import ddragon
 from draftassist.learning.report import draft_report
 
@@ -51,7 +51,7 @@ def get_art(request: Request, version: str, kind: str, key: str):
             or kind not in ("square", "loading"):
         raise HTTPException(404)
     svc: Services = request.app.state.services
-    cache_dir = svc.settings.cache_dir if svc.settings else PROJECT_ROOT / "cache"
+    cache_dir = svc.settings.cache_dir if svc.settings else DATA_ROOT / "cache"
     ext = "png" if kind == "square" else "jpg"
     path = cache_dir / "ddragon" / "art" / version / kind / f"{key}.{ext}"
     if not path.is_file():

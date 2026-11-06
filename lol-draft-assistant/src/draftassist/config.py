@@ -6,10 +6,58 @@ logs or tracebacks.
 from __future__ import annotations
 
 import os
+import shutil
+import sys
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]  # the source checkout
+APP_FOLDER = "DraftAssistant"
+# Bundled files the app also writes (Tags and Rules pages): the user's copy lives in the data folder, seeded from the bundle
+USER_FILES = ("data/champion_tags.yaml", "data/style_rules.yaml", "data/team_rules.yaml")
+
+
+def is_frozen() -> bool:
+    """True when running from the installed app (PyInstaller), not a source checkout."""
+    return bool(getattr(sys, "frozen", False))
+
+
+def resource_root(frozen: bool | None = None) -> Path:
+    """Read-only files shipped with the app: web/dist, the bundled YAML, sample fixtures."""
+    frozen = is_frozen() if frozen is None else frozen
+    return Path(getattr(sys, "_MEIPASS", PROJECT_ROOT)) if frozen else PROJECT_ROOT
+
+
+def data_root(frozen: bool | None = None, env: Mapping[str, str] | None = None) -> Path:
+    """Where the app writes: the database, cache/, .env, recordings and the user's YAML. DRAFTASSIST_HOME wins; the installed
+    app uses %LOCALAPPDATA%\\DraftAssistant (Program Files isn't writable); a source checkout keeps everything in itself."""
+    env = os.environ if env is None else env
+    frozen = is_frozen() if frozen is None else frozen
+    if env.get("DRAFTASSIST_HOME"):
+        return Path(env["DRAFTASSIST_HOME"])
+    if frozen:
+        base = env.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        return Path(base) / APP_FOLDER
+    return PROJECT_ROOT
+
+
+RESOURCE_ROOT = resource_root()
+DATA_ROOT = data_root()
+
+
+def ensure_user_files(data: Path | None = None, resources: Path | None = None) -> list[Path]:
+    """Copy the bundled YAML into the data folder where it's missing (first run of the installed app). Never overwrites:
+    the user's edits win over a newer bundled copy. Returns what was copied."""
+    data, resources = data or DATA_ROOT, resources or RESOURCE_ROOT
+    copied = []
+    for rel in USER_FILES:
+        src, dst = resources / rel, data / rel
+        if src.is_file() and not dst.exists() and src.resolve() != dst.resolve():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            copied.append(dst)
+    return copied
 
 
 def parse_env_file(path: Path) -> dict[str, str]:
@@ -35,8 +83,8 @@ def parse_env_file(path: Path) -> dict[str, str]:
 @dataclass(frozen=True)
 class Settings:
     riot_api_key: str = field(default="", repr=False)
-    db_path: Path = PROJECT_ROOT / "data" / "draftassist.sqlite"
-    cache_dir: Path = PROJECT_ROOT / "cache"
+    db_path: Path = DATA_ROOT / "data" / "draftassist.sqlite"
+    cache_dir: Path = DATA_ROOT / "cache"
     ddragon_locale: str = "en_US"
     draft_format: str = "auto"  # auto | tournament | ranked
     lcu_mode: str = "client"  # client (real League client) | demo (simulated draft) | replay | off
@@ -52,7 +100,7 @@ class Settings:
 
 def load_settings(env_file: Path | None = None) -> Settings:
     """Real environment variables win over values from the `.env` file."""
-    file_values = parse_env_file(env_file if env_file is not None else PROJECT_ROOT / ".env")
+    file_values = parse_env_file(env_file if env_file is not None else DATA_ROOT / ".env")
 
     def get(name: str) -> str | None:
         return os.environ.get(name) or file_values.get(name) or None

@@ -8,12 +8,13 @@ from pathlib import Path
 
 import yaml
 
-from draftassist.config import PROJECT_ROOT
+from draftassist.config import DATA_ROOT
 from draftassist.engine.style import PAIRS, StyleRule, parse_style_rules
 from draftassist.engine.team import TeamRule, parse_team_rules
 
-STYLE_RULES_FILE = PROJECT_ROOT / "data" / "style_rules.yaml"
-TEAM_RULES_FILE = PROJECT_ROOT / "data" / "team_rules.yaml"
+# The Rules page writes these, so they live in the data folder (config.USER_FILES seeds them from the bundle)
+STYLE_RULES_FILE = DATA_ROOT / "data" / "style_rules.yaml"
+TEAM_RULES_FILE = DATA_ROOT / "data" / "team_rules.yaml"
 
 STYLE_HEADER = """\
 # Pair style rules for the core in-lane pairs (docs/synergy-v2.md, Stage 2a).

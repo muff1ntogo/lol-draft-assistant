@@ -28,7 +28,7 @@ from draftassist.api.live import LiveHub, LiveService
 from draftassist.api.pool_routes import router as pool_router
 from draftassist.api.settings_routes import router as settings_router
 from draftassist.api.synergy_routes import router as synergy_router
-from draftassist.config import PROJECT_ROOT, Settings, load_settings
+from draftassist.config import DATA_ROOT, RESOURCE_ROOT, Settings, ensure_user_files, load_settings
 from draftassist.data import ddragon
 from draftassist.data.pools import (
     PlayerDirectoryDb,
@@ -56,8 +56,8 @@ from draftassist.lcu.recorder import SessionRecorder
 from draftassist.learning.jobs import LearningResult, run_in_background
 
 log = logging.getLogger(__name__)
-WEB_DIST = PROJECT_ROOT / "web" / "dist"
-RECORDINGS = PROJECT_ROOT / "fixtures" / "lcu" / "recorded"
+WEB_DIST = RESOURCE_ROOT / "web" / "dist"
+RECORDINGS = DATA_ROOT / "fixtures" / "lcu" / "recorded"  # real names and PUUIDs: never committed (CLAUDE.md)
 DEMO_GAME_ID_BASE = 9_000_000_000  # demo games get ids far from real EUW game ids
 
 
@@ -243,6 +243,7 @@ def with_synergy_v2(db: Engine, inputs, style_path: Path = STYLE_RULES_FILE, tea
 
 
 def build_services(settings: Settings) -> Services:
+    ensure_user_files()  # first run of the installed app: the tags and rules YAML into the data folder
     db = init_db(settings.db_path)
     if settings.has_riot_api_key:
         from draftassist.data.riot import sync_api_key
@@ -384,7 +385,7 @@ def start_live_feed(svc: Services) -> asyncio.Task | None:
     elif svc.lcu_mode == "demo":
         return asyncio.create_task(run_demo(svc.live))
     elif svc.lcu_mode == "replay" and svc.settings is not None:
-        folder = Path(svc.settings.replay_dir or PROJECT_ROOT / "fixtures" / "lcu" / "flex-ranked-sample")
+        folder = Path(svc.settings.replay_dir or RESOURCE_ROOT / "fixtures" / "lcu" / "flex-ranked-sample")
         return asyncio.create_task(run_replay(svc.live, folder))
     return None
 

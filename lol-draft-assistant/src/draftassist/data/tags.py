@@ -21,13 +21,13 @@ import yaml
 from sqlalchemy import Engine
 from sqlmodel import Session, delete, select
 
-from draftassist.config import PROJECT_ROOT
+from draftassist.config import DATA_ROOT
 from draftassist.data.archetypes import Archetype, validate_archetypes
 from draftassist.db.models import Champion, ChampionTag
 from draftassist.engine.model import ROLES
 from draftassist.engine.traits import KIT_TAGS, TAG_MAX, TAGS, KitEntry, TagEntry
 
-TAGS_FILE = PROJECT_ROOT / "data" / "champion_tags.yaml"
+TAGS_FILE = DATA_ROOT / "data" / "champion_tags.yaml"  # the Tags page writes it (config.USER_FILES seeds it from the bundle)
 HEADER = """\
 # Judgement traits per champion and role, 0-3 (docs/synergy-v2.md, Stage 1b). Missing tags are 0.
 # reviewed: false = drafted by Claude, not checked yet: counts at half weight in every model.

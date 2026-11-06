@@ -23,7 +23,7 @@ from pathlib import Path
 
 import httpx
 
-from draftassist.config import PROJECT_ROOT
+from draftassist.config import DATA_ROOT, RESOURCE_ROOT
 
 HOST = "127.0.0.1"
 TITLE = "Draft Assistant"
@@ -93,7 +93,13 @@ def make_server(port: int):
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Start the Draft Assistant and open it in its own window")
+    from draftassist import commands
+
+    argv = sys.argv[1:] if argv is None else argv
+    if commands.is_command(argv):  # a batch job, e.g. `draftassist crawl --hours 8`
+        return commands.run(argv)
+    parser = argparse.ArgumentParser(description="Start the Draft Assistant and open it in its own window",
+                                     epilog=commands.usage(), formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--demo", action="store_true", help="simulated drafts instead of the League client")
     parser.add_argument("--browser", action="store_true", help="open the default browser instead of the app window")
@@ -101,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--replay", metavar="FOLDER", help="replay a recorded champ select instead of the client")
     args = parser.parse_args(argv)
     url = app_url(args.port)
-    log_to_file_if_windowless(PROJECT_ROOT / "cache")
+    log_to_file_if_windowless(DATA_ROOT / "cache")
 
     if is_running(args.port):
         print(f"Draft Assistant is already running at {url}")
@@ -111,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
             webbrowser.open(url)
         return 0
 
-    if not (PROJECT_ROOT / "web" / "dist" / "index.html").is_file():
+    if not (RESOURCE_ROOT / "web" / "dist" / "index.html").is_file():
         print("Note: the web UI isn't built yet. In the web folder run: npm install && npm run build")
     if args.demo:
         os.environ["DRAFTASSIST_LCU"] = "demo"
