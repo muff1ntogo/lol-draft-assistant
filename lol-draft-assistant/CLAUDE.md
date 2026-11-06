@@ -17,7 +17,7 @@ Personal, local pick/ban assistant for one 5-stack on EUW. Read `docs/SPEC.md` b
 ## Environment
 - Windows (the League client only runs there). Python 3.12 managed with `uv`; web UI is Vite + Svelte 5 in `web/` (FastAPI serves `web/dist`).
 - Run tests: `uv run pytest` (~1,250 tests, ~180 s; the fuzz test and the planted-data fits are the slow part). Tests run with `DRAFTASSIST_STRICT=1`, so suggestion guard violations raise.
-- Run the app: double-click **Draft Assistant** on the Desktop (`.venv\Scripts\draftassist.exe`: starts the server, opens http://localhost:8000). Dev: `uv run uvicorn draftassist.api.main:app --reload`.
+- Run the app: double-click **Draft Assistant** on the Desktop. `.venv\Scripts\draftassist-app.exe` starts the server and opens the app in its own window (pywebview on Edge WebView2), with no console; closing the window stops it, and output goes to `cache/launcher.log`. `draftassist.exe` is the same with a console; `--browser` opens the default browser instead (also the automatic fallback without WebView2). Dev: `uv run uvicorn draftassist.api.main:app --reload`.
 - After changing the UI: `cd web; npm run build`. After changing Python: restart the app (stats refresh live, code doesn't).
 
 ### Commands

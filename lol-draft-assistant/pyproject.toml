@@ -9,6 +9,7 @@ dependencies = [
     "httpx>=0.28.1",
     "lcu-driver>=3.0.2",
     "numpy>=2.5.4",
+    "pywebview>=6.2.1",
     "pyyaml>=6.0.3",
     "sqlmodel>=0.0.48",
     "uvicorn[standard]>=0.54.0",
@@ -16,6 +17,9 @@ dependencies = [
 
 [project.scripts]
 draftassist = "draftassist.launcher:main"
+
+[project.gui-scripts]
+draftassist-app = "draftassist.launcher:main"  # same launcher, no console window (output goes to cache/launcher.log)
 
 [build-system]
 requires = ["uv_build>=0.11,<0.12"]
