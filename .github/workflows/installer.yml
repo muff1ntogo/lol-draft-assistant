@@ -1,0 +1,46 @@
+# Builds the Windows installer (lol-draft-assistant/packaging/build-installer.ps1) and keeps it as a downloadable artifact.
+# Runs when the packaging changes, on a v* tag, or by hand (Actions tab > Windows installer > Run workflow).
+name: Windows installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    tags: ["v*"]  # path filters don't apply to tags: every v* tag builds
+    paths:
+      - "lol-draft-assistant/packaging/**"
+      - ".github/workflows/installer.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: lol-draft-assistant
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: lol-draft-assistant/web/package-lock.json
+      - name: Inno Setup
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: Build
+        run: ./packaging/build-installer.ps1
+      - name: Check the bundle has no private files
+        run: |
+          $bad = Get-ChildItem dist/DraftAssistant -Recurse -Include *.sqlite, *.sqlite-wal, .env, *-session.json -File |
+                 Where-Object { $_.FullName -notmatch 'flex-ranked-sample' }
+          if ($bad) { $bad.FullName; throw "private files in the bundle" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DraftAssistant-Setup
+          path: lol-draft-assistant/packaging/Output/*.exe
+          if-no-files-found: error

@@ -16,3 +16,8 @@ fixtures/lcu/recorded/
 
 # Visual review screenshots can show real player names: kept local
 tests/screenshots/
+
+# PyInstaller and Inno Setup output (packaging/README.md)
+build/
+dist/
+packaging/Output/
