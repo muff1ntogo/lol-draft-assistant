@@ -42,8 +42,6 @@
     }
     return out;
   });
-  const left = (s) => 100 * Math.min(s.from, s.to);
-  const width = (s) => 100 * Math.abs(s.to - s.from);
 
   const rows = $derived(e.chips.flatMap((c) => [c, ...c.players]));
   const after = [['Deaths while ahead', 'deaths_while_ahead'], ['Barons', 'barons'], ['Dragons after 15', 'dragons_after_15'], ['Towers after 15', 'towers_after_15']];
@@ -55,30 +53,22 @@
     <p class="verdict"><strong>{e.verdict}</strong>{#if e.contributors.length}: {e.contributors.join(', ')}{/if}</p>
   {/if}
 
-  <div class="fall">
+  <!-- One tile per part, as on the Team page: the signed number first, the chance it moved from and to underneath -->
+  <div class="parts">
     {#each steps as s}
-      <div class="step" title={s.hint}>
+      <div class="part {tone(s.part)}" title={s.hint}>
         <span class="name">{s.name}</span>
-        <span class="track">
-          <span class="axis"></span>
-          <span class="seg {tone(s.part)}" style="left:{left(s)}%;width:max({width(s)}%, 2px)"></span>
-        </span>
-        <span class="num">{pp(s.part)}</span>
+        <b>{pp(s.part)}</b>
         <span class="range">{pct(s.from)} → {pct(s.to)}</span>
       </div>
     {/each}
     {#if e.available}
-      <div class="step">
+      <div class="part result">
         <span class="name">Result</span>
-        <span class="track">
-          <span class="axis"></span>
-          <span class="dot" style="left:{100 * e.result}%"></span>
-        </span>
-        <span class="num">{e.result ? 'Won' : 'Lost'}</span>
-        <span class="range"></span>
+        <b>{e.result ? 'Won' : 'Lost'}</b>
+        <span class="range">the parts add up to {e.result ? '+50' : '−50'}pp</span>
       </div>
     {/if}
-    <div class="scale" aria-hidden="true"><span></span><span class="ticks"><i>0%</i><i>50%</i><i>100%</i></span></div>
   </div>
 
   {#if e.available}
@@ -148,20 +138,14 @@
   h3 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: #8b96a3; font-weight: 600; }
   .verdict { margin: 0; font-size: 16px; color: #c9d1d9; }
   .verdict strong { color: var(--text); }
-  .fall { display: grid; gap: 4px; }
-  .step, .scale { display: grid; grid-template-columns: 92px minmax(0, 1fr) 56px 92px; gap: 10px; align-items: center; }
+  .parts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .part { background: var(--panel-2, #1f2630); border-left: 4px solid #8b96a3; border-radius: 4px; padding: 6px 10px; display: grid; gap: 1px; }
+  .part.up { border-left-color: #1baf7a; }
+  .part.down { border-left-color: #c98500; }
+  .part.result { border-left-color: var(--text); }
+  .part b { font-size: 18px; font-variant-numeric: tabular-nums; }
   .name { font-size: 13px; color: #c9d1d9; }
-  .track { position: relative; height: 14px; background: #1f2630; border-radius: 3px; }
-  .axis { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: #8b96a3; }
-  .seg { position: absolute; top: 2px; bottom: 2px; border-radius: 4px; }
-  .seg.up { background: #1baf7a; }
-  .seg.down { background: #c98500; }
-  .seg.flat { background: #8b96a3; }
-  .dot { position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 50%; background: var(--text); border: 2px solid var(--panel); transform: translate(-50%, -50%); }
-  .num { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
   .range { font-size: 12px; color: #8b96a3; font-variant-numeric: tabular-nums; }
-  .ticks { display: flex; justify-content: space-between; font-size: 11px; color: #8b96a3; }
-  .ticks i { font-style: normal; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; }
   .chip { display: grid; gap: 1px; min-width: 104px; padding: 6px 10px; background: var(--panel-2, #1f2630); border: 0; border-left: 4px solid #8b96a3;
           border-radius: 4px; color: var(--text); font: inherit; font-size: 13px; text-align: left; }
@@ -185,7 +169,5 @@
   td.bad { color: #c98500; }
   @media (max-width: 1100px) {
     .tables { grid-template-columns: 1fr; }
-    .step, .scale { grid-template-columns: 76px minmax(0, 1fr) 48px; }
-    .range { display: none; }
   }
 </style>

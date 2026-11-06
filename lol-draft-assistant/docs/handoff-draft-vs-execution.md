@@ -9,7 +9,7 @@ The cloud session's work is on branch `claude/eager-ramanujan-5zh36v`, which con
 | Work | State |
 | --- | --- |
 | Stages 1–3 | Built, tested, run on real data (earlier sessions) |
-| Stage 4: the History strip | Built; looked at in a browser at 1920×1080 and 1000 px on synthetic rows; four fixes after the user's review (decision 28) |
+| Stage 4: the History strip | Built; looked at in a browser at 1920×1080 and 1000 px on synthetic rows; four fixes after the user's review (decision 28); the bars became number tiles (decision 34) |
 | Stage 5: trends on the Team page | Built and tested; looked at in a browser on 16 synthetic games |
 | Live shows calibrated P(win) | Built and tested; looked at in demo mode with a hand-made fit row |
 | Stage 6: execution-aware comfort | Not built (decision 33) |
