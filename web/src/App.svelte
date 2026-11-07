@@ -2,6 +2,7 @@
   import Live from './Live.svelte';
   import Pools from './Pools.svelte';
   import History from './History.svelte';
+  import Crawl from './Crawl.svelte';
   import Prep from './Prep.svelte';
   import Settings from './Settings.svelte';
   import Team from './Team.svelte';
@@ -11,7 +12,7 @@
   import ScoutBox from './ScoutBox.svelte';
   import AppStatus from './AppStatus.svelte';
 
-  const PAGES = { live: 'Live', prep: 'Prep', pools: 'Pools', champions: 'Champions', history: 'History', team: 'Team', settings: 'Settings' };
+  const PAGES = { live: 'Live', prep: 'Prep', pools: 'Pools', champions: 'Champions', history: 'History', team: 'Team', crawl: 'Crawl', settings: 'Settings' };
   const HIDDEN = { tags: 'Tags', rules: 'Rules' }; // the Champions tab opens the Tags page (fight style + tags) // reached from the Prep page's header, not the nav
   const pageFromHash = () => {
     const key = location.hash.slice(2);
@@ -77,6 +78,8 @@
   <Settings />
 {:else if page === 'team'}
   <Team />
+{:else if page === 'crawl'}
+  <Crawl />
 {:else if page === 'history'}
   <History />
 {:else if view.status === 'champ_select'}

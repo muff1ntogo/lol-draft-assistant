@@ -30,6 +30,8 @@ moves the tracked files, but the local ones stay in the old subfolder: `.env`, `
 - After changing the UI: `cd web; npm run build`. After changing Python: restart the app (stats refresh live, code doesn't).
 
 ### Commands
+The **Crawl page** (`#/crawl`, `jobs.py`, `api/jobs_routes.py`) runs the crawl and the other jobs from the app: one at a time, each as its own process with no console (output in `cache/jobs/`), so a crawl keeps going if the app closes and is found again when it reopens (`cache/jobs/running.json`). It shows matches per tier for the current patch. Updates wait until a job ends.
+
 Each job is also a subcommand of the app (`draftassist crawl --hours 8`, or `draftassist-cli crawl --hours 8` when installed): crawl, fit, learn, split, postgame, ddragon, opgg, coverage, backfill, pools, scout-check (`src/draftassist/commands.py`). `scout-check` reports which enemy identity fields the recorded champ selects carry, per queue (`docs/enemy-scouting.md`).
 
 **Where files live.** A source checkout keeps everything in itself, as below. The installed app (PyInstaller, `config.is_frozen()`) reads its bundled files from the bundle (`config.RESOURCE_ROOT`: `web/dist`, `data/archetype_matchups.yaml`, sample fixtures) and writes to `%LOCALAPPDATA%\DraftAssistant` (`config.DATA_ROOT`: the databases, `cache/`, `.env`, recordings, and the tags and rules YAML, seeded from the bundle on first run and never overwritten). `DRAFTASSIST_HOME` overrides the data folder. `draftassist import-data <checkout>` copies a checkout's databases, `.env` and edited YAML into it (`--with-cache` for `cache/`).

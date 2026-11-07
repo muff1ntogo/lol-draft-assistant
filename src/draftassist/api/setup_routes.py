@@ -47,6 +47,8 @@ def post_update_install(request: Request) -> dict:
     svc: Services = request.app.state.services
     if svc.in_draft() or svc.live.gameflow_phase in IN_GAME:
         raise HTTPException(409, "in a draft or a game: update after it")
+    if (job := svc.jobs().running()) is not None:  # the installer would close it
+        raise HTTPException(409, f"{job['label']} is running: stop it on the Crawl page first, or update after it")
     try:
         return svc.updater().install()
     except ValueError as e:

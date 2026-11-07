@@ -28,6 +28,7 @@ from draftassist.api.live import LiveHub, LiveService
 from draftassist.api.pool_routes import router as pool_router
 from draftassist.api.settings_routes import router as settings_router
 from draftassist.api.scout_routes import router as scout_router
+from draftassist.api.jobs_routes import router as jobs_router
 from draftassist.api.setup_routes import router as setup_router
 from draftassist.api.synergy_routes import router as synergy_router
 from draftassist.config import DATA_ROOT, RESOURCE_ROOT, Settings, ensure_user_files, load_settings
@@ -156,6 +157,25 @@ class Services:
 
             self._updater = Updater()
         return self._updater
+
+    job_runner_override: object | None = None  # tests: a JobRunner with a fake process
+    _job_runner: object | None = None
+
+    def jobs(self):
+        """The Crawl page's jobs, one at a time, each its own process (jobs.py). A finished job reloads the stats."""
+        if self.job_runner_override is not None:
+            return self.job_runner_override
+        if self._job_runner is None:
+            from draftassist.config import DATA_ROOT
+            from draftassist.jobs import JobRunner
+
+            def done(job: str) -> None:
+                self.refresh_stats()
+
+            self._job_runner = JobRunner(DATA_ROOT / "cache" / "jobs",
+                                         has_key=lambda: bool(self.settings and self.settings.has_riot_api_key),
+                                         on_done=done)
+        return self._job_runner
 
     def start_bootstrap(self, run_job=None) -> bool:
         """A fresh install: fetch the champions and OP.GG's starting stats in the background, then reload. False if
@@ -548,7 +568,7 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         await ws.app.state.services.hub.serve(ws)
 
     for router in (pool_router, settings_router, synergy_router, learning_router, history_router, scout_router,
-                   setup_router):
+                   setup_router, jobs_router):
         app.include_router(router)
 
     if (web_dist / "index.html").is_file():
