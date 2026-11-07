@@ -10,6 +10,7 @@ import contextlib
 import itertools
 import logging
 import random
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -82,6 +83,7 @@ class Services:
 
     scout_manual: list = field(default_factory=list)  # opponents' Riot IDs pasted on Live, for the current game
     scout_asked: set = field(default_factory=set)  # Riot IDs (lower case) already asked for in this game
+    scout_retried: set = field(default_factory=set)  # ... and asked for again after their fetch failed (once a game)
 
     def __post_init__(self) -> None:
         if self.db is not None:
@@ -108,11 +110,19 @@ class Services:
         return self._scout_runner
 
     def opponents(self, live=None) -> tuple[list[str], dict[str, str | None], str | None]:
-        """Who we face: the client's Riot IDs when it gives them (with their positions), else the ones pasted on Live."""
+        """Who we face: the client's Riot IDs when it gives them (with their positions), else the ones pasted on Live.
+        When the client names only some of them, pasted IDs it doesn't name fill the rest (Stage E)."""
         current = live if live is not None else self.live.current
         if current is not None:
             given = {s.riot_id: s.role for s in current.their_slots if s.riot_id}
             if given:
+                known = {rid.lower() for rid in given}
+                for rid in self.scout_manual:
+                    if len(given) >= 5:
+                        break
+                    if rid.lower() not in known:
+                        given[rid] = None
+                        known.add(rid.lower())
                 return list(given), given, "client"
         if self.scout_manual:
             return list(self.scout_manual), dict.fromkeys(self.scout_manual), "manual"
@@ -120,7 +130,13 @@ class Services:
 
     def scout_info(self, live=None):
         """(EnemyScouting | None, what Live shows): asks for any opponent not fetched yet. Off in Settings: nothing."""
-        from draftassist.data.scout import assign_roles, build_scouting, load_pools, scout_summary
+        from draftassist.data.scout import (
+            ERROR_RETRY_S,
+            assign_roles,
+            build_scouting,
+            load_pools,
+            scout_summary,
+        )
         from draftassist.data.settings_store import get_engine_settings
 
         if self.lcu_mode == "demo":  # the demo's enemy names are made up: they could be someone real's
@@ -135,8 +151,15 @@ class Services:
             self.scout_asked.update(rid.lower() for rid in new)
             runner.enqueue(new)
         pools = load_pools(self.db, ids)
-        roles = assign_roles(pools, given)
-        scouting = build_scouting(pools, given, settings["scout_weight"])
+        if runner.available and runner.last_error is None:  # a fetch that failed (not a bad key): once more, later
+            retry = [rid for rid, p in pools.items() if p.status == "error" and rid.lower() not in self.scout_retried
+                     and time.time() - p.fetched_at >= ERROR_RETRY_S]
+            if retry:
+                self.scout_retried.update(rid.lower() for rid in retry)
+                runner.enqueue(retry)
+        shares = self.engine.role_share_map
+        roles = assign_roles(pools, given, shares)
+        scouting = build_scouting(pools, given, settings["scout_weight"], shares)
         info = {"source": source, "available": runner.available, "running": runner.running, "error": runner.last_error,
                 "players": scout_summary(ids, pools, roles, self.catalog.card)}
         return scouting, info
@@ -211,6 +234,7 @@ class Services:
         """The game is over: forget the opponents pasted for it, and who was asked for (the next game asks again)."""
         self.scout_manual.clear()
         self.scout_asked.clear()
+        self.scout_retried.clear()
 
     def synergy_v2(self):
         """The synergy v2 evaluator (Stat / Style / Team), warmed for our pools: the one the engine scores

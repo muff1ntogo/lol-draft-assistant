@@ -14,6 +14,7 @@ from draftassist.data.scout import (
     ScoutRunner,
     identity_report,
     load_pools,
+    mastery_age,
     parse_riot_ids,
     scout,
 )
@@ -38,7 +39,8 @@ class FakeRiot:
 
     def mastery_top(self, puuid, count=20):
         self.calls.append(("mastery", puuid))
-        return [{"championId": 200 + n, "championPoints": 1000 * (5 - n)} for n in range(3)]
+        return [{"championId": 200 + n, "championPoints": 1000 * (5 - n), "lastPlayTime": int(NOW * 1000) - n * DAY_MS}
+                for n in range(3)]
 
     def match_ids(self, puuid, queue, start_time, count=20, start=0, end_time=None):
         self.calls.append(("ids", puuid))
@@ -91,6 +93,27 @@ def test_a_pool_has_games_per_role_and_mastery(engine):
     pool = load_pools(engine, ["alpha#euw"], now=NOW)["alpha#euw"]  # Riot IDs match whatever the case
     assert pool.games == {"top": {100: (2, 2), 101: (2, 0)}}
     assert pool.mastery[0] == (200, 5000) and pool.games_read == 4 == pool.games_wanted
+    assert pool.mastery_last == {200 + n: int(NOW * 1000) - n * DAY_MS for n in range(3)}  # Stage E: recency
+    assert dict(mastery_age(pool, now=NOW)) == {200: 0.0, 201: 1.0, 202: 2.0}
+
+
+def test_mastery_stored_before_stage_e_still_loads(engine):
+    with Session(engine) as s:
+        s.add(ScoutPlayer(riot_id="Old#EUW", api_puuid="p-old", status="done", mastery_json="[[1, 500]]"))
+        s.commit()
+    pool = load_pools(engine, ["Old#EUW"])["Old#EUW"]
+    assert pool.mastery == ((1, 500),) and pool.mastery_last == {}
+
+
+def test_a_game_without_a_team_position_uses_the_individual_one(engine):
+    class NoTeamPosition(FakeRiot):
+        def match(self, match_id):
+            body = super().match(match_id)
+            body["info"]["participants"][0].update(teamPosition="", individualPosition="JUNGLE")
+            return body
+
+    scout(engine, NoTeamPosition(games=2), TEAM[:1], now=NOW)
+    assert set(load_pools(engine, TEAM[:1], now=NOW)["Alpha#EUW"].games) == {"jungle"}
 
 
 def test_a_missing_account_is_marked_and_the_rest_go_on(engine):

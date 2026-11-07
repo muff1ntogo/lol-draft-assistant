@@ -283,6 +283,11 @@ class DraftEngine:
         """The stats of the bracket our player in `role` is scored in."""
         return self._our_bracket(role)
 
+    @property
+    def role_share_map(self) -> Mapping[int, Mapping[str, float]]:
+        """P(champion is played in role) for every champion, enemy bracket (read-only; scouting's role guesses)."""
+        return self._role_shares
+
     def role_shares(self, champ: int) -> dict[str, float]:
         """P(champion is played in role) in the enemy bracket."""
         return dict(self._role_shares.get(champ, {}))
@@ -559,7 +564,8 @@ class DraftEngine:
         unavailable = state.unavailable()
         data = self.resp_data(unavailable, our_by_role, {r: c for c, r in ev.their_roles.items()})
         if state.scouting is not None:  # their players' own pools in the opponent weights (docs/enemy-scouting.md)
-            data = ScoutedLaneData(data, state.scouting, self._role_shares)
+            data = ScoutedLaneData(data, state.scouting, self._role_shares,
+                                   allowed=[c for c in self._champs if c not in unavailable])
         return {
             r: role_ban_table(
                 data, r,

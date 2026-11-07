@@ -38,6 +38,12 @@ Built in stages, tests first, each stopped for review.
 - A "Scout opponents" box (Live and Prep) to paste Riot IDs or an OP.GG multi-search when the client doesn't give them.
 - Settings: the scouting weight, and scouting on or off.
 
+## Stage E: accurate with less to go on (7 Nov 2026)
+
+Scouting is usually incomplete when it matters: the bans start before the match history is in, some players have few
+games in their role, mastery is lifetime, and Flex gives no positions. Stage E makes the partial picture count for more
+and mislead less. Decisions 13–17.
+
 ## Decisions
 
 1. **Up to 20 games per player, every ranked queue, the last 60 days (Stage A).** With the key's 100 requests per 2
@@ -73,3 +79,22 @@ Built in stages, tests first, each stopped for review.
     (certain in `role_filled_probs`) and guesses only the rest. Without positions (Flex) nothing changes.
 9. **Ban reasons name the player (Stage B):** "Their top laner (Name): 20 games, 70% · Our top's best answer is -2.8pp",
    or "mastery #1" without games. The rest of the line is the reason it had before.
+13. **Mastery is always a prior, weighted by recency (Stage E).** A player's share in a role is their games there, plus
+    their games on the same champion in other roles at 0.25 (when the meta plays it in this role), plus their mastery
+    worth 5 games, spread by sqrt(points) × 0.5^(days since they last played it / 30). Before, one game in the role
+    replaced the mastery entirely (100% on that one champion), and a main abandoned a year ago counted as much as
+    today's. sqrt tames the one-trick totals of 2M points. `lastPlayTime` is now stored with the mastery
+    (`[champ, points, last ms]`; older rows still load, undated). A top-3 mastery champion not played for 90 days is no
+    longer "in their pool" (ban split, reasons), and Live's slot shows recently played mastery first.
+14. **Their roles are guessed jointly, mastery included (Stage E).** Without the client's positions, the free roles go
+    to the most likely joint assignment (sum of log of each player's share of evidence in the role: games, plus mastery
+    worth 3 games spread by the meta's role shares), not greedily by who has most games. So a player with only
+    mastery so far gets a role, and a top/mid player doesn't push out a top-only one. A player with no evidence for any
+    free role stays unplaced.
+15. **How sure we are of the role scales the blend (Stage E).** s is multiplied by the chance they play that role (the
+    softmax marginal over every assignment); 1 when the client gives positions. A wrong guess costs less.
+16. **A banned main's share goes to the rest of their pool (Stage E).** The lane ban tables (Threat, Matchup) now
+    renormalise the player's share over the champions still available, as the enemy pick model already did.
+17. **Partial data still flows (Stage E).** A player whose fetch failed (not a bad key) is asked for once more in the
+    game, 30 s after. Pasted Riot IDs fill in for players the client doesn't name (up to five; no position). A game
+    without a `teamPosition` uses `individualPosition` for its role.

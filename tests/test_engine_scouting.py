@@ -154,3 +154,84 @@ def test_without_scouting_bans_are_unchanged(eng):
     state = DraftState(TOURNAMENT, "blue")
     assert [s.champ_id for s in eng.suggest_bans(state, k=5)] == [s.champ_id for s in eng.suggest_bans(state, k=5)]
     assert all(s.scout_role is None for s in eng.suggest_bans(state, k=5))
+
+
+# ---------- Stage E: more accurate with less to go on ----------
+from draftassist.data.scout import role_evidence  # noqa: E402
+from draftassist.engine.scouting import (  # noqa: E402
+    MASTERY_HALF_LIFE_DAYS,
+    OFF_ROLE_WEIGHT,
+    ScoutedLaneData,
+    recency,
+)
+
+
+def test_mastery_stays_a_prior_after_their_first_games():
+    p = player(games=((2, 1, 1),), mastery=((1, 400), (2, 100)))
+    share, n = p.share(ROLE_SHARES)
+    assert n == pytest.approx(1 + MASTERY_ONLY_GAMES)
+    # sqrt points: 20 vs 10 -> 2/3 and 1/3 of the 5 mastery games, plus the one game on 2
+    assert share[1] == pytest.approx(5 * 2 / 3 / 6) and share[2] == pytest.approx((1 + 5 / 3) / 6)
+
+
+def test_a_main_they_stopped_playing_fades_and_leaves_their_pool():
+    fresh = player(mastery=((1, 100), (2, 100)))
+    stale = ScoutedPlayer("Foe", "top", (), (), ((1, 100), (2, 100)), mastery_age=((1, 120.0), (2, 1.0)))
+    assert fresh.share(ROLE_SHARES)[0][1] == pytest.approx(0.5)
+    share, _ = stale.share(ROLE_SHARES)
+    assert share[1] == pytest.approx(recency(120) / (recency(120) + recency(1)))
+    assert recency(MASTERY_HALF_LIFE_DAYS) == pytest.approx(0.5)
+    assert fresh.plays(1) and not stale.plays(1) and stale.plays(2)
+
+
+def test_games_on_a_flex_champion_in_another_role_count_a_little():
+    p = ScoutedPlayer("Foe", "top", ((1, 4, 2),), ((1, 4), (2, 8), (3, 6)))  # 2 plays top 80%; 3 never top
+    share, n = p.share(ROLE_SHARES)
+    assert n == pytest.approx(4 + OFF_ROLE_WEIGHT * 8) and 3 not in share
+
+
+def test_an_unsure_role_leans_less_on_the_player():
+    meta = {1: 0.6, 2: 0.4}
+    sure = EnemyScouting((player(games=((2, 10, 6),)),)).blend("top", meta, ROLE_SHARES)
+    unsure = EnemyScouting((ScoutedPlayer("Foe", "top", ((2, 10, 6),), ((2, 10),), certainty=0.5),)).blend(
+        "top", meta, ROLE_SHARES)
+    s = SCOUT_WEIGHT * 10 / (10 + CONFIDENCE_K)
+    assert unsure[2] == pytest.approx((1 - s / 2) * 0.4 + s / 2) and unsure[2] < sure[2]
+
+
+def test_a_mastery_only_player_gets_a_role():
+    pools = {"A#1": pool("A#1", {}, [(4, 900_000), (1, 10_000)])}  # a jungle main
+    assert assign_roles(pools, {"A#1": None}) == {}  # without the meta's roles: nothing to go on
+    assert assign_roles(pools, {"A#1": None}, ROLE_SHARES) == {"A#1": "jungle"}
+    assert set(role_evidence(pools["A#1"], ROLE_SHARES)) == {"top", "jungle"}
+    scouting = build_scouting(pools, {"A#1": None}, role_shares=ROLE_SHARES)
+    assert 0.5 < scouting.player("jungle").certainty < 1  # mostly jungle; their top mastery pick says top a little
+
+
+def test_roles_are_assigned_jointly_not_greedily():
+    # A plays more but splits top/mid; B only plays top. Greedy gave A top and left B out.
+    pools = {"A#1": pool("A#1", {"top": {1: (11, 6)}, "mid": {3: (9, 4)}}), "B#1": pool("B#1", {"top": {2: (4, 2)}})}
+    assert assign_roles(pools, dict.fromkeys(pools)) == {"A#1": "mid", "B#1": "top"}
+    scouting = build_scouting(pools, dict.fromkeys(pools))
+    assert 0 < scouting.player("mid").certainty < 1
+    given = build_scouting(pools, {"A#1": "mid", "B#1": None})
+    assert given.player("mid").certainty == 1.0
+
+
+class FlatLane:
+    """A LaneBanData stand-in: two top laners at the same pick rate."""
+
+    def opponents(self, role):
+        return [1, 2]
+
+    def pick_rate(self, champ, role):
+        return 0.5
+
+
+def test_a_banned_main_hands_their_share_to_the_rest_of_their_pool():
+    scouting = EnemyScouting((player(games=((1, 10, 5), (2, 10, 5))),))
+    s = SCOUT_WEIGHT * 20 / (20 + CONFIDENCE_K)
+    assert ScoutedLaneData(FlatLane(), scouting, ROLE_SHARES).pick_rate(2, "top") == pytest.approx(
+        (1 - s) * 0.5 + s * 0.5)
+    banned = ScoutedLaneData(FlatLane(), scouting, ROLE_SHARES, allowed=[2])
+    assert banned.pick_rate(2, "top") == pytest.approx((1 - s) * 0.5 + s * 1.0)

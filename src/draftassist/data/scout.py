@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import threading
 import time
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from itertools import permutations
 from pathlib import Path
 
 from sqlalchemy import Engine, func
@@ -26,7 +28,13 @@ from draftassist.data.crawler import POSITIONS
 from draftassist.data.riot import RiotAuthError
 from draftassist.db.models import ScoutGame, ScoutPlayer
 from draftassist.engine.model import ROLES
-from draftassist.engine.scouting import SCOUT_WEIGHT, EnemyScouting, ScoutedPlayer
+from draftassist.engine.scouting import (
+    SCOUT_WEIGHT,
+    STALE_MASTERY_DAYS,
+    EnemyScouting,
+    ScoutedPlayer,
+    recency,
+)
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +42,8 @@ WINDOW_DAYS = 60
 MAX_GAMES = 20  # per player: about 2 minutes for a whole team at the key's 100 requests / 2 minutes
 MASTERY_COUNT = 20
 REFRESH_S = 6 * 3600  # a player scouted this recently isn't fetched again
+ERROR_RETRY_S = 30  # a player whose fetch failed is asked for once more in the game, this long after (Stage E)
+MASTERY_ROLE_EVIDENCE = 3.0  # what their mastery counts as, in games, when guessing their role (Stage E)
 MIN_DURATION_S = 300  # remakes don't count
 TEAM_SIZE = 5
 
@@ -66,6 +76,8 @@ class PlayerPool:
     games: dict[str, dict[int, tuple[int, int]]] = field(default_factory=dict)  # role -> champ -> (games, wins)
     mastery: tuple[tuple[int, int], ...] = ()  # (champ, points), highest first
     games_wanted: int = 0
+    mastery_last: dict[int, int] = field(default_factory=dict)  # champ -> when they last played it (epoch ms)
+    fetched_at: float = 0.0
 
     @property
     def games_read(self) -> int:
@@ -92,30 +104,105 @@ def load_pools(db: Engine, riot_ids: Iterable[str], now: float | None = None) ->
                     if g.role:
                         n, w = games.setdefault(g.role, {}).get(g.champ_id, (0, 0))
                         games[g.role][g.champ_id] = (n + 1, w + int(g.win))
-            mastery = tuple((int(c), int(pts)) for c, pts in json.loads(p.mastery_json or "[]"))
-            out[rid] = PlayerPool(p.riot_id, p.status, games, mastery, p.games_wanted)
+            rows = json.loads(p.mastery_json or "[]")  # [champ, points] or, since Stage E, [champ, points, last ms]
+            mastery = tuple((int(r[0]), int(r[1])) for r in rows)
+            last = {int(r[0]): int(r[2]) for r in rows if len(r) > 2 and r[2]}
+            out[rid] = PlayerPool(p.riot_id, p.status, games, mastery, p.games_wanted, last, p.fetched_at)
     return out
 
 
-def assign_roles(pools: Mapping[str, PlayerPool], given: Mapping[str, str | None]) -> dict[str, str]:
-    """Riot ID -> the role we take them to play: the client's position when it gives one, else their most played free
-    role (players with the most games choose first). A player with no games and no position gets none."""
+def mastery_age(pool: PlayerPool, now: float | None = None) -> tuple[tuple[int, float], ...]:
+    """(champ, days since they last played it) for the mastery champions the API dated."""
+    now_ms = (now if now is not None else time.time()) * 1000
+    return tuple((c, max(now_ms - ms, 0) / 86_400_000) for c, ms in sorted(pool.mastery_last.items()))
+
+
+def role_evidence(pool: PlayerPool, role_shares: Mapping[int, Mapping[str, float]] | None = None,
+                  now: float | None = None) -> dict[str, float]:
+    """How much points to each role: their games there, plus their mastery (sqrt points x recency) spread over the
+    roles the meta plays each champion in, worth MASTERY_ROLE_EVIDENCE games. Stage E: a player with no games yet
+    still gets a role."""
+    out = {r: float(sum(g for g, _ in pool.games.get(r, {}).values())) for r in ROLES}
+    if role_shares and pool.mastery:
+        ages = dict(mastery_age(pool, now))
+        spread = dict.fromkeys(ROLES, 0.0)
+        for c, pts in pool.mastery:
+            w = math.sqrt(max(pts, 0)) * recency(ages.get(c))
+            for r, share in role_shares.get(c, {}).items():
+                if r in spread:
+                    spread[r] += w * share
+        total = sum(spread.values())
+        if total > 0:
+            for r in ROLES:
+                out[r] += MASTERY_ROLE_EVIDENCE * spread[r] / total
+    return {r: v for r, v in out.items() if v > 0}
+
+
+_UNPLACED = math.log(1e-3)  # a player left without a role, when there are more players than roles
+
+
+def _role_guess(pools: Mapping[str, PlayerPool], given: Mapping[str, str | None],
+                role_shares: Mapping[int, Mapping[str, float]] | None,
+                now: float | None) -> tuple[dict[str, str], dict[str, float]]:
+    """(Riot ID -> role, Riot ID -> how sure). The client's positions are certain. The rest: the most likely joint
+    assignment of the free roles, scored by sum of log(their share of evidence in the role), so two players who both
+    play mostly top don't both claim it; how sure is the softmax marginal over every assignment."""
     roles = {rid: r for rid, r in given.items() if r in ROLES}
-    taken = set(roles.values())
-    rest = sorted((rid for rid in pools if rid not in roles), key=lambda rid: -pools[rid].games_read)
-    for rid in rest:
-        by_games = sorted(pools[rid].games.items(), key=lambda kv: -sum(g for g, _ in kv[1].values()))
-        role = next((r for r, _ in by_games if r not in taken), None)
-        if role is not None:
-            roles[rid] = role
-            taken.add(role)
-    return roles
+    sure = dict.fromkeys(roles, 1.0)
+    free = [r for r in ROLES if r not in roles.values()]
+    probs = {}
+    for rid, pool in pools.items():
+        if rid in roles:
+            continue
+        ev = role_evidence(pool, role_shares, now)
+        total = sum(ev.values())
+        if total > 0:
+            probs[rid] = {r: v / total for r, v in ev.items()}
+    players = sorted(probs, key=lambda rid: (-pools[rid].games_read, rid.lower()))
+    if not players or not free:
+        return roles, sure
+    slots = free + [None] * len(players)  # anyone may stay unplaced, at a cost
+    scored: dict[tuple, float] = {}
+    for perm in permutations(slots, len(players)):
+        if perm in scored:
+            continue
+        total = 0.0
+        for rid, r in zip(players, perm):
+            if r is None:
+                total += _UNPLACED
+            elif probs[rid].get(r, 0.0) > 0:
+                total += math.log(probs[rid][r])
+            else:
+                break  # no evidence at all for this role: never put them there
+        else:
+            scored[perm] = total
+    if not scored:
+        return roles, sure
+    best = max(scored, key=scored.get)  # ties: the first in permutation order, so it's deterministic
+    top = scored[best]
+    z = sum(math.exp(v - top) for v in scored.values())
+    for i, rid in enumerate(players):
+        if best[i] is None:
+            continue
+        roles[rid] = best[i]
+        sure[rid] = sum(math.exp(v - top) for perm, v in scored.items() if perm[i] == best[i]) / z
+    return roles, sure
+
+
+def assign_roles(pools: Mapping[str, PlayerPool], given: Mapping[str, str | None],
+                 role_shares: Mapping[int, Mapping[str, float]] | None = None,
+                 now: float | None = None) -> dict[str, str]:
+    """Riot ID -> the role we take them to play: the client's position when it gives one, else the most likely joint
+    assignment of the free roles from their games and (with `role_shares`) their mastery. A player with nothing to go
+    on gets none."""
+    return _role_guess(pools, given, role_shares, now)[0]
 
 
 def build_scouting(pools: Mapping[str, PlayerPool], given_roles: Mapping[str, str | None],
-                   weight: float = SCOUT_WEIGHT) -> EnemyScouting | None:
+                   weight: float = SCOUT_WEIGHT, role_shares: Mapping[int, Mapping[str, float]] | None = None,
+                   now: float | None = None) -> EnemyScouting | None:
     """What the engine reads (engine/scouting.py), or None if nobody has anything to go on yet."""
-    roles = assign_roles(pools, given_roles)
+    roles, sure = _role_guess(pools, given_roles, role_shares, now)
     players = []
     for rid, role in roles.items():
         pool = pools.get(rid)
@@ -126,7 +213,8 @@ def build_scouting(pools: Mapping[str, PlayerPool], given_roles: Mapping[str, st
             for c, (g, _) in champs.items():
                 any_role[c] = any_role.get(c, 0) + g
         games = tuple(sorted(((c, g, w) for c, (g, w) in pool.games.get(role, {}).items()), key=lambda t: (-t[1], t[0])))
-        players.append(ScoutedPlayer(rid.split("#")[0], role, games, tuple(sorted(any_role.items())), pool.mastery))
+        players.append(ScoutedPlayer(rid.split("#")[0], role, games, tuple(sorted(any_role.items())), pool.mastery,
+                                     mastery_age(pool, now), sure.get(rid, 1.0)))
     return EnemyScouting(tuple(players), weight) if players else None
 
 
@@ -134,9 +222,10 @@ TOP_SHOWN = 3
 
 
 def scout_summary(riot_ids: Iterable[str], pools: Mapping[str, PlayerPool], roles: Mapping[str, str],
-                  card: Callable[[int], dict | None]) -> list[dict]:
+                  card: Callable[[int], dict | None], now: float | None = None) -> list[dict]:
     """Per player, what Live shows: their name, the role we take them to play, how far the fetch is, and their top
-    champions in that role (games and win rate), or by mastery until games are in."""
+    champions in that role (games and win rate), or by mastery until games are in (those played lately first; ones
+    untouched for months only if there's nothing else)."""
     out = []
     for rid in riot_ids:
         pool, role = pools.get(rid), roles.get(rid)
@@ -147,7 +236,10 @@ def scout_summary(riot_ids: Iterable[str], pools: Mapping[str, PlayerPool], role
                 for c, (g, w) in sorted(played.items(), key=lambda kv: (-kv[1][0], kv[0]))[:TOP_SHOWN]:
                     top.append({"champ": card(c), "games": g, "wins": w})
             else:
-                top = [{"champ": card(c), "points": p} for c, p in pool.mastery[:TOP_SHOWN]]
+                ages = dict(mastery_age(pool, now))
+                ranked = sorted(pool.mastery, key=lambda cp: -math.sqrt(max(cp[1], 0)) * recency(ages.get(cp[0])))
+                fresh = [cp for cp in ranked if ages.get(cp[0], 0.0) <= STALE_MASTERY_DAYS] or ranked
+                top = [{"champ": card(c), "points": p} for c, p in fresh[:TOP_SHOWN]]
         out.append({"riot_id": rid, "name": rid.split("#")[0], "role": role, "status": pool.status if pool else "new",
                     "games_read": pool.games_read if pool else 0, "games_wanted": pool.games_wanted if pool else 0,
                     "top": top})
@@ -190,7 +282,8 @@ def scout(db: Engine, riot, riot_ids: Iterable[str], now: float | None = None, f
                 _save(db, rid, api_puuid=None, status="missing", fetched_at=now)
                 statuses[rid] = "missing"
                 continue
-            mastery = [[m["championId"], m["championPoints"]] for m in riot.mastery_top(puuid, MASTERY_COUNT)]
+            mastery = [[m["championId"], m["championPoints"], m.get("lastPlayTime") or 0]
+                       for m in riot.mastery_top(puuid, MASTERY_COUNT)]
             _save(db, rid, api_puuid=puuid, mastery_json=json.dumps(mastery), status="mastery", fetched_at=now)
             statuses[rid] = "mastery"
         except RiotAuthError:
@@ -255,7 +348,8 @@ def _read_match(db: Engine, riot, puuid: str, match_id: str) -> bool:
         return False
     with Session(db) as s:
         s.add(ScoutGame(api_puuid=puuid, match_id=match_id, champ_id=me["championId"],
-                        role=POSITIONS.get(me.get("teamPosition") or ""), win=bool(me["win"]),
+                        role=POSITIONS.get(me.get("teamPosition") or "") or POSITIONS.get(me.get("individualPosition") or ""),
+                        win=bool(me["win"]),
                         queue_id=info.get("queueId"), game_start_ms=info.get("gameStartTimestamp", 0)))
         s.commit()
     return True

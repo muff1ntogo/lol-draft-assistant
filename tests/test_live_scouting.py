@@ -183,3 +183,32 @@ def test_the_weight_is_a_setting(svc, engine):
         assert client.put("/api/settings", json={**put, "scout_weight": 1.5}).status_code == 422
     scouting, _ = svc.scout_info(svc.live.current)
     assert scouting is None or scouting.weight == 0.9
+
+
+# ---------- Stage E ----------
+def test_a_failed_fetch_is_tried_once_more_in_the_game(svc, engine):
+    with Session(engine) as s:
+        s.add(ScoutPlayer(riot_id=NAMES[0], status="error", fetched_at=time.time() - 60))
+        s.commit()
+    svc.scout_asked.update(n.lower() for n in NAMES)  # already asked for in this game
+    svc.live.view(first_ban_event(svc))
+    wait(svc.scout_runner_override)
+    assert svc.riot.calls == 1 and svc.scout_retried == {NAMES[0].lower()}
+    with Session(engine) as s:  # it failed again: no third try this game
+        s.merge(ScoutPlayer(riot_id=NAMES[0], status="error", fetched_at=time.time() - 60))
+        s.commit()
+    svc.live.view(first_ban_event(svc))
+    wait(svc.scout_runner_override)
+    assert svc.riot.calls == 1
+
+
+def test_pasted_names_fill_in_for_players_the_client_doesnt_name(svc):
+    event = first_ban_event(svc)
+    for m in event["theirTeam"][3:]:
+        m.pop("gameName", None)
+        m.pop("tagLine", None)
+    svc.scout_manual[:] = [NAMES[0].upper(), "Extra1#EUW", "Extra2#EUW", "Extra3#EUW"]
+    svc.live.view(event)
+    ids, given, source = svc.opponents()
+    assert source == "client" and ids == NAMES[:3] + ["Extra1#EUW", "Extra2#EUW"]
+    assert given["Extra1#EUW"] is None and given[NAMES[0]] == "top"

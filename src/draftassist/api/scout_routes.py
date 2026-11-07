@@ -18,7 +18,9 @@ def _payload(svc: Services, riot_ids: list[str], source: str | None, given: dict
     """The same summary Live shows (data/scout.scout_summary), for any list of Riot IDs."""
     runner = svc.scouting()
     pools = load_pools(db_of(svc), riot_ids)
-    players = scout_summary(riot_ids, pools, assign_roles(pools, given or dict.fromkeys(riot_ids)), svc.catalog.card)
+    shares = svc.engine.role_share_map
+    roles = assign_roles(pools, given or dict.fromkeys(riot_ids), shares)
+    players = scout_summary(riot_ids, pools, roles, svc.catalog.card)
     return {"source": source, "available": runner.available, "running": runner.running, "error": runner.last_error,
             "players": players}
 
