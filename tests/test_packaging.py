@@ -59,7 +59,35 @@ def test_the_installer_and_the_app_agree_on_the_data_folder():
 
 def test_the_build_script_runs_the_recipe_and_the_installer():
     assert r"packaging\DraftAssistant.spec" in BUILD and "DraftAssistant.iss" in BUILD
-    assert "npm run build" in BUILD and "/DAppVersion=$version" in BUILD
+    assert "npm run build" in BUILD and "/DAppVersion=$Version" in BUILD
+    assert r"packaging\build_info.json" in BUILD and "build_info.json" in SPEC  # the build number the updater reads
+
+
+# ---------- releases and updates (updates.py, .github/workflows/release.yml) ----------
+RELEASE = (PROJECT_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+
+
+def test_every_push_to_main_publishes_the_installer_the_app_downloads():
+    from draftassist.updates import ASSET, REPO
+
+    assert "branches: [main]" in RELEASE and "contents: write" in RELEASE
+    assert f"packaging/Output/{ASSET}" in RELEASE and "gh release create" in RELEASE
+    assert "-Version ${{ steps.version.outputs.version }}" in RELEASE and "github.run_number" in RELEASE
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    assert f"github.com/{REPO}/releases/latest/download/{ASSET}" in readme  # the download link up front
+
+
+def test_a_silent_update_restarts_the_app_and_skips_the_setup_pages():
+    from draftassist.updates import INSTALL_ARGS
+
+    assert "/VERYSILENT" in INSTALL_ARGS and "/CLOSEAPPLICATIONS" in INSTALL_ARGS
+    assert "Check: WizardSilent" in ISS and "skipifsilent" in ISS
+    assert "AlreadySetUp" in ISS and "ShouldSkipPage" in ISS
+
+
+def test_the_installer_offers_the_key_and_the_import():
+    assert "CreateInputQueryPage" in ISS and "RIOT_API_KEY=" in ISS
+    assert "import-data" in ISS and "CreateInputDirPage" in ISS
 
 
 def test_the_workflow_builds_with_the_script():

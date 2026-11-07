@@ -1,0 +1,63 @@
+# Every push to main builds the installer and publishes it as a GitHub release, which installed apps offer as an
+# update (src/draftassist/updates.py). The version is pyproject.toml's major.minor plus this workflow's run number,
+# so every release is newer than the one before. The installer is attached twice: under a fixed name, which the
+# README's download link and the app's updater use, and with its version in the name.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: write  # to create the release
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Inno Setup
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: Version
+        id: version
+        run: |
+          $base = (Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"(\d+)\.(\d+)').Matches[0]
+          $version = "$($base.Groups[1].Value).$($base.Groups[2].Value).${{ github.run_number }}"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Version $version"
+      - name: Build
+        run: ./packaging/build-installer.ps1 -Version ${{ steps.version.outputs.version }}
+      - name: Check the bundle has no private files
+        run: |
+          $bad = Get-ChildItem dist/DraftAssistant -Recurse -Include *.sqlite, *.sqlite-wal, .env, *-session.json -File |
+                 Where-Object { $_.FullName -notmatch 'flex-ranked-sample' }
+          if ($bad) { $bad.FullName; throw "private files in the bundle" }
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $versioned = "packaging/Output/DraftAssistant-Setup-$env:VERSION.exe"
+          Copy-Item $versioned packaging/Output/DraftAssistant-Setup.exe
+          $subject = git log -1 --format=%s
+          $notes = "Built from $(git rev-parse --short HEAD): $subject`n`nInstall or update: run DraftAssistant-Setup.exe, or click Update in the app."
+          gh release create "v$env:VERSION" packaging/Output/DraftAssistant-Setup.exe $versioned `
+            --target $env:GITHUB_SHA --title "Draft Assistant $env:VERSION" --notes $notes --latest

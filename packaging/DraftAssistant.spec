@@ -23,6 +23,10 @@ BUNDLED = [
 missing = [str(src) for src, _ in BUNDLED if not src.exists()]
 if missing:
     raise SystemExit("missing (build the web UI first: cd web; npm ci; npm run build): " + ", ".join(missing))
+# The build number, written by build-installer.ps1; without it the app can't tell it's out of date (updates.py)
+BUILD_INFO = ROOT / "packaging" / "build_info.json"
+if BUILD_INFO.is_file():
+    BUNDLED.append((BUILD_INFO, "."))
 
 # The app imports its jobs and routers lazily, and uvicorn picks its loop and protocols by name
 HIDDEN = (collect_submodules("draftassist") + collect_submodules("uvicorn") + collect_submodules("webview")

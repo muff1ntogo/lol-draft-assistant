@@ -27,6 +27,7 @@ web/dist/
 build/
 dist/
 packaging/Output/
+packaging/build_info.json
 
 # A checkout from before 7 Nov 2026 kept the project one folder down: its local files may still be there
 lol-draft-assistant/

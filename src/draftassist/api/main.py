@@ -28,6 +28,7 @@ from draftassist.api.live import LiveHub, LiveService
 from draftassist.api.pool_routes import router as pool_router
 from draftassist.api.settings_routes import router as settings_router
 from draftassist.api.scout_routes import router as scout_router
+from draftassist.api.setup_routes import router as setup_router
 from draftassist.api.synergy_routes import router as synergy_router
 from draftassist.config import DATA_ROOT, RESOURCE_ROOT, Settings, ensure_user_files, load_settings
 from draftassist.data import ddragon
@@ -141,6 +142,53 @@ class Services:
 
     def scout_for_live(self, live):
         return self.scout_info(live)
+
+    # ---------- first run and updates (src/draftassist/first_run.py, updates.py) ----------
+    updater_override: object | None = None  # tests: an Updater with fakes
+    _updater: object | None = None
+    bootstrap: dict = field(default_factory=lambda: {"state": "idle", "jobs": {}})
+
+    def updater(self):
+        if self.updater_override is not None:
+            return self.updater_override
+        if self._updater is None:
+            from draftassist.updates import Updater
+
+            self._updater = Updater()
+        return self._updater
+
+    def start_bootstrap(self, run_job=None) -> bool:
+        """A fresh install: fetch the champions and OP.GG's starting stats in the background, then reload. False if
+        there's nothing to do or it's already running."""
+        from draftassist.first_run import bootstrap, needs_bootstrap
+
+        if self.db is None or self.bootstrap["state"] == "running" or not needs_bootstrap(self.db):
+            return False
+        self.bootstrap = {"state": "running", "jobs": {}}
+
+        def work() -> None:
+            jobs = bootstrap(run_job)
+            self.bootstrap = {"state": "done", "jobs": jobs}
+            try:
+                self.refresh_stats()  # the new champions and stats change the stats version: the engine reloads
+            except Exception:
+                log.exception("reload after the first-run setup failed")
+
+        import threading
+
+        threading.Thread(target=work, name="first-run", daemon=True).start()
+        return True
+
+    def set_riot_key(self, key: str) -> None:
+        """Save the key in the data folder's .env and use it from now on (the scouting runner picks it up)."""
+        from dataclasses import replace
+
+        from draftassist.config import DATA_ROOT
+        from draftassist.first_run import save_riot_key
+
+        save_riot_key(key, DATA_ROOT / ".env")
+        self.settings = replace(self.settings or Settings(), riot_api_key=key.strip())
+        self._scout_runner = None
 
     def end_scouting(self) -> None:
         """The game is over: forget the opponents pasted for it, and who was asked for (the next game asks again)."""
@@ -394,6 +442,18 @@ def load_draft_scale(db: Engine) -> float | None:
     return float(scale) if scale is not None else None
 
 
+async def check_updates_forever(svc: Services) -> None:
+    """Look for a newer release now and every few hours (updates.py); the Update button reads the result."""
+    from draftassist.updates import CHECK_EVERY_S
+
+    while True:
+        try:
+            await asyncio.to_thread(svc.updater().check)
+        except Exception:
+            log.exception("update check failed")
+        await asyncio.sleep(CHECK_EVERY_S)
+
+
 async def refresh_stats_forever(svc: Services, every_s: float) -> None:
     while True:
         await asyncio.sleep(every_s)
@@ -466,8 +526,12 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         every = stats_refresh_s if stats_refresh_s is not None else (svc.settings.stats_refresh_s if svc.settings else 0)
         refresh_task = asyncio.create_task(refresh_stats_forever(svc, every)) if every > 0 else None
         demo_task = start_live_feed(svc)
+        update_task = None
+        if services is None:  # the real app, not a test: set itself up, and look for updates
+            svc.start_bootstrap()
+            update_task = asyncio.create_task(check_updates_forever(svc))
         yield
-        for task in (demo_task, refresh_task):
+        for task in (demo_task, refresh_task, update_task):
             if task:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -483,7 +547,8 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
     async def live_ws(ws: WebSocket) -> None:
         await ws.app.state.services.hub.serve(ws)
 
-    for router in (pool_router, settings_router, synergy_router, learning_router, history_router, scout_router):
+    for router in (pool_router, settings_router, synergy_router, learning_router, history_router, scout_router,
+                   setup_router):
         app.include_router(router)
 
     if (web_dist / "index.html").is_file():

@@ -1,44 +1,58 @@
-# Packaging: the Windows installer
+# Packaging: the installer, releases and updates
 
-The installed app is the same code as the source checkout, bundled with PyInstaller and wrapped in an Inno Setup
+The installed app is the same code as a source checkout, bundled with PyInstaller and wrapped in an Inno Setup
 installer. Nobody needs Python, uv or Node to run it.
+
+## How a change reaches an installed app
+
+1. A push to `main` runs `.github/workflows/release.yml` on a Windows runner: it builds the installer with version
+   `<major.minor from pyproject.toml>.<run number>` and publishes it as a GitHub release, attached as
+   `DraftAssistant-Setup.exe` (and again with the version in the name). Pushes that only touch docs or `*.md` don't
+   release.
+2. The app checks the latest release at startup and every 6 hours (`src/draftassist/updates.py`). When it's newer than
+   its own build number (`build_info.json`, bundled by the build script), a banner offers **Update**. It's disabled
+   from champ select to the end of the game.
+3. Update downloads the installer, checks its SHA-256 against GitHub's, runs it silently and exits. Inno Setup replaces
+   the program files and starts the app again. The data folder isn't touched.
+
+The README's download link, `releases/latest/download/DraftAssistant-Setup.exe`, always gets the newest installer.
+**The repository must be public** for the app and that link to see releases without a GitHub login.
+
+## What the installer sets up
+
+- **Program files:** `%LOCALAPPDATA%\Programs\Draft Assistant`, no admin rights. Start menu and optional Desktop
+  shortcuts, a "jobs" command prompt, a shortcut to the data folder.
+- **Riot API key (optional page):** written to `%LOCALAPPDATA%\DraftAssistant\.env`. It can also be set later in
+  Settings.
+- **Bring data across (optional page):** pick a source checkout's folder (the one with `data\` and `.env`) and it runs
+  `draftassist-cli import-data` on it: the databases, key and edited tags.
+- **First start:** the app fetches champions (Data Dragon) and OP.GG's starting stats by itself (`first_run.py`).
+  The crawl stays a job you start: `draftassist-cli crawl --hours 8`.
+
+An update (the app already set up, or a silent install from the Update button) skips both pages.
+
+## Files
 
 | File | What it is |
 | --- | --- |
-| `DraftAssistant.spec` | PyInstaller recipe: one folder with `DraftAssistant.exe` (app window, no console) and `draftassist-cli.exe` (console, for the jobs) |
+| `DraftAssistant.spec` | PyInstaller recipe: one folder with `DraftAssistant.exe` (window, no console) and `draftassist-cli.exe` (console, for the jobs) |
 | `entry.py` | The bundle's entry point: `draftassist.launcher.main` |
-| `DraftAssistant.iss` | Inno Setup script: per-user install (no admin prompt), Start menu and optional Desktop shortcuts, uninstaller |
-| `build-installer.ps1` | Builds everything: dependencies, web UI, tests, bundle, smoke test, installer |
+| `DraftAssistant.iss` | Inno Setup script: per-user install, the two setup pages, a restart after a silent update |
+| `build-installer.ps1` | Builds everything: dependencies, web UI, tests, build number, bundle, smoke test, installer. `-Version` sets the build number |
 | `app.ico` | Optional icon. If present it's used for the programs and the installer |
 
-## Build it on your PC
+## Build it by hand
 
-Once: install [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`). uv and Node.js
-you already have. Then, from the project folder:
+Once: install [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`). Then, from
+the repository root:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File packaging\build-installer.ps1
 ```
 
-The installer lands in `packaging\Output\DraftAssistant-Setup-<version>.exe` (the version is `pyproject.toml`'s).
+The installer lands in `packaging\Output\`. On other branches, `.github/workflows/installer.yml` builds one as a
+downloadable artifact when `packaging/` changes, without releasing it.
 
-## Or let GitHub build it
-
-`.github/workflows/installer.yml` builds the same installer on a Windows runner: Actions tab > Windows installer >
-Run workflow, then download the `DraftAssistant-Setup` artifact. It also runs on `v*` tags and when this folder changes.
-
-## What the installed app does
-
-- **Program files** go to `%LOCALAPPDATA%\Programs\Draft Assistant`; nothing needs admin rights.
-- **Your data** lives in `%LOCALAPPDATA%\DraftAssistant` (`config.DATA_ROOT`): the databases, `cache\`, `.env`
-  (the Riot key), recordings, and the tags and rules YAML. Updating or uninstalling never touches it.
-- **First run:** copy your checkout's data across once, from the Start menu's "Draft Assistant jobs" prompt:
-  `draftassist-cli import-data C:\path\to\lol-draft-assistant` (add `--with-cache` to bring `cache\` too).
-  Stop the crawl first. Without it the app starts empty and needs `ddragon`, `opgg` and a crawl, as a new checkout does.
-- **Jobs** run from that prompt: `draftassist-cli crawl --hours 8`, `draftassist-cli fit`, and so on
-  (`draftassist-cli --help` lists them).
-- **The window** is Edge WebView2, which ships with Windows 10 and 11. Without it the app opens your browser instead.
-- **Output** from the window-only program goes to `%LOCALAPPDATA%\DraftAssistant\cache\launcher.log`.
-
-The bundle never contains a database, `.env`, `cache\` or recordings: the spec lists exactly what goes in, and the
-workflow checks the result.
+The bundle never contains a database, `.env`, `cache\` or recordings: the spec lists exactly what goes in, and both
+workflows check the result. `DRAFTASSIST_BUILD_TEST=1 uv run pytest tests/test_packaging.py` builds the bundle and
+runs it.

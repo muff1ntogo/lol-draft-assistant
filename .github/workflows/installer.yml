@@ -1,12 +1,12 @@
-# Builds the Windows installer (packaging/build-installer.ps1) and keeps it as a downloadable artifact.
-# Runs when the packaging changes, on a v* tag, or by hand (Actions tab > Windows installer > Run workflow).
+# Builds the Windows installer (packaging/build-installer.ps1) on other branches and keeps it as a downloadable
+# artifact, to try packaging changes before they reach main. main itself publishes releases (release.yml).
+# Runs when the packaging changes, or by hand (Actions tab > Windows installer > Run workflow).
 name: Windows installer
 
 on:
   workflow_dispatch:
   push:
-    branches: ["**"]
-    tags: ["v*"]  # path filters don't apply to tags: every v* tag builds
+    branches-ignore: [main]
     paths:
       - "packaging/**"
       - ".github/workflows/installer.yml"

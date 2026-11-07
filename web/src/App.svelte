@@ -9,6 +9,7 @@
   import Rules from './Rules.svelte';
   import PlanBar from './PlanBar.svelte';
   import ScoutBox from './ScoutBox.svelte';
+  import AppStatus from './AppStatus.svelte';
 
   const PAGES = { live: 'Live', prep: 'Prep', pools: 'Pools', champions: 'Champions', history: 'History', team: 'Team', settings: 'Settings' };
   const HIDDEN = { tags: 'Tags', rules: 'Rules' }; // the Champions tab opens the Tags page (fight style + tags) // reached from the Prep page's header, not the nav
@@ -59,6 +60,7 @@
 {#if !connected}
   <div class="banner offline">Reconnecting to the assistant…</div>
 {/if}
+<AppStatus inDraft={view.status === 'champ_select'} />
 {#if view.note}
   <div class="banner fixture">{view.note}</div>
 {/if}

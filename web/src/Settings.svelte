@@ -19,6 +19,26 @@
   let gateTau = $state(0.75);
   let executionComfort = $state(false);
   let scoutEnabled = $state(true);
+  // App: the Riot key and updates (first_run.py, updates.py)
+  let riotKey = $state('');
+  let keyMessage = $state('');
+  let appSetup = $state(null);
+  let appUpdate = $state(null);
+  (async () => {
+    appSetup = await (await fetch('/api/setup')).json();
+    appUpdate = await (await fetch('/api/update')).json();
+  })();
+  async function saveKey() {
+    const res = await fetch('/api/setup/riot-key', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: riotKey }),
+    });
+    const body = await res.json();
+    if (res.ok) { appSetup = body; riotKey = ''; keyMessage = 'Key saved: used from now on.'; }
+    else keyMessage = `Not saved: ${body.detail}`;
+  }
+  async function checkUpdate() {
+    appUpdate = await (await fetch('/api/update/check', { method: 'POST' })).json();
+  }
   let scoutWeight = $state(0.6);
   // engine/model.py comfort_gate: the share of a counter pick's edge a player keeps
   const gateShare = (comfort, games) => Math.round(100 * (1 - Math.exp(-(Math.max(comfort + 0.3, 0) + games / 20) / gateTau)));
@@ -90,6 +110,30 @@
 
 <main class="page">
   <h1>Settings</h1>
+
+  <section>
+    <h2>App</h2>
+    <form class="row" onsubmit={(e) => { e.preventDefault(); saveKey(); }}>
+      <label>Riot API key
+        <input type="password" autocomplete="off" bind:value={riotKey} style="width: 32ch"
+               placeholder={appSetup?.riot_key_set ? 'set (paste a new one to replace it)' : 'RGAPI-…'} /></label>
+      <button type="submit" disabled={!riotKey.trim()}>Save key</button>
+    </form>
+    {#if keyMessage}<p class="muted">{keyMessage}</p>{/if}
+    <p class="muted">
+      Stored in {appSetup?.data_folder ?? 'the data folder'}\.env, never shown again. Needed for match history and scouting;
+      get one at developer.riotgames.com.
+    </p>
+    <p class="row">
+      Version: {appUpdate?.current ?? 'source checkout'}
+      {#if appUpdate?.unsupported}<span class="muted">({appUpdate.unsupported})</span>
+      {:else}
+        <button type="button" onclick={checkUpdate}>Check for updates</button>
+        {#if appUpdate?.checked_at}<span class="muted">{appUpdate.available ? `${appUpdate.latest} available: see the banner` : 'up to date'}</span>{/if}
+        {#if appUpdate?.error}<span class="muted">{appUpdate.error}</span>{/if}
+      {/if}
+    </p>
+  </section>
 
   <section>
     <h2>Ban suggestions</h2>
