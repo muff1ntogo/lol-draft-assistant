@@ -93,7 +93,7 @@ class SynergyRoleStats(SQLModel, table=True):
 class Player(SQLModel, table=True):
     __tablename__ = "players"
 
-    puuid: str = Field(primary_key=True)  # internal key: "unresolved:<role>" until linked, then one of the ids below
+    puuid: str = Field(primary_key=True)  # internal key: "unresolved:<role>[:n]" until linked, then one of the ids below
     riot_id: str  # "Name#TAG"
     role: str
     rank: str
@@ -102,6 +102,8 @@ class Player(SQLModel, table=True):
     # is a plain UUID, the API's is encrypted per API key. Champ select needs the first, match-v5 the second.
     client_puuid: str | None = None
     api_puuid: str | None = None
+    # One active player per role; a swapped-out player stays on the bench with their pool (docs/player-roster.md)
+    active: bool = True
 
     @property
     def resolved(self) -> bool:

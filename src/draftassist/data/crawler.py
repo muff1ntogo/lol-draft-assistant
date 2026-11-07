@@ -51,7 +51,7 @@ def brackets_in_use(db: Engine, enemy_bracket: str = "gold") -> tuple[str, ...]:
     from draftassist.db.models import Player
 
     with Session(db) as s:
-        used = {p.bracket for p in s.exec(select(Player)).all()}
+        used = {p.bracket for p in s.exec(select(Player)).all() if p.active}
     used |= set(BRACKETS) | {enemy_bracket}
     return tuple(t for t in LEAGUE_TIERS if t in used) + tuple(sorted(used - set(LEAGUE_TIERS)))
 

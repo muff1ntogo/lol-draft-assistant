@@ -96,6 +96,20 @@ class Services:
             self.live.logger.pin_provider = lambda: self.pinned
     _synergy_v2: object | None = None  # built lazily, dropped on reload and after tag / rule edits
     _synergy_pending: object | None = None  # a rebuilt evaluator waiting for the draft to end
+    roster_path: Path | None = None  # data/roster.json (docs/player-roster.md); None: not mirrored (tests)
+
+    def save_roster(self) -> None:
+        """Mirror our players and pools to the roster file, after any change to them."""
+        if self.roster_path is None or self.db is None:
+            return
+        from draftassist.data.roster import save
+
+        champs = self.catalog.champs
+        try:
+            save(self.db, self.roster_path, lambda c: champs.get(c, ("", str(c)))[1])
+        except Exception:
+            log.exception("could not save the roster to %s", self.roster_path)
+
     scout_runner_override: object | None = None  # tests: a ScoutRunner with a fake Riot client
     _scout_runner: object | None = None
 
@@ -395,6 +409,16 @@ def with_synergy_v2(db: Engine, inputs, style_path: Path = STYLE_RULES_FILE, tea
 def build_services(settings: Settings) -> Services:
     ensure_user_files()  # first run of the installed app: the tags and rules YAML into the data folder
     db = init_db(settings.db_path)
+    from draftassist.data.roster import restore, roster_file
+
+    roster_path = roster_file()
+    try:  # a database without our players (new install, reset): the roster comes back from its file
+        if restore(db, roster_path):
+            from draftassist.learning.comfort import rescore
+
+            rescore(db)
+    except Exception:
+        log.exception("could not restore the roster from %s", roster_path)
     if settings.has_riot_api_key:
         from draftassist.data.riot import sync_api_key
 
@@ -434,6 +458,8 @@ def build_services(settings: Settings) -> Services:
     if logger is not None:
         logger.context = lambda: (live.engine, live.catalog)
     svc = Services(hub, live, db, players, settings.lcu_mode, settings, stats_version(db))
+    svc.roster_path = roster_path
+    svc.save_roster()  # the file exists from the first start, and follows every change after
     services_ref.append(svc)
     return svc
 

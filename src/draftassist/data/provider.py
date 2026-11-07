@@ -180,7 +180,7 @@ def stats_version(db: Engine) -> tuple:
         pools = conn.execute(text("SELECT COUNT(*), COALESCE(SUM(champ_id), 0), COALESCE(SUM(LENGTH(manual_tier)), 0), "
                                   "COALESCE(SUM(games), 0), COALESCE(SUM(wins), 0), COALESCE(SUM(tier_locked), 0) "
                                   "FROM pool_entries")).one()
-        players = tuple(conn.execute(text("SELECT puuid, role, bracket FROM players ORDER BY role")))
+        players = tuple(conn.execute(text("SELECT puuid, role, bracket, active FROM players ORDER BY role, puuid")))
     return totals, tuple(boot), tuple(pools), players
 
 

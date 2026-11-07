@@ -1,4 +1,5 @@
-"""Players and pools (Pools page): Riot IDs and brackets, pool entries, text import, tier accept and lock."""
+"""Players and pools (Pools page): Riot IDs and brackets, the bench and swaps (docs/player-roster.md), pool entries,
+text import, tier accept and lock. Every change is mirrored to the roster file (Services.save_roster)."""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -7,6 +8,8 @@ from fastapi import APIRouter, Body, HTTPException, Request
 
 from draftassist.api.deps import db_of
 from draftassist.data.pools import (
+    bench,
+    forget_player,
     import_pools,
     list_players,
     load_pools,
@@ -14,6 +17,7 @@ from draftassist.data.pools import (
     remove_pool_entry,
     set_players,
     set_pool_entry,
+    swap_player,
 )
 from draftassist.data.settings_store import get_engine_settings
 from draftassist.engine.blind import pool_health
@@ -33,21 +37,56 @@ router = APIRouter()
 def get_players(request: Request) -> list[dict]:
     return list_players(db_of(request.app.state.services))
 
+def _resolver(svc: Services):
+    """account-v1 lookups for new Riot IDs, with a key; None without (champ select links them instead)."""
+    if svc.settings is None or not svc.settings.has_riot_api_key:
+        return None
+    from draftassist.data.riot import RiotClient
+
+    return RiotClient(svc.settings.riot_api_key, svc.settings.cache_dir).account_puuid
+
+
+def _roster_changed(svc: Services) -> None:
+    svc.save_roster()
+    svc.reload()
+
+
 @router.put("/api/players")
 def put_players(request: Request, players: list[dict] = Body(..., embed=True)) -> list[dict]:
     svc: Services = request.app.state.services
-    resolver = None
-    if svc.settings is not None and svc.settings.has_riot_api_key:
-        from draftassist.data.riot import RiotClient
-
-        riot = RiotClient(svc.settings.riot_api_key, svc.settings.cache_dir)
-        resolver = riot.account_puuid
     try:
-        stored = set_players(db_of(svc), players, resolver)
+        stored = set_players(db_of(svc), players, _resolver(svc))
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
-    svc.reload()
+    _roster_changed(svc)
     return stored
+
+
+@router.post("/api/players/swap")
+def post_swap(request: Request, role: str = Body(...), riot_id: str = Body(...)) -> dict:
+    """Put a sub in (or someone back from the bench) for a role; the current player is benched with their pool. Like a
+    pool edit, it reaches suggestions after the current draft."""
+    svc: Services = request.app.state.services
+    try:
+        swap_player(db_of(svc), role, riot_id, _resolver(svc))
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from None
+    svc.save_roster()
+    if svc.players is not None:
+        svc.players.invalidate()
+    out = _pool_changed(svc)
+    svc.learn()  # their recent games and comfort, now that they're playing
+    return out
+
+
+@router.delete("/api/players/bench")
+def delete_benched(request: Request, riot_id: str) -> dict:
+    """Forget a benched player for good: their pool and stored games too."""
+    svc: Services = request.app.state.services
+    if not forget_player(db_of(svc), riot_id):
+        raise HTTPException(404, "no benched player with that Riot ID")
+    svc.save_roster()
+    return _pools_payload(svc)
 
 @router.get("/api/pools")
 def get_pools(request: Request) -> dict:
@@ -55,6 +94,7 @@ def get_pools(request: Request) -> dict:
 
 def _pool_changed(svc: Services) -> dict:
     """After an edit: rebuild the engine (not mid-draft: suggestions must not change under the shot-caller)."""
+    svc.save_roster()
     applied = not svc.in_draft()
     if applied:
         svc.reload()
@@ -93,6 +133,8 @@ def _pools_payload(svc: Services) -> dict:
 
     return {
         "players": list_players(db),
+        "bench": [{**p, "pools": {r: [{"champ": svc.catalog.card(c), "tier": t} for c, t in champs]
+                                  for r, champs in p["pools"].items()}} for p in bench(db)],
         "learning": svc.learning or {"running": False},
         "pools": {r: [{"champ": svc.catalog.card(e.champ_id), "manual_tier": e.manual_tier,
                        "badge": badge(profiles, e.champ_id, r).as_dict(),
@@ -118,7 +160,7 @@ def post_pool_import(request: Request, text: str = Body(..., embed=True)) -> dic
     if not parsed.ok:
         raise HTTPException(422, {"errors": parsed.errors})
     counts = import_pools(db, parsed)
-    svc.reload()
+    _roster_changed(svc)
     return {"imported": counts}
 
 # ---------- learning ----------
@@ -126,7 +168,7 @@ def post_pool_import(request: Request, text: str = Body(..., embed=True)) -> dic
 def post_accept(request: Request, role: str = Body(...), champ_id: int | None = Body(None)) -> dict:
     svc: Services = request.app.state.services
     changed = accept_tiers(db_of(svc), role, champ_id)
-    svc.reload()
+    _roster_changed(svc)
     return {"changed": changed}
 
 @router.post("/api/pools/lock")
@@ -134,5 +176,5 @@ def post_lock(request: Request, role: str = Body(...), champ_id: int = Body(...)
     svc: Services = request.app.state.services
     if not set_locked(db_of(svc), role, champ_id, locked):
         raise HTTPException(404, "no such pool entry")
-    svc.reload()
+    _roster_changed(svc)
     return {"locked": locked}

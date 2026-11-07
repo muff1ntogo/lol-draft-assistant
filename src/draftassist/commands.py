@@ -30,7 +30,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
 }
 IMPORT = "import-data"
 DATABASES = ("data/draftassist.sqlite", "data/master.sqlite")
-FILES = (".env", "data/champion_tags.yaml", "data/style_rules.yaml", "data/team_rules.yaml")
+FILES = (".env", "data/champion_tags.yaml", "data/style_rules.yaml", "data/team_rules.yaml", "data/roster.json")
 
 
 def is_command(argv: Sequence[str]) -> bool:

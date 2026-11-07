@@ -7,6 +7,10 @@
 *.db
 cache/
 
+# Our players and pools, mirrored from the database (docs/player-roster.md): real Riot IDs
+data/roster.json
+data/roster.json.*
+
 # LCU recordings contain player names and PUUIDs
 fixtures/lcu/recorded/
 

@@ -39,7 +39,7 @@ def collect_logged(db: Engine) -> int:
     """Our picks in logged games with a result -> player games."""
     added = 0
     with Session(db) as s:
-        players = {p.role: p.puuid for p in s.exec(select(Player)).all()}
+        players = {p.role: p.puuid for p in s.exec(select(Player)).all() if p.active}  # who played each role
         pools: dict[int, list[str]] = {}
         for e in s.exec(select(PoolEntry)).all():
             pools.setdefault(e.champ_id, []).append(e.role)
@@ -67,13 +67,13 @@ def fetch_history(db: Engine, riot: RiotClient, now: float | None = None) -> dic
     since = int(now - WINDOW_DAYS * 86_400)
     added: dict[str, int] = {}
     with Session(db) as s:
-        players = list(s.exec(select(Player)).all())
+        players = [p for p in s.exec(select(Player)).all() if p.active]  # the bench costs no requests
         for p in players:  # match-v5 needs the API PUUID: look it up from the Riot ID if we only have the client's
             if not p.api_puuid and p.riot_id:
                 p.api_puuid = riot.account_puuid(p.riot_id)
                 s.add(p)
         s.commit()
-        players = [p for p in s.exec(select(Player)).all() if p.api_puuid]
+        players = [p for p in s.exec(select(Player)).all() if p.api_puuid and p.active]
     for p in players:
         try:
             try:

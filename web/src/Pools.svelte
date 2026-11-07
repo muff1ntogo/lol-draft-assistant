@@ -73,6 +73,30 @@
   const record = (e) => (e.games ? `${e.wins}W ${e.games - e.wins}L` : 'no games');
   const proposals = (entries) => entries.filter((e) => e.proposal).length;
 
+  // The bench (docs/player-roster.md): one active player per role; a swapped-out player keeps their pool
+  let sub = $state({ role: 'top', riot_id: '' });
+
+  async function swap(role, riot_id) {
+    message = '';
+    const res = await fetch('/api/players/swap', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role, riot_id }),
+    });
+    const body = await res.json();
+    if (!res.ok) { message = `Not swapped: ${body.detail}`; return; }
+    await load();
+    sub.riot_id = '';
+    message = `${riot_id.split('#')[0]} is our ${LABELS[role]} now` +
+      (body.applied ? '.' : ': suggestions use their pool after this draft.');
+  }
+
+  async function forget(p) {
+    if (!confirm(`Forget ${p.riot_id || 'this player'} and their pool for good?`)) return;
+    const res = await fetch(`/api/players/bench?riot_id=${encodeURIComponent(p.riot_id)}`, { method: 'DELETE' });
+    if (res.ok) { await load(); message = `${p.riot_id} forgotten.`; }
+  }
+
+  const poolSize = (p) => Object.values(p.pools).reduce((n, champs) => n + champs.length, 0);
+
   async function savePlayers() {
     message = '';
     const res = await fetch('/api/players', {
@@ -131,6 +155,40 @@
       </tbody>
     </table>
     <button onclick={savePlayers}>Save players</button>
+    <p class="muted small">
+      A linked player whose Riot ID you change goes to the bench with their pool; one never linked is just renamed.
+    </p>
+
+    <h3 class="subhead">Swap in a sub</h3>
+    <form class="swap" onsubmit={(ev) => { ev.preventDefault(); swap(sub.role, sub.riot_id.trim()); }}>
+      <select bind:value={sub.role}>{#each Object.entries(LABELS) as [r, l]}<option value={r}>{l}</option>{/each}</select>
+      <input list="bench-ids" bind:value={sub.riot_id} placeholder="Sub#EUW (new, or from the bench)" />
+      <datalist id="bench-ids">{#each data?.bench ?? [] as b}{#if b.riot_id}<option value={b.riot_id}></option>{/if}{/each}</datalist>
+      <button type="submit" disabled={!sub.riot_id.includes('#')}>Swap in</button>
+    </form>
+
+    {#if data?.bench?.length}
+      <h3 class="subhead">Bench</h3>
+      <div class="bench">
+        {#each data.bench as b}
+          <div class="benched">
+            <div class="who">
+              <strong>{b.riot_id || '(no Riot ID)'}</strong>
+              <span class="muted">{LABELS[b.role]}{b.rank ? ` · ${b.rank}` : ''} · {poolSize(b)} champion{poolSize(b) === 1 ? '' : 's'}</span>
+            </div>
+            <div class="chips">
+              {#each Object.entries(b.pools) as [r, champs]}
+                {#each champs.slice(0, 6) as c}<span title="{c.champ.name} ({LABELS[r]}, {c.tier})"><Champ champ={c.champ} size={24} /></span>{/each}
+              {/each}
+            </div>
+            <div class="actions">
+              {#if b.riot_id}<button class="small-btn" onclick={() => swap(b.role, b.riot_id)}>Swap in as {LABELS[b.role]}</button>{/if}
+              <button class="small-btn ghost" onclick={() => forget(b)} disabled={!b.riot_id}>Forget</button>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
   </section>
 
   <section>
@@ -213,6 +271,20 @@
 </main>
 
 <style>
+  .small { font-size: 12px; margin: 6px 0 0; }
+  .subhead { margin: 20px 0 8px; }
+  .swap { display: flex; gap: 8px; align-items: center; max-width: 560px; }
+  .swap select { width: auto; }
+  .swap button { margin: 0; white-space: nowrap; }
+  .bench { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+  .benched { background: var(--panel); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .who strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .who .muted { font-size: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; min-height: 24px; }
+  .actions { display: flex; gap: 6px; }
+  .small-btn { margin: 0; padding: 4px 10px; font-size: 13px; }
+  .small-btn.ghost { background: var(--panel-2); border: 1px solid var(--line); }
   .health { font-size: 12px; color: var(--muted); margin: 0 0 8px; display: flex; flex-direction: column; gap: 2px; }
   .health .missing { color: #e0a640; }
   .page { max-width: 1440px; margin: 0 auto; padding: 20px 28px 60px; }
