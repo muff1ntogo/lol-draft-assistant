@@ -19,6 +19,7 @@ BUNDLED = [
     (ROOT / "data" / "style_rules.yaml", "data"),
     (ROOT / "data" / "team_rules.yaml", "data"),
     (ROOT / "fixtures" / "lcu" / "flex-ranked-sample", "fixtures/lcu/flex-ranked-sample"),  # --replay's default
+    (ROOT / "packaging" / "app.ico", "."),  # the window's icon (launcher.py); the programs get it from EXE(icon=...)
 ]
 missing = [str(src) for src, _ in BUNDLED if not src.exists()]
 if missing:

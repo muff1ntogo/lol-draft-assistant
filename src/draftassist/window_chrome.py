@@ -1,0 +1,109 @@
+"""The app window's look on Windows 11, and its remembered size and position.
+
+- Title bar: dark mode, coloured like the app's nav bar so the two read as one strip, a matching border, rounded
+  corners (DwmSetWindowAttribute; Windows 10 ignores the colours and corners and keeps dark mode).
+- No white flash: the window paints the page's background colour before the page loads.
+- Size and position: saved to the data folder when the window closes, used next time if still on a screen.
+Everything here is best effort: a failure leaves the default window, never stops the app.
+"""
+from __future__ import annotations
+
+import ctypes
+import json
+import logging
+import sys
+from pathlib import Path
+
+log = logging.getLogger(__name__)
+
+BACKGROUND = "#0d1117"  # web/src/app.css --bg
+CAPTION = "#090c10"  # the nav bar (web/src/App.svelte)
+BORDER = "#2d3540"  # --line
+DEFAULT_SIZE = (1600, 960)
+MIN_SIZE = (1000, 700)
+GEOMETRY_FILE = "window.json"
+
+# DWMWINDOWATTRIBUTE values (dwmapi.h)
+DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+DWMWA_WINDOW_CORNER_PREFERENCE = 33
+DWMWA_BORDER_COLOR = 34
+DWMWA_CAPTION_COLOR = 35
+DWMWA_TEXT_COLOR = 36
+DWMWCP_ROUND = 2
+
+
+def colorref(hex_color: str) -> int:
+    """'#rrggbb' -> a Win32 COLORREF (0x00bbggrr)."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return (b << 16) | (g << 8) | r
+
+
+def style_window(hwnd: int, dwm=None) -> bool:
+    """Dark title bar in the app's colours, rounded corners. True if Windows took the dark mode (the rest is optional)."""
+    if dwm is None:
+        if sys.platform != "win32":
+            return False
+        dwm = ctypes.windll.dwmapi  # type: ignore[attr-defined]
+
+    def setattr_(attr: int, value: int) -> bool:
+        v = ctypes.c_int(value)
+        return dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(v), ctypes.sizeof(v)) == 0
+
+    ok = setattr_(DWMWA_USE_IMMERSIVE_DARK_MODE, 1)
+    setattr_(DWMWA_CAPTION_COLOR, colorref(CAPTION))
+    setattr_(DWMWA_BORDER_COLOR, colorref(BORDER))
+    setattr_(DWMWA_TEXT_COLOR, colorref("#e6edf3"))
+    setattr_(DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND)
+    return ok
+
+
+def find_window(title: str, user32=None) -> int | None:
+    if user32 is None:
+        if sys.platform != "win32":
+            return None
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+    hwnd = user32.FindWindowW(None, title)
+    return int(hwnd) or None
+
+
+def _on_a_screen(x: int, y: int) -> bool:
+    """Whether a point is on any monitor now (a saved position from an unplugged screen isn't)."""
+    if sys.platform != "win32":
+        return True
+    MONITOR_DEFAULTTONULL = 0
+
+    class POINT(ctypes.Structure):
+        _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+    return bool(ctypes.windll.user32.MonitorFromPoint(POINT(x + 40, y + 20), MONITOR_DEFAULTTONULL))  # type: ignore[attr-defined]
+
+
+def load_geometry(folder: Path, on_screen=_on_a_screen) -> dict:
+    """create_window's width / height / x / y / maximized from last time, or the defaults."""
+    out = {"width": DEFAULT_SIZE[0], "height": DEFAULT_SIZE[1]}
+    try:
+        saved = json.loads((folder / GEOMETRY_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return out
+    try:
+        w, h = int(saved["width"]), int(saved["height"])
+        if w >= MIN_SIZE[0] and h >= MIN_SIZE[1]:
+            out.update(width=w, height=h)
+        x, y = saved.get("x"), saved.get("y")
+        if x is not None and y is not None and on_screen(int(x), int(y)):
+            out.update(x=int(x), y=int(y))
+        if saved.get("maximized"):
+            out["maximized"] = True
+    except (KeyError, TypeError, ValueError):
+        pass
+    return out
+
+
+def save_geometry(folder: Path, width: int, height: int, x: int | None, y: int | None, maximized: bool) -> None:
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / GEOMETRY_FILE).write_text(json.dumps(
+            {"width": width, "height": height, "x": x, "y": y, "maximized": maximized}), encoding="utf-8")
+    except OSError:
+        log.warning("couldn't save the window's size and position")

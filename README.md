@@ -1,3 +1,5 @@
+<img src="packaging/app-512.png" alt="" width="96" align="right">
+
 # Draft Assistant
 
 A pick/ban assistant for League of Legends 5-stacks (EUW): live suggestions in champ select, enemy scouting, and a

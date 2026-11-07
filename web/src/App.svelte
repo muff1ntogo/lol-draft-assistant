@@ -95,9 +95,15 @@
 {/if}
 
 <style>
-  nav { display: flex; gap: 4px; padding: 0 20px; background: #090c10; border-bottom: 1px solid var(--line); }
-  nav a { padding: 10px 16px; color: var(--muted); text-decoration: none; font-size: 15px; border-bottom: 2px solid transparent; }
-  nav a.active { color: var(--text); border-color: var(--gold); }
+  /* the nav runs on from the window's title bar (same colour), so it gets no top border of its own */
+  nav { display: flex; gap: 2px; padding: 4px 16px 0; background: var(--nav); border-bottom: 1px solid var(--line);
+        position: sticky; top: 0; z-index: 10; }
+  nav a { position: relative; padding: 9px 14px 11px; color: var(--muted); text-decoration: none; font-size: 14.5px;
+          border-radius: 6px 6px 0 0; }
+  nav a:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
+  nav a.active { color: var(--text); font-weight: 600; }
+  nav a.active::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: -1px; height: 3px;
+                        border-radius: 3px 3px 0 0; background: var(--gold); }
   nav a.alert { margin-left: auto; color: var(--gold); }
   .banner { padding: 6px 16px; font-size: 14px; text-align: center; }
   .offline { background: #6e2a2a; }

@@ -10,11 +10,52 @@
   --gold: #e3b341;
   --good: #3fb950;
   --warn: #f0883e;
-  font-family: "Segoe UI", system-ui, sans-serif;
+  --nav: #090c10; /* the window's title bar takes this colour too (window_chrome.py) */
+  --radius: 8px;
+  --ease: 140ms ease;
+  /* Windows 11's own type (Segoe UI Variable), then Windows 10's */
+  font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   color: var(--text);
   background: var(--bg);
+  /* native controls (scrollbars, inputs, selects, number spinners) in dark, as WebView2 draws them */
+  color-scheme: dark;
+  accent-color: var(--blue);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100vh; }
 img { display: block; }
+h1, h2, h3 { font-family: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif; }
+
+::selection { background: rgba(76, 154, 255, 0.35); }
+
+/* Thin scrollbars that sit back until hovered, like Windows 11's */
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2d3540; border-radius: 6px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: #45505e; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* Controls: the same rounding and a quiet transition everywhere */
+button, input, select, textarea { font: inherit; border-radius: 6px; }
+button, a, input, select, textarea, .card, .chip, .part {
+  transition: background-color var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease),
+              opacity var(--ease);
+}
+button:not(:disabled) { cursor: pointer; }
+button:not(:disabled):hover { filter: brightness(1.12); }
+button:not(:disabled):active { filter: brightness(0.95); }
+input:hover, select:hover, textarea:hover { border-color: #45505e; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--blue); }
+
+/* A visible focus ring for the keyboard only */
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+:focus:not(:focus-visible) { outline: none; }
+
+a { color: #8ec5ff; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

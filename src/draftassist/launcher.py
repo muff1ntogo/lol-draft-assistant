@@ -66,13 +66,55 @@ def open_window(url: str) -> bool:
         import webview
     except ImportError:
         return False
+    from draftassist import window_chrome as chrome
+
+    folder = DATA_ROOT
+    geometry = chrome.load_geometry(folder)
+    maximized = geometry.pop("maximized", False)
+    state = {"maximized": maximized}
     try:
-        webview.create_window(TITLE, url, width=1600, height=960, min_size=(1000, 700))
-        webview.start()
+        window = webview.create_window(TITLE, url, min_size=chrome.MIN_SIZE, background_color=chrome.BACKGROUND,
+                                       maximized=maximized, **geometry)
+        _watch_window(window, chrome, folder, state)
+        icon = app_icon()
+        webview.start(icon=str(icon) if icon else None)
     except Exception:  # noqa: BLE001 - any failure to show a window means: use the browser
         log.exception("could not open the app window")
         return False
     return True
+
+
+def app_icon() -> Path | None:
+    """The window's icon: bundled next to the app when installed, packaging/app.ico in a checkout."""
+    for path in (RESOURCE_ROOT / "app.ico", RESOURCE_ROOT / "packaging" / "app.ico"):
+        if path.is_file():
+            return path
+    return None
+
+
+def _watch_window(window, chrome, folder: Path, state: dict) -> None:
+    """Style the title bar once the window exists; remember its size and position when it closes. Best effort."""
+    events = getattr(window, "events", None)
+    if events is None:
+        return
+
+    def shown() -> None:
+        try:
+            if (hwnd := chrome.find_window(TITLE)) is not None:
+                chrome.style_window(hwnd)
+        except Exception:  # noqa: BLE001 - looks only
+            log.exception("couldn't style the window")
+
+    def closing() -> None:
+        try:
+            chrome.save_geometry(folder, window.width, window.height, window.x, window.y, state["maximized"])
+        except Exception:  # noqa: BLE001
+            log.exception("couldn't read the window's size")
+
+    events.shown += shown
+    events.closing += closing
+    events.maximized += lambda: state.update(maximized=True)
+    events.restored += lambda: state.update(maximized=False)
 
 
 def log_to_file_if_windowless(folder: Path) -> Path | None:
