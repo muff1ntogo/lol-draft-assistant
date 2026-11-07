@@ -27,6 +27,7 @@ from draftassist.api.learning_routes import router as learning_router
 from draftassist.api.live import LiveHub, LiveService
 from draftassist.api.pool_routes import router as pool_router
 from draftassist.api.settings_routes import router as settings_router
+from draftassist.api.scout_routes import router as scout_router
 from draftassist.api.synergy_routes import router as synergy_router
 from draftassist.config import DATA_ROOT, RESOURCE_ROOT, Settings, ensure_user_files, load_settings
 from draftassist.data import ddragon
@@ -85,6 +86,18 @@ class Services:
             self.live.logger.pin_provider = lambda: self.pinned
     _synergy_v2: object | None = None  # built lazily, dropped on reload and after tag / rule edits
     _synergy_pending: object | None = None  # a rebuilt evaluator waiting for the draft to end
+    scout_runner_override: object | None = None  # tests: a ScoutRunner with a fake Riot client
+    _scout_runner: object | None = None
+
+    def scouting(self):
+        """Enemy scouting in the background (docs/enemy-scouting.md). Fetches nothing without a Riot API key."""
+        if self.scout_runner_override is not None:
+            return self.scout_runner_override
+        if self._scout_runner is None:
+            from draftassist.data.scout import ScoutRunner
+
+            self._scout_runner = ScoutRunner(self.db, self.make_riot())
+        return self._scout_runner
 
     def synergy_v2(self):
         """The synergy v2 evaluator (Stat / Style / Team), warmed for our pools: the one the engine scores
@@ -422,7 +435,7 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
     async def live_ws(ws: WebSocket) -> None:
         await ws.app.state.services.hub.serve(ws)
 
-    for router in (pool_router, settings_router, synergy_router, learning_router, history_router):
+    for router in (pool_router, settings_router, synergy_router, learning_router, history_router, scout_router):
         app.include_router(router)
 
     if (web_dist / "index.html").is_file():

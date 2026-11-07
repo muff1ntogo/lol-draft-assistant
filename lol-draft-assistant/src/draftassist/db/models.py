@@ -359,6 +359,31 @@ class PlayerGame(SQLModel, table=True):
     source: str  # match-v5 | logged
 
 
+class ScoutPlayer(SQLModel, table=True):
+    """An enemy player we've scouted (docs/enemy-scouting.md). Local only: holds a PUUID, never committed."""
+    __tablename__ = "scout_players"
+
+    riot_id: str = Field(primary_key=True)  # "Name#TAG", as typed or as the client gave it; matched case-insensitively
+    api_puuid: str | None = None  # None: no such account
+    mastery_json: str | None = None  # JSON: [[champ_id, points], ...], highest first
+    status: str = "new"  # new | mastery (pool from mastery only) | games (history being read) | done | missing | error
+    games_wanted: int = 0  # match ids found for the window
+    fetched_at: float = 0.0  # epoch seconds, when the last fetch finished or started
+
+
+class ScoutGame(SQLModel, table=True):
+    """One of a scouted player's recent ranked games."""
+    __tablename__ = "scout_games"
+
+    api_puuid: str = Field(primary_key=True)
+    match_id: str = Field(primary_key=True)
+    champ_id: int
+    role: str | None
+    win: bool
+    queue_id: int | None = None
+    game_start_ms: int
+
+
 class ChampionTraitRow(SQLModel, table=True):
     """Measured traits per champion and role over the synergy window (docs/synergy-v2.md, Stage 1).
     Percentiles within the role (0-1), except the damage shares (real shares) and ranged (0/1).

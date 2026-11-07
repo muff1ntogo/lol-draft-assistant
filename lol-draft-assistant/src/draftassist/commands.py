@@ -26,6 +26,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "coverage": ("draftassist.data.coverage", "crawl coverage and the state model's calibration"),
     "backfill": ("draftassist.data.backfill", "damage, game length and traits from the Riot cache"),
     "pools": ("draftassist.data.pools", "import pools from a file: pools import pools.txt"),
+    "scout-check": ("draftassist.data.scout", "which enemy identity fields recorded champ selects carry, per queue"),
 }
 IMPORT = "import-data"
 DATABASES = ("data/draftassist.sqlite", "data/master.sqlite")

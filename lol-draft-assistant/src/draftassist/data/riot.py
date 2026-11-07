@@ -222,6 +222,11 @@ class RiotClient:
         """The minute-by-minute frames of a match, about 800 KB each: not cached (data/timelines.py)."""
         return self.get(REGION, match_path(match_id) + "/timeline", cache_body=False)
 
+    def mastery_top(self, puuid: str, count: int = 20) -> list[dict]:
+        """A player's highest-mastery champions (champion-mastery-v4), refreshed daily."""
+        path = f"/lol/champion-mastery/v4/champion-masteries/by-puuid/{puuid}/top"
+        return self.get(PLATFORM, path, {"count": count}, ttl=DAY) or []
+
     def account_puuid(self, riot_id: str) -> str | None:
         """'Name#TAG' -> PUUID (account-v1), None if no such account."""
         from urllib.parse import quote
