@@ -434,8 +434,21 @@ class DraftEngine:
     def _evaluate(self, state: DraftState) -> Evaluation:
         ours, theirs = state.our_picks, state.their_picks
         _, our_roles = self._assign(US, tuple(ours))
-        _, their_roles = self._assign(THEM, tuple(theirs))
+        fixed = self._their_positions(state)
+        rest = tuple(c for c in theirs if c not in fixed)
+        free = tuple(r for r in ROLES if r not in fixed.values())
+        their_roles = {**fixed, **(self._assign(THEM, rest, free)[1] if rest else {})}
         return Evaluation(self._terms(ours, our_roles, theirs, their_roles), our_roles, their_roles)
+
+    @staticmethod
+    def _their_positions(state: DraftState) -> dict[int, str]:
+        """Their locked picks whose role the client gave (Ranked 5s shows the enemy's positions): champion -> role.
+        The rest are guessed from how likely each champion is in each role (docs/enemy-scouting.md, Stage D)."""
+        picks, out = set(state.their_picks), {}
+        for champ, role in state.their_positions:
+            if champ in picks and role in ROLES and role not in out.values() and champ not in out:
+                out[champ] = role
+        return out
 
     # ---------- public: evaluation ----------
     def evaluate(self, state: DraftState) -> Evaluation:
@@ -463,13 +476,16 @@ class DraftEngine:
     def role_filled_probs(self, state: DraftState) -> dict[str, float]:
         """P(enemy role r is filled), from a softmax over every assignment of their revealed picks
         scored by sum of log P(champ played in role). A 60/40 flex pick fills mid 60%, jungle 40%."""
-        theirs = state.their_picks
+        fixed = self._their_positions(state)
         filled = dict.fromkeys(ROLES, 0.0)
+        for r in fixed.values():  # the client said which role these are: certain
+            filled[r] = 1.0
+        theirs = [c for c in state.their_picks if c not in fixed]
         if not theirs:
             return filled
         floor = self.cfg.role_share_floor
         scored = []
-        for perm in permutations(ROLES, len(theirs)):
+        for perm in permutations([r for r in ROLES if r not in fixed.values()], len(theirs)):
             s = sum(math.log(max(self._role_shares.get(c, {}).get(r, 0.0), floor)) for c, r in zip(theirs, perm))
             scored.append((s, perm))
         top = max(s for s, _ in scored)

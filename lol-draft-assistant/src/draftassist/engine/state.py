@@ -23,6 +23,8 @@ class DraftState:
     provisional: frozenset[int] = frozenset()
     # What the enemy players actually play (docs/enemy-scouting.md); None: the bracket's meta alone
     scouting: EnemyScouting | None = None
+    # Their picks' roles as the client gives them (Ranked 5s): (champion, role); others are guessed
+    their_positions: tuple[tuple[int, str], ...] = ()
 
     def __post_init__(self) -> None:
         if len(self.actions) > len(self.format):
@@ -88,4 +90,5 @@ class DraftState:
         if champ != SKIPPED and champ in self.unavailable():
             raise ValueError(f"champion {champ} is already banned or picked")
         # hovers and provisional bans are per-event; scouting stays for the whole draft
-        return DraftState(self.format, self.our_side, self.actions + (champ,), scouting=self.scouting)
+        return DraftState(self.format, self.our_side, self.actions + (champ,), scouting=self.scouting,
+                          their_positions=self.their_positions)

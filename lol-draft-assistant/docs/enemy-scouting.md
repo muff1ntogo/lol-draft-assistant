@@ -68,6 +68,8 @@ Built in stages, tests first, each stopped for review.
 12. **Follow-up: the enemy's roles ignore the client's positions.** The engine assigns their picks to roles by how
     likely each champion is there, so an off-role pick (a toplaner on Ezreal) can mark the wrong role as filled, and
     scouting then drops the wrong player's pool. Ranked 5s gives `assignedPosition` for the enemy: using it in the
-    engine's role assignment would fix this. Seen in the Stage C replay check; not changed here.
+    engine's role assignment would fix this. Seen in the Stage C replay check. **Done in Stage D (user, 7 Nov 2026):**
+    `DraftState.their_positions` carries the client's positions for their locked picks; the engine fixes those roles
+    (certain in `role_filled_probs`) and guesses only the rest. Without positions (Flex) nothing changes.
 9. **Ban reasons name the player (Stage B):** "Their top laner (Name): 20 games, 70% · Our top's best answer is -2.8pp",
    or "mastery #1" without games. The rest of the line is the reason it had before.

@@ -221,7 +221,8 @@ def parse_session(session: dict, format_name: str = "auto",
     timer = _req(session, "timer", "session")
     left = timer.get("adjustedTimeLeftInPhase")
     return LiveDraft(
-        state=DraftState(fmt, our_side, tuple(steps), hovers),
+        state=DraftState(fmt, our_side, tuple(steps), hovers,
+                         their_positions=tuple((s.champ_id, s.role) for s in their_slots if s.champ_id and s.role)),
         our_slots=our_slots,
         their_slots=their_slots,
         timer_phase=_req(timer, "phase", "timer"),
