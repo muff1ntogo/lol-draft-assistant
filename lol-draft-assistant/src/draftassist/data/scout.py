@@ -15,7 +15,7 @@ import re
 import threading
 import time
 from collections import Counter
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -25,6 +25,8 @@ from sqlmodel import Session, select
 from draftassist.data.crawler import POSITIONS
 from draftassist.data.riot import RiotAuthError
 from draftassist.db.models import ScoutGame, ScoutPlayer
+from draftassist.engine.model import ROLES
+from draftassist.engine.scouting import SCOUT_WEIGHT, EnemyScouting, ScoutedPlayer
 
 log = logging.getLogger(__name__)
 
@@ -104,6 +106,39 @@ def load_pools(db: Engine, riot_ids: Iterable[str], now: float | None = None) ->
             mastery = tuple((int(c), int(pts)) for c, pts in json.loads(p.mastery_json or "[]"))
             out[rid] = PlayerPool(p.riot_id, p.status, games, mastery, p.games_wanted)
     return out
+
+
+def assign_roles(pools: Mapping[str, PlayerPool], given: Mapping[str, str | None]) -> dict[str, str]:
+    """Riot ID -> the role we take them to play: the client's position when it gives one, else their most played free
+    role (players with the most games choose first). A player with no games and no position gets none."""
+    roles = {rid: r for rid, r in given.items() if r in ROLES}
+    taken = set(roles.values())
+    rest = sorted((rid for rid in pools if rid not in roles), key=lambda rid: -pools[rid].games_read)
+    for rid in rest:
+        by_games = sorted(pools[rid].games.items(), key=lambda kv: -sum(g for g, _ in kv[1].values()))
+        role = next((r for r, _ in by_games if r not in taken), None)
+        if role is not None:
+            roles[rid] = role
+            taken.add(role)
+    return roles
+
+
+def build_scouting(pools: Mapping[str, PlayerPool], given_roles: Mapping[str, str | None],
+                   weight: float = SCOUT_WEIGHT) -> EnemyScouting | None:
+    """What the engine reads (engine/scouting.py), or None if nobody has anything to go on yet."""
+    roles = assign_roles(pools, given_roles)
+    players = []
+    for rid, role in roles.items():
+        pool = pools.get(rid)
+        if pool is None or (not pool.games and not pool.mastery):
+            continue
+        any_role: dict[int, int] = {}
+        for champs in pool.games.values():
+            for c, (g, _) in champs.items():
+                any_role[c] = any_role.get(c, 0) + g
+        games = tuple(sorted(((c, g, w) for c, (g, w) in pool.games.get(role, {}).items()), key=lambda t: (-t[1], t[0])))
+        players.append(ScoutedPlayer(rid.split("#")[0], role, games, tuple(sorted(any_role.items())), pool.mastery))
+    return EnemyScouting(tuple(players), weight) if players else None
 
 
 # ---------- fetching ----------

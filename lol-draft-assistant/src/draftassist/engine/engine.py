@@ -21,6 +21,7 @@ from itertools import combinations, permutations
 from draftassist.engine.bot_lane import PARTNER_TIER_WEIGHT, BotLaneData
 from draftassist.engine.comp import STYLE_LABELS, STYLE_SHARE, STYLES, team_comp
 from draftassist.engine.guards import validate_suggestions
+from draftassist.engine.scouting import ScoutedLaneData
 from draftassist.engine.lane_ban import (
     BracketLaneData,
     RoleBanTable,
@@ -112,6 +113,7 @@ class Suggestion:
     discount: float | None = None  # ban: 1 - P(enemy team bans it too) in blind bans, else 1
     comp_fit: float = 0.0  # pick: comp coherence term (log-odds, damped), included in value but not win_prob
     plan: bool = False  # a pinned plan's bonus applied (docs/synergy-v2.md, Stage 6)
+    scout_role: str | None = None  # ban: in this enemy player's pool (docs/enemy-scouting.md)
 
 
 @dataclass(frozen=True)
@@ -508,6 +510,9 @@ class DraftEngine:
                 exps = {c: math.exp(v - top) for c, v in vals.items()}
                 z = sum(exps.values())
                 per_role[r] = {c: e / z for c, e in exps.items()}
+                if state.scouting is not None:  # blended with what their player in r plays
+                    allowed = [c for c in self._champs if c not in unavailable]
+                    per_role[r] = state.scouting.blend(r, per_role[r], self._role_shares, allowed)
         out: dict[int, dict[str, float]] = {}
         for r, probs in per_role.items():
             for c, p in probs.items():
@@ -537,6 +542,8 @@ class DraftEngine:
         their_filled = set(ev.their_roles.values())
         unavailable = state.unavailable()
         data = self.resp_data(unavailable, our_by_role, {r: c for c, r in ev.their_roles.items()})
+        if state.scouting is not None:  # their players' own pools in the opponent weights (docs/enemy-scouting.md)
+            data = ScoutedLaneData(data, state.scouting, self._role_shares)
         return {
             r: role_ban_table(
                 data, r,
@@ -627,7 +634,7 @@ class DraftEngine:
                 continue
             rp = role_probs.get(c, {})
             p = sum(rp.values())
-            threat = sum(share * logit(enemy.role_stat(c, r).win_rate) for r, share in role_shares.get(c, {}).items())
+            threat = sum(share * logit(self._threat_wr(enemy, c, r)) for r, share in role_shares.get(c, {}).items())
             matchup = cfg.lane_ban.pp_to_logodds * team_lane.get(c, 0.0)
             comp, comp_target, comp_wr, comp_best = 0.0, None, 0.5, 0.0
             for o, r in locked:
@@ -667,6 +674,14 @@ class DraftEngine:
         out.sort(key=lambda b: (-b.value, b.champ_id))
         self._last_tables = tables
         return out
+
+    @staticmethod
+    def _threat_wr(enemy: BracketStats, champ: int, role: str) -> float:
+        """X's win rate in the role; a scouted off-meta pick (no stats there) uses its most played role's, else 50%."""
+        if (stat := enemy.role_stat(champ, role)) is not None:
+            return stat.win_rate
+        stats = [s for r in ROLES if (s := enemy.role_stat(champ, r)) is not None]
+        return max(stats, key=lambda s: s.pick_rate).win_rate if stats else 0.5
 
     def _own_best_two(self, state: DraftState, ev: Evaluation,
                       planned: set[str] = frozenset()) -> dict[str, list[tuple[float, int]]]:
@@ -768,10 +783,35 @@ class DraftEngine:
         warnings = (f"⚠ hovered by {ROLE_LABELS.get(hover, 'a teammate')}",) if hover is not None else ()
         if b.own_loss > 0 and b.own_role:
             warnings += (f"⚠ our {_role_noun(b.own_role, possessive=True)} best pick",)
-        return Suggestion(b.champ_id, self.data.name(b.champ_id), "ban", b.value, self._ban_reason(b, tables),
+        reason, scout = self._ban_reason(b, tables), None
+        if state.scouting is not None:
+            open_roles = [r for r in ROLES if r not in self._evaluate(state).their_roles.values()]
+            if (owner := state.scouting.owner(b.champ_id, open_roles)) is not None:
+                scout = owner.role
+                reason = f"{self._scout_note(owner, b.champ_id)} · {reason}"
+        return Suggestion(b.champ_id, self.data.name(b.champ_id), "ban", b.value, reason,
                           role=b.likely_role, enemy_prob=b.enemy_prob, relevance=b.relevance, warnings=warnings,
                           threat=b.threat, matchup=b.matchup, comp=b.comp, discount=b.discount, own_loss=b.own_loss,
-                          plan=plan)
+                          plan=plan, scout_role=scout)
+
+    def _scout_note(self, player, champ: int) -> str:
+        """Why it's in their pool: "Their top (Name): 12 games, 58%" or "Their top (Name): mastery #1"."""
+        who = f"Their {_role_noun(player.role)} ({player.name})"
+        games, wins = player.record(champ)
+        if games:
+            return f"{who}: {games} game{'s' if games != 1 else ''}, {round(100 * wins / games)}%"
+        rank = player.mastery_rank(champ)
+        return f"{who}: mastery #{rank}" if rank else f"{who} plays it"
+
+    def suggest_bans_scouted(self, state: DraftState, n_pool: int, n_off: int,
+                             bonus: dict[int, float] | None = None,
+                             exclude: frozenset[int] = frozenset()) -> tuple[list[Suggestion], list[Suggestion]]:
+        """Bans split by the enemy players' pools (user, 7 Nov 2026): the best `n_pool` from their pools, then the best
+        `n_off` from outside them. Short on pool bans, the off-pool list fills the gap, so the count stays the same."""
+        ranked = [s for s in self.suggest_bans(state, k=len(self._champs), bonus=bonus) if s.champ_id not in exclude]
+        pool = [s for s in ranked if s.scout_role is not None][:n_pool]
+        off = [s for s in ranked if s.scout_role is None][:n_off + n_pool - len(pool)]
+        return pool, off
 
     def _ban_reason(self, b: BanCandidate, tables: dict[str, RoleBanTable]) -> str:
         """One line from the largest positive weighted component."""

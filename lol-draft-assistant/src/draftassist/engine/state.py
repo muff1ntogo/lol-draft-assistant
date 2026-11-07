@@ -1,9 +1,13 @@
 """Immutable draft state: a format, our side, and the champion chosen at each completed step."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
 
 from draftassist.engine.formats import DraftFormat, Side, Step
+
+if TYPE_CHECKING:
+    from draftassist.engine.scouting import EnemyScouting
 
 SKIPPED = 0  # LCU reports a skipped ban as championId 0
 
@@ -17,6 +21,8 @@ class DraftState:
     hovers: tuple[tuple[int, str], ...] = ()
     # Bans assumed for scoring only: a group ban set being chosen greedily, or teammates' ban hovers.
     provisional: frozenset[int] = frozenset()
+    # What the enemy players actually play (docs/enemy-scouting.md); None: the bracket's meta alone
+    scouting: EnemyScouting | None = None
 
     def __post_init__(self) -> None:
         if len(self.actions) > len(self.format):
@@ -63,7 +69,7 @@ class DraftState:
         return frozenset(c for c in self.actions if c != SKIPPED) | self.provisional
 
     def with_provisional(self, champs) -> DraftState:
-        return DraftState(self.format, self.our_side, self.actions, self.hovers, self.provisional | frozenset(champs))
+        return replace(self, provisional=self.provisional | frozenset(champs))
 
     def hovered_by(self, champ: int) -> str | None:
         return next((role for c, role in self.hovers if c == champ), None)
@@ -81,4 +87,5 @@ class DraftState:
             raise ValueError("only a ban can be skipped")
         if champ != SKIPPED and champ in self.unavailable():
             raise ValueError(f"champion {champ} is already banned or picked")
-        return DraftState(self.format, self.our_side, self.actions + (champ,))  # hovers are per-event
+        # hovers and provisional bans are per-event; scouting stays for the whole draft
+        return DraftState(self.format, self.our_side, self.actions + (champ,), scouting=self.scouting)

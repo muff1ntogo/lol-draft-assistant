@@ -48,3 +48,17 @@ Built in stages, tests first, each stopped for review.
 3. **One background batch at a time (Stage A).** Scouting runs in the app's process with its own rate limiter. A crawl
    running at the same time in another process shares the key's limits, so both may slow down and wait on 429s;
    `RiotClient` already waits them out.
+4. **Ban cards split by their pools (user, 7 Nov 2026).** Bans 1–3: the 5 best bans from the enemy players' pools, then
+   the 2 best from outside them. Bans 4–5: 3 from their pools, then 1 from outside. Short on pool bans, the outside list
+   fills the gap, so the count stays the same. Both lists still need a positive ban value (ban-guardrails.md Rule 3).
+   Flex's simultaneous bans are unchanged (no scouting there).
+5. **"In their pool" (Stage B):** 2+ recent games on it in any role, or one of their top 3 mastery champions, for a
+   player whose role the enemy hasn't filled yet. When two players have it, the one with more games owns it.
+6. **The blend's confidence (Stage B):** s = 0.6 x n / (n + 5) for n games in the role, so 5 games give 0.3, 20 give
+   0.48; mastery alone counts as 5 games, spread over the champions the meta plays at least 10% in that role.
+7. **Their roles without the client's positions (Stage B):** the player with the most games picks their most played role
+   first, and so on; a player with no games and no position isn't placed.
+8. **An off-meta pick in their pool (Stage B)** has no stats in that role: its Threat uses its most played role's win
+   rate, else 50%. Found when the first scouted run crashed on it.
+9. **Ban reasons name the player (Stage B):** "Their top laner (Name): 20 games, 70% · Our top's best answer is -2.8pp",
+   or "mastery #1" without games. The rest of the line is the reason it had before.
