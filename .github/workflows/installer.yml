@@ -1,4 +1,4 @@
-# Builds the Windows installer (lol-draft-assistant/packaging/build-installer.ps1) and keeps it as a downloadable artifact.
+# Builds the Windows installer (packaging/build-installer.ps1) and keeps it as a downloadable artifact.
 # Runs when the packaging changes, on a v* tag, or by hand (Actions tab > Windows installer > Run workflow).
 name: Windows installer
 
@@ -8,7 +8,7 @@ on:
     branches: ["**"]
     tags: ["v*"]  # path filters don't apply to tags: every v* tag builds
     paths:
-      - "lol-draft-assistant/packaging/**"
+      - "packaging/**"
       - ".github/workflows/installer.yml"
 
 permissions:
@@ -20,7 +20,6 @@ jobs:
     defaults:
       run:
         shell: pwsh
-        working-directory: lol-draft-assistant
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -28,7 +27,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: lol-draft-assistant/web/package-lock.json
+          cache-dependency-path: web/package-lock.json
       - name: Inno Setup
         run: |
           if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
@@ -42,5 +41,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: DraftAssistant-Setup
-          path: lol-draft-assistant/packaging/Output/*.exe
+          path: packaging/Output/*.exe
           if-no-files-found: error

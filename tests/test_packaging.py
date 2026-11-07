@@ -18,7 +18,7 @@ PACKAGING = PROJECT_ROOT / "packaging"
 SPEC = (PACKAGING / "DraftAssistant.spec").read_text(encoding="utf-8")
 ISS = (PACKAGING / "DraftAssistant.iss").read_text(encoding="utf-8")
 BUILD = (PACKAGING / "build-installer.ps1").read_text(encoding="utf-8")
-WORKFLOW = PROJECT_ROOT.parent / ".github" / "workflows" / "installer.yml"
+WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "installer.yml"
 
 
 def bundled() -> list[str]:
@@ -65,8 +65,8 @@ def test_the_build_script_runs_the_recipe_and_the_installer():
 def test_the_workflow_builds_with_the_script():
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "./packaging/build-installer.ps1" in text and "runs-on: windows-latest" in text
-    for path in re.findall(r'- "(lol-draft-assistant/[^"*]+)', text):
-        assert (PROJECT_ROOT.parent / path).exists(), path
+    for path in re.findall(r'^\s+- "([^"*]+)', text, re.MULTILINE):
+        assert (PROJECT_ROOT / path).exists(), path
 
 
 # ---------- the real build (opt in) ----------

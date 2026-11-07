@@ -14,6 +14,14 @@ Personal, local pick/ban assistant for one 5-stack on EUW. Read `docs/SPEC.md` b
 - Respect Riot API rate limits: one shared rate limiter, cache every response on disk.
 - Never commit the database (`data/*.sqlite*`, including the WAL files), raw LCU recordings (`fixtures/lcu/recorded/`) or `tests/screenshots/`: they contain real player names and PUUIDs. To keep a recording as a fixture, run it through `lcu/recorder.sanitize_session` and check no identity value survives.
 
+## Moved to the repo root (7 Nov 2026)
+The project used to sit one folder down (`lol-draft-assistant/lol-draft-assistant/`); it's now the repo root. A pull
+moves the tracked files, but the local ones stay in the old subfolder: `.env`, `data/*.sqlite*`, `cache/`,
+`fixtures/lcu/recorded/`, `tests/screenshots/`, `.venv/`, `web/node_modules/`. Either move the first five up a level (then
+`uv sync` and `cd web; npm ci; npm run build`), or install the app and run `draftassist-cli import-data <old subfolder>`
+(the installer offers this). The Desktop shortcut to the old `.venv` stops working; the installer makes a new one.
+`.gitignore` ignores the old subfolder.
+
 ## Environment
 - Windows (the League client only runs there). Python 3.12 managed with `uv`; web UI is Vite + Svelte 5 in `web/` (FastAPI serves `web/dist`).
 - Run tests: `uv run pytest` (~1,250 tests, ~180 s; the fuzz test and the planted-data fits are the slow part). Tests run with `DRAFTASSIST_STRICT=1`, so suggestion guard violations raise.

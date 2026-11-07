@@ -1,2 +1,32 @@
-# Playwright MCP page snapshots (contain player names)
+# Secrets and local data: never committed (CLAUDE.md, hard rules)
+.env
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.db
+cache/
+
+# LCU recordings contain player names and PUUIDs
+fixtures/lcu/recorded/
+
+# Visual review screenshots and Playwright MCP page snapshots can show real player names: kept local
+tests/screenshots/
 .playwright-mcp/
+
+# Python and Node
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+node_modules/
+web/dist/
+
+# PyInstaller and Inno Setup output (packaging/README.md)
+build/
+dist/
+packaging/Output/
+
+# A checkout from before 7 Nov 2026 kept the project one folder down: its local files may still be there
+lol-draft-assistant/
