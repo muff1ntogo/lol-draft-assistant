@@ -171,6 +171,12 @@
       {/if}
     </p>
     {#if updateMessage}<p class="muted">{updateMessage}</p>{/if}
+    {#if appSetup?.window?.build}
+      <p class="muted">
+        Window: {appSetup.window.dark ? 'dark title bar on' : appSetup.window.handle === false ? 'not found to style' : appSetup.window.when ? 'Windows refused the dark title bar' : 'not styled yet'}
+        (Windows {appSetup.window.build >= 22000 ? '11' : '10'}, build {appSetup.window.build}{appSetup.window.colours ? '' : ': the title bar colour and rounded corners are Windows 11 only'}).
+      </p>
+    {/if}
   </section>
 
   <section>

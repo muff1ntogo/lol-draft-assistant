@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Body, HTTPException, Query, Request
 
 from draftassist.api.deps import db_of
-from draftassist.data.scout import load_pools, parse_riot_ids
+from draftassist.data.scout import assign_roles, load_pools, parse_riot_ids, scout_summary
 
 if TYPE_CHECKING:
     from draftassist.api.main import Services
@@ -14,27 +14,19 @@ if TYPE_CHECKING:
 router = APIRouter()
 
 
-def _by_ids(svc: Services, riot_ids: list[str]) -> dict:
+def _payload(svc: Services, riot_ids: list[str], source: str | None, given: dict | None = None) -> dict:
+    """The same summary Live shows (data/scout.scout_summary), for any list of Riot IDs."""
     runner = svc.scouting()
     pools = load_pools(db_of(svc), riot_ids)
-    card = svc.catalog.card
-    players = []
-    for rid in riot_ids:
-        pool = pools.get(rid)
-        entry = pool.as_dict() if pool else {"riot_id": rid, "status": "new", "games_read": 0, "games_wanted": 0,
-                                            "main_role": None, "games": {}, "mastery": []}
-        entry["top"] = [{"champ": card(c), "points": p} for c, p in (pool.mastery[:3] if pool else ())]
-        players.append(entry)
-    return {"available": runner.available, "running": runner.running, "error": runner.last_error, "players": players}
+    players = scout_summary(riot_ids, pools, assign_roles(pools, given or dict.fromkeys(riot_ids)), svc.catalog.card)
+    return {"source": source, "available": runner.available, "running": runner.running, "error": runner.last_error,
+            "players": players}
 
 
 def _current(svc: Services) -> dict:
     """The opponents Live scouts now: the client's, else the pasted ones."""
-    ids, _, source = svc.opponents()
-    _, info = svc.scout_info()
-    runner = svc.scouting()
-    return info or {"source": source, "available": runner.available, "running": runner.running,
-                    "error": runner.last_error, "players": [], "riot_ids": ids}
+    ids, given, source = svc.opponents()
+    return _payload(svc, ids, source, given)
 
 
 @router.post("/api/scout")
@@ -61,7 +53,7 @@ def delete_scout(request: Request) -> dict:
 
 
 @router.get("/api/scout")
-def get_scout(request: Request, ids: list[str] = Query(default=[])) -> dict:
+def get_scout(request: Request, ids: list[str] = Query(default=[])) -> dict:  # noqa: B008 - FastAPI's own idiom
     """With `ids`: those players. Without: the current game's opponents."""
     svc: Services = request.app.state.services
-    return _by_ids(svc, ids) if ids else _current(svc)
+    return _payload(svc, ids, None) if ids else _current(svc)

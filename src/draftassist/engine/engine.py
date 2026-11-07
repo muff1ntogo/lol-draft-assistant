@@ -755,7 +755,8 @@ class DraftEngine:
         declared = self._declared_intents(state)
         cands = [b for b in self._with_bonus(self._ban_candidates(state), bonus)
                  if b.value > 0 and b.champ_id not in declared]
-        out = [self._ban_suggestion(state, b, self._last_tables, plan=b.champ_id in (bonus or {}))
+        open_roles = self._open_enemy_roles(state) if state.scouting is not None else None
+        out = [self._ban_suggestion(state, b, self._last_tables, plan=b.champ_id in (bonus or {}), open_roles=open_roles)
                for b in cands[:k]]
         return validate_suggestions(state, "ban", out, self.cfg.min_ban_relevance,
                                     forbidden=declared)
@@ -793,18 +794,25 @@ class DraftEngine:
         assigned: dict[int, Suggestion] = {slot: s for (s, _), slot in zip(kept, best_perm or ())}
         return [(owners[i], assigned.get(i)) for i in slots]
 
+    def _open_enemy_roles(self, state: DraftState) -> list[str]:
+        return [r for r in ROLES if r not in self._evaluate(state).their_roles.values()]
+
+    def _scout_owner(self, state: DraftState, champ: int, open_roles: list[str] | None = None):
+        """The enemy player whose pool holds `champ`, among the roles they haven't filled (docs/enemy-scouting.md)."""
+        if state.scouting is None:
+            return None
+        return state.scouting.owner(champ, self._open_enemy_roles(state) if open_roles is None else open_roles)
+
     def _ban_suggestion(self, state: DraftState, b: BanCandidate, tables: dict[str, RoleBanTable],
-                        plan: bool = False) -> Suggestion:
+                        plan: bool = False, open_roles: list[str] | None = None) -> Suggestion:
         hover = state.hovered_by(b.champ_id)
         warnings = (f"⚠ hovered by {ROLE_LABELS.get(hover, 'a teammate')}",) if hover is not None else ()
         if b.own_loss > 0 and b.own_role:
             warnings += (f"⚠ our {_role_noun(b.own_role, possessive=True)} best pick",)
         reason, scout = self._ban_reason(b, tables), None
-        if state.scouting is not None:
-            open_roles = [r for r in ROLES if r not in self._evaluate(state).their_roles.values()]
-            if (owner := state.scouting.owner(b.champ_id, open_roles)) is not None:
-                scout = owner.role
-                reason = f"{self._scout_note(owner, b.champ_id)} · {reason}"
+        if (owner := self._scout_owner(state, b.champ_id, open_roles)) is not None:
+            scout = owner.role
+            reason = f"{self._scout_note(owner, b.champ_id)} · {reason}"
         return Suggestion(b.champ_id, self.data.name(b.champ_id), "ban", b.value, reason,
                           role=b.likely_role, enemy_prob=b.enemy_prob, relevance=b.relevance, warnings=warnings,
                           threat=b.threat, matchup=b.matchup, comp=b.comp, discount=b.discount, own_loss=b.own_loss,
@@ -824,10 +832,22 @@ class DraftEngine:
                              exclude: frozenset[int] = frozenset()) -> tuple[list[Suggestion], list[Suggestion]]:
         """Bans split by the enemy players' pools (user, 7 Nov 2026): the best `n_pool` from their pools, then the best
         `n_off` from outside them. Short on pool bans, the off-pool list fills the gap, so the count stays the same."""
-        ranked = [s for s in self.suggest_bans(state, k=len(self._champs), bonus=bonus) if s.champ_id not in exclude]
-        pool = [s for s in ranked if s.scout_role is not None][:n_pool]
-        off = [s for s in ranked if s.scout_role is None][:n_off + n_pool - len(pool)]
-        return pool, off
+        declared = self._declared_intents(state)
+        open_roles = self._open_enemy_roles(state)
+        pool: list[BanCandidate] = []
+        off: list[BanCandidate] = []
+        for b in self._with_bonus(self._ban_candidates(state), bonus):  # best first
+            if b.value <= 0 or b.champ_id in declared or b.champ_id in exclude:
+                continue
+            (pool if self._scout_owner(state, b.champ_id, open_roles) is not None else off).append(b)
+            if len(pool) >= n_pool and len(off) >= n_off:
+                break
+        chosen = pool[:n_pool] + off[:n_off + n_pool - len(pool[:n_pool])]
+        # Suggestions (reasons, warnings) only for the few shown, then the same guardrails as every ban list
+        out = validate_suggestions(state, "ban", [self._ban_suggestion(state, b, self._last_tables, plan=b.champ_id in (bonus or {}),
+                                                                       open_roles=open_roles) for b in chosen],
+                                   self.cfg.min_ban_relevance, forbidden=declared)
+        return [s for s in out if s.scout_role is not None], [s for s in out if s.scout_role is None]
 
     def _ban_reason(self, b: BanCandidate, tables: dict[str, RoleBanTable]) -> str:
         """One line from the largest positive weighted component."""

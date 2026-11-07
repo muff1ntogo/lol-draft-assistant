@@ -85,7 +85,7 @@ class Services:
 
     def __post_init__(self) -> None:
         if self.db is not None:
-            self.live.scout_provider = self.scout_for_live
+            self.live.scout_provider = self.scout_info
             self.live.on_game_end = self.end_scouting
         if self.db is not None and self.pinned is None:
             self.pinned = load_pinned(self.db)
@@ -140,9 +140,6 @@ class Services:
         info = {"source": source, "available": runner.available, "running": runner.running, "error": runner.last_error,
                 "players": scout_summary(ids, pools, roles, self.catalog.card)}
         return scouting, info
-
-    def scout_for_live(self, live):
-        return self.scout_info(live)
 
     # ---------- first run and updates (src/draftassist/first_run.py, updates.py) ----------
     updater_override: object | None = None  # tests: an Updater with fakes

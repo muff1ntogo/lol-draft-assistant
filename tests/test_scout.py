@@ -90,7 +90,7 @@ def test_a_pool_has_games_per_role_and_mastery(engine):
     assert statuses == {"Alpha#EUW": "done"}
     pool = load_pools(engine, ["alpha#euw"], now=NOW)["alpha#euw"]  # Riot IDs match whatever the case
     assert pool.games == {"top": {100: (2, 2), 101: (2, 0)}}
-    assert pool.mastery[0] == (200, 5000) and pool.main_role == "top" and pool.games_read == 4 == pool.games_wanted
+    assert pool.mastery[0] == (200, 5000) and pool.games_read == 4 == pool.games_wanted
 
 
 def test_a_missing_account_is_marked_and_the_rest_go_on(engine):
@@ -176,8 +176,8 @@ def test_api(make_services, engine):
         wait(svc.scout_runner_override)
         body = client.get("/api/scout", params=[("ids", "Alpha#EUW"), ("ids", "Bravo#EUW")]).json()
     alpha = body["players"][0]
-    assert alpha["status"] == "done" and alpha["games_read"] == 2 and alpha["main_role"] == "top"
-    assert [t["points"] for t in alpha["top"]] == [5000, 4000, 3000]
+    assert alpha["status"] == "done" and alpha["games_read"] == 2 and alpha["role"] == "top"  # the same summary as Live's
+    assert [t["games"] for t in alpha["top"]] == [1, 1]  # their games in that role, once read
     with Session(engine) as s:
         assert len(s.exec(select(ScoutGame)).all()) == 4
 

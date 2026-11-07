@@ -117,7 +117,7 @@ class JobRunner:
                  clock: Callable[[], float] = time.time):
         self.folder = folder
         self._has_key, self._on_done, self._popen, self._frozen, self._clock = has_key, on_done, popen, frozen, clock
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()  # start() holds it while asking running()
         self._proc: subprocess.Popen | None = None
         self._stopping = False
         self.history: list[dict] = []
@@ -127,18 +127,19 @@ class JobRunner:
         return self.folder / "running.json"
 
     def running(self) -> dict | None:
-        """What runs now: started here, or still running from before the app was reopened."""
-        try:
-            info = json.loads(self._lockfile.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        """What runs now: started here, or still running from before the app was reopened. Under the lock, so a status
+        poll and a start can't both record the same finished run."""
+        with self._lock:
+            try:
+                info = json.loads(self._lockfile.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return None
+            if self._proc is not None:
+                return info if self._proc.poll() is None else None  # its own thread records the end
+            if pid_alive(int(info.get("pid", 0))):
+                return info
+            self._finish(info, None)  # it ended while the app was closed
             return None
-        if self._proc is not None and self._proc.poll() is None:
-            return info
-        if self._proc is None and pid_alive(int(info.get("pid", 0))):
-            return info
-        if self._proc is None:  # it ended while the app was closed
-            self._finish(info, None)
-        return None
 
     def start(self, job: str, hours: float | None = None) -> dict:
         if job not in JOBS:

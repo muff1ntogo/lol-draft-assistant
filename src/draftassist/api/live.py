@@ -368,17 +368,19 @@ def _center_our_ban(v: _View, n_cards: int) -> dict:
     """Ranked bans are simultaneous: show ours while any teammate is still banning, minus the champions
     teammates are already about to ban. Scouted (tournament draft): their pools' best bans first, then the rest's."""
     st, about_to_ban = v.st, v.live.ally_ban_hovers
+
+    def card(s: Suggestion, **extra) -> dict:
+        return {**_ban_card(v.catalog, s, v.hovered, v.engine.cfg.ban_weights, v.profiles), **extra}
+
     if st.scouting is not None and not st.format.simultaneous_bans:
         n_pool, n_off = SCOUTED_BAN_CARDS.get(st.step.phase, SCOUTED_BAN_CARDS[2])
         pool, off = v.engine.suggest_bans_scouted(st, n_pool, n_off, bonus=v.ban_bonus, exclude=about_to_ban)
-        cards = ([{**_ban_card(v.catalog, s, v.hovered, v.engine.cfg.ban_weights, v.profiles), "group": "pool"} for s in pool]
-                 + [{**_ban_card(v.catalog, s, v.hovered, v.engine.cfg.ban_weights, v.profiles), "group": "off"} for s in off])
-        return {"mode": "our_ban", "title": "BAN", "scouted": True, "cards": cards}
+        return {"mode": "our_ban", "title": "BAN", "scouted": True,
+                "cards": [card(s, group="pool") for s in pool] + [card(s, group="off") for s in off]}
     n = NARROW_CARDS if st.format.simultaneous_bans else n_cards  # Flex bans: unchanged
     bans = [s for s in v.engine.suggest_bans(st, k=n + len(about_to_ban), bonus=v.ban_bonus)
             if s.champ_id not in about_to_ban][:n]
-    return {"mode": "our_ban", "title": "BAN",
-            "cards": [_ban_card(v.catalog, s, v.hovered, v.engine.cfg.ban_weights, v.profiles) for s in bans]}
+    return {"mode": "our_ban", "title": "BAN", "cards": [card(s) for s in bans]}
 
 
 def _next_two(v: _View) -> list[dict]:

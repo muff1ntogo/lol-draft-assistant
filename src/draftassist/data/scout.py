@@ -71,17 +71,6 @@ class PlayerPool:
     def games_read(self) -> int:
         return sum(g for champs in self.games.values() for g, _ in champs.values())
 
-    @property
-    def main_role(self) -> str | None:
-        totals = {r: sum(g for g, _ in champs.values()) for r, champs in self.games.items()}
-        return max(totals, key=lambda r: (totals[r], r)) if totals else None
-
-    def as_dict(self) -> dict:
-        return {"riot_id": self.riot_id, "status": self.status, "games_read": self.games_read,
-                "games_wanted": self.games_wanted, "main_role": self.main_role,
-                "games": {r: {str(c): list(gw) for c, gw in champs.items()} for r, champs in self.games.items()},
-                "mastery": [list(m) for m in self.mastery]}
-
 
 def _find(s: Session, riot_id: str) -> ScoutPlayer | None:
     return s.exec(select(ScoutPlayer).where(func.lower(ScoutPlayer.riot_id) == riot_id.lower())).first()

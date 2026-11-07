@@ -70,6 +70,43 @@ def test_the_title_bar_is_repainted_at_once_keeping_its_focus():
     assert background.calls[-1] == ("msg", 42, chrome.WM_NCACTIVATE, 0, 0)  # not in front: stays inactive
 
 
+def test_pywebviews_own_title_bar_theme_is_replaced_by_ours(monkeypatch):
+    """It sets the title bar light from Windows' app theme at creation and on every preference change (Windows 10's
+    default is light apps), which undid ours."""
+    import types
+
+    class BrowserForm:
+        def update_title_bar_theme(self):
+            raise AssertionError("pywebview's own would run")
+
+    fake = types.ModuleType("webview.platforms.winforms")
+    fake.BrowserView = SimpleNamespace(BrowserForm=BrowserForm)
+    monkeypatch.setitem(sys.modules, "webview.platforms.winforms", fake)
+    import webview.platforms
+    monkeypatch.setattr(webview.platforms, "winforms", fake, raising=False)
+    applied = []
+    monkeypatch.setattr(chrome, "apply", lambda hwnd, when: applied.append((hwnd, when)))
+    assert chrome.take_over_pywebview_theme() is True
+
+    class Handle:
+        def ToInt64(self):
+            return 321
+
+    form = BrowserForm()
+    form.Handle = Handle()
+    form.update_title_bar_theme()
+    assert applied == [(321, "pywebview theme update")]
+
+
+def test_the_result_is_kept_for_settings(monkeypatch):
+    monkeypatch.setattr(chrome, "style_window", lambda hwnd: True)
+    monkeypatch.setattr(chrome, "windows_build", lambda: 19045)
+    assert chrome.apply(7, "shown") is True
+    status = chrome.window_status()
+    assert status["dark"] is True and status["build"] == 19045 and status["colours"] is False  # Windows 10
+    assert chrome.apply(None, "shown") is False and chrome.window_status()["handle"] is False
+
+
 def test_the_handle_comes_from_pywebviews_form():
     class IntPtr:
         def ToInt64(self):

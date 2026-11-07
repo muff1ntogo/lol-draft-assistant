@@ -76,6 +76,84 @@ def repaint_frame(hwnd: int, user32) -> None:
     user32.SendMessageW(hwnd, WM_NCACTIVATE, 1 if active else 0, 0)
 
 
+# What happened the last time the window was styled, for Settings and the log: Windows build, handle, dark mode taken
+LAST_RESULT: dict = {}
+
+
+def windows_build() -> int | None:
+    if sys.platform != "win32":
+        return None
+    try:
+        return sys.getwindowsversion().build  # type: ignore[attr-defined]
+    except AttributeError:
+        return None
+
+
+def apply(hwnd: int | None, when: str) -> bool:
+    """Style the window and remember how it went (window_status())."""
+    if hwnd is None:
+        LAST_RESULT.update(when=when, handle=False, dark=False)
+        return False
+    dark = style_window(hwnd)
+    LAST_RESULT.update(when=when, handle=True, dark=dark, build=windows_build())
+    log.info("window styled (%s): dark title bar %s on Windows build %s", when, "on" if dark else "refused",
+             LAST_RESULT["build"])
+    return dark
+
+
+def window_status() -> dict:
+    build = windows_build()
+    return {**LAST_RESULT, "build": build, "colours": bool(build and build >= 22000)}  # colours, corners: Windows 11
+
+
+def take_over_pywebview_theme() -> bool:
+    """pywebview's WinForms window sets the title bar light or dark from Windows' app theme, when it's created and on
+    every system preference change (which Windows 10 sends often), undoing ours: Windows 10's default is light apps.
+    Point that method at ours instead. False if pywebview's WinForms backend isn't there (not Windows, another version)."""
+    try:
+        from webview.platforms import winforms
+    except Exception:  # noqa: BLE001 - not on Windows, or its .NET runtime can't load: nothing to take over
+        return False
+    form = getattr(getattr(winforms, "BrowserView", None), "BrowserForm", None)
+    if form is None or not hasattr(form, "update_title_bar_theme"):
+        return False
+
+    def update_title_bar_theme(self) -> None:
+        try:
+            apply(int(self.Handle.ToInt64()), "pywebview theme update")
+        except Exception:  # noqa: BLE001 - looks only
+            log.exception("couldn't style the window")
+
+    try:
+        form.update_title_bar_theme = update_title_bar_theme
+    except Exception:  # noqa: BLE001 - a .NET-derived class may refuse it: reapply_after_preference_changes covers us
+        log.warning("couldn't take over pywebview's title bar theme")
+        return False
+    return True
+
+
+_HANDLERS: list = []  # kept alive: .NET holds only a weak hold on a Python delegate
+
+
+def reapply_after_preference_changes(get_handle) -> bool:
+    """Restyle after Windows' preference changes. Subscribed after pywebview's own handler, so ours runs last and wins
+    even if take_over_pywebview_theme couldn't replace it."""
+    try:
+        from Microsoft.Win32 import SystemEvents  # pythonnet, on Windows
+    except Exception:  # noqa: BLE001
+        return False
+
+    def handler(sender, args) -> None:
+        try:
+            apply(get_handle(), "preference change")
+        except Exception:  # noqa: BLE001
+            log.exception("couldn't style the window")
+
+    SystemEvents.UserPreferenceChanged += handler
+    _HANDLERS.append(handler)
+    return True
+
+
 def native_handle(window) -> int | None:
     """The window's handle from pywebview's WinForms form, without looking it up by title."""
     form = getattr(window, "native", None)

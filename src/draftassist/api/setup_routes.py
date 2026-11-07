@@ -17,8 +17,10 @@ IN_GAME = ("ChampSelect", "GameStart", "InProgress", "Reconnect", "WaitingForSta
 @router.get("/api/setup")
 def get_setup(request: Request) -> dict:
     svc: Services = request.app.state.services
+    from draftassist.window_chrome import window_status
+
     return {"riot_key_set": bool(svc.settings and svc.settings.has_riot_api_key), "bootstrap": svc.bootstrap,
-            "data_folder": str(DATA_ROOT)}
+            "data_folder": str(DATA_ROOT), "window": window_status()}
 
 
 @router.post("/api/setup/riot-key")

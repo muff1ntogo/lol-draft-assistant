@@ -72,6 +72,8 @@ def open_window(url: str) -> bool:
     geometry = chrome.load_geometry(folder)
     maximized = geometry.pop("maximized", False)
     state = {"maximized": maximized}
+    if sys.platform == "win32":
+        chrome.take_over_pywebview_theme()  # or it sets the title bar light again on Windows 10 (light apps by default)
     try:
         window = webview.create_window(TITLE, url, min_size=chrome.MIN_SIZE, background_color=chrome.BACKGROUND,
                                        maximized=maximized, **geometry)
@@ -98,19 +100,20 @@ def _watch_window(window, chrome, folder: Path, state: dict) -> None:
     if events is None:
         return
 
-    def style(handle) -> None:
+    def style(handle, when: str) -> None:
         try:
-            if (hwnd := handle()) is not None:
-                chrome.style_window(hwnd)
+            chrome.apply(handle(), when)
         except Exception:  # noqa: BLE001 - looks only
             log.exception("couldn't style the window")
 
     # before Windows first draws it (dark from the first frame), and again once it's shown in case that was too early
     def before_show() -> None:
-        style(lambda: chrome.native_handle(window))
+        style(lambda: chrome.native_handle(window), "before show")
+        if sys.platform == "win32":  # after pywebview's own subscription (made when the form was created): ours wins
+            chrome.reapply_after_preference_changes(lambda: chrome.native_handle(window))
 
     def shown() -> None:
-        style(lambda: chrome.native_handle(window) or chrome.find_window(TITLE))
+        style(lambda: chrome.native_handle(window) or chrome.find_window(TITLE), "shown")
 
     if hasattr(events, "before_show"):
         events.before_show += before_show
