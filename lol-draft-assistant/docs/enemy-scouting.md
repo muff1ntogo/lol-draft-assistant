@@ -60,5 +60,14 @@ Built in stages, tests first, each stopped for review.
    first, and so on; a player with no games and no position isn't placed.
 8. **An off-meta pick in their pool (Stage B)** has no stats in that role: its Threat uses its most played role's win
    rate, else 50%. Found when the first scouted run crashed on it.
+10. **Live scouts by itself (Stage C).** When the client gives the enemy's Riot IDs, each player is asked for once per
+    game (so a refresh never sets off another fetch); Live updates as their pools fill in. Pasted IDs are used only
+    when the client gives none, and are forgotten when the game ends. On by default; Settings has the switch and the
+    weight (0 to 1).
+11. **Never in demo mode (Stage C).** The demo's enemy names are made up and could belong to real players.
+12. **Follow-up: the enemy's roles ignore the client's positions.** The engine assigns their picks to roles by how
+    likely each champion is there, so an off-role pick (a toplaner on Ezreal) can mark the wrong role as filled, and
+    scouting then drops the wrong player's pool. Ranked 5s gives `assignedPosition` for the enemy: using it in the
+    engine's role assignment would fix this. Seen in the Stage C replay check; not changed here.
 9. **Ban reasons name the player (Stage B):** "Their top laner (Name): 20 games, 70% · Our top's best answer is -2.8pp",
    or "mastery #1" without games. The rest of the line is the reason it had before.

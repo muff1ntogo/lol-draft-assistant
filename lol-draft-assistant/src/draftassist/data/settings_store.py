@@ -9,6 +9,7 @@ from sqlmodel import Session
 
 from draftassist.db.models import AppSetting
 from draftassist.engine.model import ROLES, BanWeights, EngineConfig
+from draftassist.engine.scouting import SCOUT_WEIGHT
 
 BAN_KEY = "ban"
 BLIND_KEYS = ("comfort", "matchup", "synergy", "worst", "behind", "kit")  # engine/blind.py
@@ -65,7 +66,10 @@ def get_engine_settings(db: Engine) -> dict:
             "role_weight_override": dict(v.get("role_weight_override") or {}),
             "blind_weights": dict(v.get("blind_weights") or {}), "gate_tau": float(v.get("gate_tau", d.gate_tau)),
             "tree_patch_half_life": float(v.get("tree_patch_half_life", 0.0)),  # 0: every game counts the same
-            "execution_comfort": bool(v.get("execution_comfort", False))}  # Pools page lane hint (docs/draft-vs-execution.md, Stage 6)
+            "execution_comfort": bool(v.get("execution_comfort", False)),  # Pools page lane hint (docs/draft-vs-execution.md, Stage 6)
+            # enemy scouting (docs/enemy-scouting.md): on by default; the weight of their own pools at full confidence
+            "scout_enabled": bool(v.get("scout_enabled", True)),
+            "scout_weight": float(v.get("scout_weight", SCOUT_WEIGHT))}
 
 
 def save_engine_settings(db: Engine, alpha: float | None = None, beta: float | None = None,
@@ -74,7 +78,8 @@ def save_engine_settings(db: Engine, alpha: float | None = None, beta: float | N
                          comp_coherence: bool | None = None, comp_weight: float | None = None,
                          lane_weight: float | None = None, role_weight_override: dict | None = None,
                          blind_weights: dict | None = None, gate_tau: float | None = None,
-                         tree_patch_half_life: float | None = None, execution_comfort: bool | None = None) -> None:
+                         tree_patch_half_life: float | None = None, execution_comfort: bool | None = None,
+                         scout_enabled: bool | None = None, scout_weight: float | None = None) -> None:
     """Update only the values given; the others keep what was saved."""
     current = get_engine_settings(db)
     for name, value, hi in (("alpha", alpha, 5), ("beta", beta, 5)):
@@ -98,6 +103,8 @@ def save_engine_settings(db: Engine, alpha: float | None = None, beta: float | N
             raise ValueError(f"blind weight {name!r} must be one of {', '.join(BLIND_KEYS)}, between 0 and 5")
     if gate_tau is not None and not 0.05 <= gate_tau <= 5:
         raise ValueError("the comfort curve must be between 0.05 and 5")
+    if scout_weight is not None and not 0 <= scout_weight <= 1:
+        raise ValueError("the scouting weight must be between 0 and 1")
     if tree_patch_half_life and not 0.1 <= tree_patch_half_life <= 24:
         raise ValueError("the Matchup tree's half-life must be 0 (equal) or between 0.1 and 24 patches")
     merged ={"alpha": current["alpha"] if alpha is None else alpha,
@@ -108,7 +115,8 @@ def save_engine_settings(db: Engine, alpha: float | None = None, beta: float | N
                         ("comp_weight", comp_weight), ("lane_weight", lane_weight),
                         ("role_weight_override", role_weight_override), ("blind_weights", blind_weights),
                         ("gate_tau", gate_tau), ("tree_patch_half_life", tree_patch_half_life),
-                        ("execution_comfort", execution_comfort)):
+                        ("execution_comfort", execution_comfort), ("scout_enabled", scout_enabled),
+                        ("scout_weight", scout_weight)):
         merged[name] = current[name] if value is None else value
     with Session(db) as s:
         row = s.get(AppSetting, ENGINE_KEY) or AppSetting(key=ENGINE_KEY, value="{}")
@@ -152,6 +160,7 @@ def settings_payload(db: Engine) -> dict:
             "lane_weight": engine["lane_weight"], "role_weight_override": engine["role_weight_override"],
             "blind_weights": engine["blind_weights"], "gate_tau": engine["gate_tau"],
             "execution_comfort": engine["execution_comfort"],
+            "scout_enabled": engine["scout_enabled"], "scout_weight": engine["scout_weight"],
             "role_weights_fitted": _fitted_role_weights(db),
             "synergy_v2": get_synergy_v2_settings(db)}
 

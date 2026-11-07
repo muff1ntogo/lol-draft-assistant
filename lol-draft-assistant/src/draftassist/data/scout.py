@@ -141,6 +141,30 @@ def build_scouting(pools: Mapping[str, PlayerPool], given_roles: Mapping[str, st
     return EnemyScouting(tuple(players), weight) if players else None
 
 
+TOP_SHOWN = 3
+
+
+def scout_summary(riot_ids: Iterable[str], pools: Mapping[str, PlayerPool], roles: Mapping[str, str],
+                  card: Callable[[int], dict | None]) -> list[dict]:
+    """Per player, what Live shows: their name, the role we take them to play, how far the fetch is, and their top
+    champions in that role (games and win rate), or by mastery until games are in."""
+    out = []
+    for rid in riot_ids:
+        pool, role = pools.get(rid), roles.get(rid)
+        top: list[dict] = []
+        if pool is not None:
+            played = pool.games.get(role, {}) if role else {}
+            if played:
+                for c, (g, w) in sorted(played.items(), key=lambda kv: (-kv[1][0], kv[0]))[:TOP_SHOWN]:
+                    top.append({"champ": card(c), "games": g, "wins": w})
+            else:
+                top = [{"champ": card(c), "points": p} for c, p in pool.mastery[:TOP_SHOWN]]
+        out.append({"riot_id": rid, "name": rid.split("#")[0], "role": role, "status": pool.status if pool else "new",
+                    "games_read": pool.games_read if pool else 0, "games_wanted": pool.games_wanted if pool else 0,
+                    "top": top})
+    return out
+
+
 # ---------- fetching ----------
 def _save(db: Engine, riot_id: str, **values) -> None:
     with Session(db) as s:
@@ -151,10 +175,13 @@ def _save(db: Engine, riot_id: str, **values) -> None:
         s.commit()
 
 
-def scout(db: Engine, riot, riot_ids: Iterable[str], now: float | None = None, force: bool = False) -> dict[str, str]:
+def scout(db: Engine, riot, riot_ids: Iterable[str], now: float | None = None, force: bool = False,
+          progress: Callable[[], None] | None = None) -> dict[str, str]:
     """Fetch the players' mastery, then their recent ranked games, interleaved. Returns each Riot ID's final status.
     A player scouted within REFRESH_S is skipped unless forced. A bad key stops everything (RiotAuthError); any other
-    trouble with one player marks that player "error" and goes on."""
+    trouble with one player marks that player "error" and goes on. `progress` is called once mastery is in and after
+    each round of matches, so Live can update as the pools fill."""
+    tell = progress or (lambda: None)
     now = now if now is not None else time.time()
     since = int(now - WINDOW_DAYS * 86_400)
     ids = list(dict.fromkeys(riot_ids))
@@ -184,6 +211,7 @@ def scout(db: Engine, riot, riot_ids: Iterable[str], now: float | None = None, f
             _save(db, rid, status="error", fetched_at=now)
             statuses[rid] = "error"
 
+    tell()
     for rid, status in list(statuses.items()):  # 2. which games to read
         if status != "mastery":
             continue
@@ -202,40 +230,46 @@ def scout(db: Engine, riot, riot_ids: Iterable[str], now: float | None = None, f
             statuses[rid] = "error"
 
     for i in range(MAX_GAMES):  # 3. one match per player in turn, so all five fill in evenly
+        read = False
         for rid, (puuid, found) in match_ids.items():
             if i >= len(found) or statuses[rid] == "error":
                 continue
             try:
-                _read_match(db, riot, puuid, found[i])
+                read = _read_match(db, riot, puuid, found[i]) or read
             except RiotAuthError:
                 raise
             except Exception:
                 log.exception("scouting %s's match %s failed", rid, found[i])
+        if read:
+            tell()
     for rid in match_ids:
         if statuses[rid] == "games":
             _save(db, rid, status="done", fetched_at=now)
             statuses[rid] = "done"
+    tell()
     return statuses
 
 
-def _read_match(db: Engine, riot, puuid: str, match_id: str) -> None:
+def _read_match(db: Engine, riot, puuid: str, match_id: str) -> bool:
+    """Store one of their games; True if a new one was stored."""
     with Session(db) as s:
         if s.get(ScoutGame, (puuid, match_id)) is not None:
-            return
+            return False
     match = riot.match(match_id)
     if not match:
-        return
+        return False
     info = match["info"]
     if info.get("gameDuration", 0) < MIN_DURATION_S:
-        return
+        return False
     me = next((x for x in info["participants"] if x.get("puuid") == puuid), None)
     if me is None:
-        return
+        return False
     with Session(db) as s:
         s.add(ScoutGame(api_puuid=puuid, match_id=match_id, champ_id=me["championId"],
                         role=POSITIONS.get(me.get("teamPosition") or ""), win=bool(me["win"]),
                         queue_id=info.get("queueId"), game_start_ms=info.get("gameStartTimestamp", 0)))
         s.commit()
+    return True
 
 
 class ScoutRunner:
@@ -284,7 +318,7 @@ class ScoutRunner:
                         return
                 riot = self.make_riot()
                 try:
-                    scout(self.db, riot, batch, force=force)
+                    scout(self.db, riot, batch, force=force, progress=self.on_progress)
                     self.last_error = None
                 except RiotAuthError as e:
                     self.last_error = str(e)

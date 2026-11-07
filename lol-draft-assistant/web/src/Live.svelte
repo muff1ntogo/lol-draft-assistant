@@ -3,6 +3,7 @@
   import ComponentBar from './ComponentBar.svelte';
   import ComponentLegend from './ComponentLegend.svelte';
   import CompPanel from './CompPanel.svelte';
+  import ScoutBox from './ScoutBox.svelte';
 
   let { view, secondsLeft } = $props();
   const center = $derived(view.center);
@@ -83,6 +84,9 @@
         </div>
       {/if}
       {#each center.cards as card, i}
+        {#if center.scouted && card.group !== center.cards[i - 1]?.group}
+          <h3 class="bangroup">{card.group === 'pool' ? 'From their pools' : 'Strongest of the rest'}</h3>
+        {/if}
         <article class="card" class:highlighted={card.highlighted} class:compact={center.cards.length > 3}>
           <span class="rank">{i + 1}</span>
           <Champ champ={card.champ} size={center.cards.length > 3 ? 60 : 88} />
@@ -177,13 +181,26 @@
         {:else}
           <span class="empty"></span>
         {/if}
-        <span class="role">{slot.role_label}</span>
+        <span class="role" class:scouted={slot.scout}>
+          {slot.role_label || (slot.scout?.role ?? '')}
+          {#if slot.scout}
+            <span class="player" title={slot.scout.riot_id}>{slot.scout.name}</span>
+            <span class="pool">
+              {#each slot.scout.top as t}
+                <span title={t.games ? `${t.champ?.name}: ${t.games} games, ${Math.round((100 * t.wins) / t.games)}%` : `${t.champ?.name}: mastery`}>
+                  <Champ champ={t.champ} size={22} /></span>
+              {/each}
+            </span>
+            {#if !['done', 'missing', 'error'].includes(slot.scout.status)}<span class="scouting">scouting…</span>{/if}
+          {/if}
+        </span>
       </div>
     {/each}
     <div class="bans">
       {#each view.their_bans as ban}<Champ champ={ban} size={36} banned />{/each}
     </div>
     {#if view.comp}<CompPanel comp={view.comp.theirs} title="Their comp" />{/if}
+    <ScoutBox compact />
   </section>
 </main>
 
@@ -211,6 +228,13 @@
   .slot.local { outline: 2px solid var(--gold); }
   .role { width: 64px; font-size: 14px; color: var(--muted); text-transform: uppercase; }
   .theirs .role { text-align: right; }
+  /* docs/enemy-scouting.md: the player's name and what they play, under the role */
+  .role.scouted { width: 110px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+  .player { font-size: 13px; color: var(--text); text-transform: none; max-width: 110px; overflow: hidden;
+            text-overflow: ellipsis; white-space: nowrap; }
+  .pool { display: flex; gap: 2px; }
+  .scouting { font-size: 11px; color: var(--gold); text-transform: none; }
+  .bangroup { font-size: 16px; margin: 4px 0 -6px; text-transform: uppercase; letter-spacing: 0.5px; }
   .name { font-size: 20px; display: flex; flex-direction: column; }
   .name.hover { color: var(--muted); font-style: italic; }
   .empty { width: 56px; height: 56px; border: 2px dashed var(--line); border-radius: 6px; }

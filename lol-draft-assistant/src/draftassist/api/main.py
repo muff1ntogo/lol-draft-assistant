@@ -11,7 +11,7 @@ import itertools
 import logging
 import random
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
@@ -78,7 +78,13 @@ class Services:
     synergy_v2_override: object | None = None  # tests: a fixed SynergyEvaluator
     pinned: dict | None = None  # the plan pinned for the next game (docs/synergy-v2.md, Stage 6)
 
+    scout_manual: list = field(default_factory=list)  # opponents' Riot IDs pasted on Live, for the current game
+    scout_asked: set = field(default_factory=set)  # Riot IDs (lower case) already asked for in this game
+
     def __post_init__(self) -> None:
+        if self.db is not None:
+            self.live.scout_provider = self.scout_for_live
+            self.live.on_game_end = self.end_scouting
         if self.db is not None and self.pinned is None:
             self.pinned = load_pinned(self.db)
         self.live.pin_provider = lambda: self.pinned  # read on every champ select event
@@ -96,8 +102,50 @@ class Services:
         if self._scout_runner is None:
             from draftassist.data.scout import ScoutRunner
 
-            self._scout_runner = ScoutRunner(self.db, self.make_riot())
+            self._scout_runner = ScoutRunner(self.db, self.make_riot(), on_progress=self.live.refresh)
         return self._scout_runner
+
+    def opponents(self, live=None) -> tuple[list[str], dict[str, str | None], str | None]:
+        """Who we face: the client's Riot IDs when it gives them (with their positions), else the ones pasted on Live."""
+        current = live if live is not None else self.live.current
+        if current is not None:
+            given = {s.riot_id: s.role for s in current.their_slots if s.riot_id}
+            if given:
+                return list(given), given, "client"
+        if self.scout_manual:
+            return list(self.scout_manual), dict.fromkeys(self.scout_manual), "manual"
+        return [], {}, None
+
+    def scout_info(self, live=None):
+        """(EnemyScouting | None, what Live shows): asks for any opponent not fetched yet. Off in Settings: nothing."""
+        from draftassist.data.scout import assign_roles, build_scouting, load_pools, scout_summary
+        from draftassist.data.settings_store import get_engine_settings
+
+        if self.lcu_mode == "demo":  # the demo's enemy names are made up: they could be someone real's
+            return None, None
+        ids, given, source = self.opponents(live)
+        settings = get_engine_settings(self.db)
+        if not ids or not settings["scout_enabled"]:
+            return None, None
+        runner = self.scouting()
+        new = [rid for rid in ids if rid.lower() not in self.scout_asked]
+        if new and runner.available:  # once per player per game: a refresh never sets off another fetch
+            self.scout_asked.update(rid.lower() for rid in new)
+            runner.enqueue(new)
+        pools = load_pools(self.db, ids)
+        roles = assign_roles(pools, given)
+        scouting = build_scouting(pools, given, settings["scout_weight"])
+        info = {"source": source, "available": runner.available, "running": runner.running, "error": runner.last_error,
+                "players": scout_summary(ids, pools, roles, self.catalog.card)}
+        return scouting, info
+
+    def scout_for_live(self, live):
+        return self.scout_info(live)
+
+    def end_scouting(self) -> None:
+        """The game is over: forget the opponents pasted for it, and who was asked for (the next game asks again)."""
+        self.scout_manual.clear()
+        self.scout_asked.clear()
 
     def synergy_v2(self):
         """The synergy v2 evaluator (Stat / Style / Team), warmed for our pools: the one the engine scores

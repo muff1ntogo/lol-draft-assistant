@@ -18,6 +18,8 @@
   let blindWeights = $state({ comfort: 1, matchup: 1, synergy: 1, worst: 1, behind: 1, kit: 1 });
   let gateTau = $state(0.75);
   let executionComfort = $state(false);
+  let scoutEnabled = $state(true);
+  let scoutWeight = $state(0.6);
   // engine/model.py comfort_gate: the share of a counter pick's edge a player keeps
   const gateShare = (comfort, games) => Math.round(100 * (1 - Math.exp(-(Math.max(comfort + 0.3, 0) + games / 20) / gateTau)));
   let message = $state('');
@@ -43,6 +45,8 @@
     blindWeights = { ...blindWeights, ...s.blind_weights };
     gateTau = s.gate_tau;
     executionComfort = s.execution_comfort;
+    scoutEnabled = s.scout_enabled;
+    scoutWeight = s.scout_weight;
     if (s.synergy_v2) syn = { ...s.synergy_v2 };
   });
 
@@ -71,7 +75,8 @@
                              comp_coherence: compCoherence, comp_weight: compWeight, lane_weight: laneWeight,
                              role_weight_override: Object.fromEntries(Object.entries(roleOverride)
                                .filter(([, v]) => v !== '' && v != null).map(([r, v]) => [r, +v])),
-                             blind_weights: blindWeights, gate_tau: gateTau, execution_comfort: executionComfort }),
+                             blind_weights: blindWeights, gate_tau: gateTau, execution_comfort: executionComfort,
+                             scout_enabled: scoutEnabled, scout_weight: +scoutWeight }),
     });
     const body = await res.json();
     if (res.ok) {
@@ -96,6 +101,19 @@
     <p class="muted">
       Meta threat {weights.threat.toFixed(2)} · Our matchups {weights.matchup.toFixed(2)} (the two always add up to 2.5)
     </p>
+
+    <label class="check">
+      <input type="checkbox" bind:checked={scoutEnabled} />
+      Scout the enemy players (Ranked 5s): their own champion pools in bans and their likely picks
+    </label>
+    {#if scoutEnabled}
+      <label class="row">Weight of their pools <input type="number" min="0" max="1" step="0.05" bind:value={scoutWeight} /></label>
+      <p class="muted">
+        At full confidence their own games count {Math.round(scoutWeight * 100)}% and the bracket's meta the rest; with
+        5 games in their role it's half that. Ban cards then show the best bans from their pools (5, then 3) and the
+        strongest of the rest (2, then 1).
+      </p>
+    {/if}
 
     <label class="row">
       Self-ban penalty

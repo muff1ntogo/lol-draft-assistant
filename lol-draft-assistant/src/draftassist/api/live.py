@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -272,6 +272,7 @@ class _View:
     ban_bonus: dict[int, float] | None
     pick_bonus: dict[int, float] | None
     draft_scale: float | None = None  # from the latest execution fit; None before the first fit
+    scout_info: dict | None = None  # who we're scouting and how far it got (docs/enemy-scouting.md)
 
     @property
     def st(self) -> DraftState:
@@ -329,10 +330,16 @@ def _our_slots(v: _View, finished: bool) -> list[dict]:
 
 def _their_slots(v: _View) -> list[dict]:
     roles = v.ev.their_roles
-    return [{"champ": v.card(s.champ_id), "role": roles.get(s.champ_id),
-             "role_label": ROLE_LABELS.get(roles.get(s.champ_id, ""), ""),
-             "badge": v.badge_of(s.champ_id, roles.get(s.champ_id))}
-            for s in v.live.their_slots]
+    scouted = {p["riot_id"].lower(): p for p in (v.scout_info or {}).get("players", [])}
+    by_role = {p["role"]: p for p in scouted.values() if p["role"]}
+    out = []
+    for s in v.live.their_slots:
+        role = roles.get(s.champ_id) or s.role
+        player = scouted.get((s.riot_id or "").lower()) or (by_role.get(role) if not s.riot_id else None)
+        out.append({"champ": v.card(s.champ_id), "role": roles.get(s.champ_id),
+                    "role_label": ROLE_LABELS.get(roles.get(s.champ_id, ""), ""),
+                    "badge": v.badge_of(s.champ_id, roles.get(s.champ_id)), "scout": player})
+    return out
 
 
 def _calibrated(v: _View) -> float | None:
@@ -354,10 +361,19 @@ def _center_locked(v: _View) -> dict:
             "threats": [{"champ": v.card(t.champ_id), "reason": t.reason} for t in v.engine.threats(v.st, k=2)]}
 
 
+SCOUTED_BAN_CARDS = {1: (5, 2), 2: (3, 1)}  # ban phase -> (from their pools, from the rest) (docs/enemy-scouting.md)
+
+
 def _center_our_ban(v: _View, n_cards: int) -> dict:
     """Ranked bans are simultaneous: show ours while any teammate is still banning, minus the champions
-    teammates are already about to ban."""
+    teammates are already about to ban. Scouted (tournament draft): their pools' best bans first, then the rest's."""
     st, about_to_ban = v.st, v.live.ally_ban_hovers
+    if st.scouting is not None and not st.format.simultaneous_bans:
+        n_pool, n_off = SCOUTED_BAN_CARDS.get(st.step.phase, SCOUTED_BAN_CARDS[2])
+        pool, off = v.engine.suggest_bans_scouted(st, n_pool, n_off, bonus=v.ban_bonus, exclude=about_to_ban)
+        cards = ([{**_ban_card(v.catalog, s, v.hovered, v.engine.cfg.ban_weights, v.profiles), "group": "pool"} for s in pool]
+                 + [{**_ban_card(v.catalog, s, v.hovered, v.engine.cfg.ban_weights, v.profiles), "group": "off"} for s in off])
+        return {"mode": "our_ban", "title": "BAN", "scouted": True, "cards": cards}
     n = NARROW_CARDS if st.format.simultaneous_bans else n_cards  # Flex bans: unchanged
     bans = [s for s in v.engine.suggest_bans(st, k=n + len(about_to_ban), bonus=v.ban_bonus)
             if s.champ_id not in about_to_ban][:n]
@@ -417,7 +433,10 @@ def _center_enemy_turn(v: _View) -> dict:
 
 
 def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDraft,
-                    data_source: str, note: str | None, pin: dict | None = None, draft_scale: float | None = None) -> dict:
+                    data_source: str, note: str | None, pin: dict | None = None, draft_scale: float | None = None,
+                    scouting=None, scout_info: dict | None = None) -> dict:
+    if scouting is not None:  # their players' own pools, for bans and their likely picks
+        live = replace(live, state=replace(live.state, scouting=scouting))
     st = live.state
     ev = engine.evaluate(st)
     effects = None
@@ -426,7 +445,7 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
 
         effects = pin_effects(pin, st, live.enemy_hovers, frozenset(ev.our_roles.values()))
     v = _View(engine, catalog, live, ev, effects.ban_bonus if effects else None,
-              effects.pick_bonus if effects else None, draft_scale)
+              effects.pick_bonus if effects else None, draft_scale, scout_info)
     step = st.step
     finished = step is None or live.timer_phase in ("FINALIZATION", "GAME_STARTING")
     ours = v.ours
@@ -458,6 +477,7 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
                  "theirs": team_comp(v.profiles, theirs).as_dict()},
         "center": center,
         "plan": _plan_bar(engine, catalog, pin, effects.banner, st, ev.our_roles) if effects else None,
+        "scouting": scout_info,
     }
 
 
@@ -480,6 +500,9 @@ class LiveService:
         self.pin_provider: Callable[[], dict | None] | None = None  # the pinned plan (docs/synergy-v2.md, Stage 6)
         self._session: dict | None = None  # latest champ select session, to rebuild the view on a pin change
         self.draft_scale: float | None = None  # calibrated P(win) at lock-in, from the latest execution fit
+        # (EnemyScouting | None, what Live shows of it) for a parsed champ select (docs/enemy-scouting.md)
+        self.scout_provider: Callable[[LiveDraft], tuple[object, dict | None]] | None = None
+        self.on_game_end: Callable[[], None] | None = None
 
     def refresh(self) -> None:
         """Re-publish the current screen (after a pin or unpin) without waiting for the next client event.
@@ -506,7 +529,9 @@ class LiveService:
             live = parse_session(session, self.draft_format, roles)
             self.current = live
             pin = self.pin_provider() if self.pin_provider else None
-            return build_live_view(self.engine, self.catalog, live, self.data_source, self.note, pin, self.draft_scale), live
+            scouting, scout_info = self.scout_provider(live) if self.scout_provider else (None, None)
+            return build_live_view(self.engine, self.catalog, live, self.data_source, self.note, pin, self.draft_scale,
+                                   scouting, scout_info), live
         except SessionParseError as e:
             log.error("could not parse champ select session: %s", e)
             return {"status": "error", "message": str(e)}, None
@@ -540,6 +565,8 @@ class LiveService:
         return payload
 
     def handle_phase(self, phase: str, gameflow_session: dict | None) -> None:
+        if phase == "EndOfGame" and self.gameflow_phase != "EndOfGame" and self.on_game_end is not None:
+            self.on_game_end()  # e.g. forget the opponents pasted for this game
         self.gameflow_phase = phase
         if gameflow_session:
             self.queue_id = (gameflow_session.get("gameData") or {}).get("queue", {}).get("id")

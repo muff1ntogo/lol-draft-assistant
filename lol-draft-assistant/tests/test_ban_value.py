@@ -216,7 +216,7 @@ def test_settings_api_changes_ban_weights(make_services, engine, session):
             "ban_declared_intents": False, "alpha": 1.0, "beta": 1.0, "comfort_games_cap": 10,
             "damage_balance": True, "damage_penalty": -0.05, "ban_comp_synergy": False,
             "lane_weight": 0.5, "role_weight_override": {}, "blind_weights": {}, "gate_tau": 0.75,
-            "execution_comfort": False,
+            "execution_comfort": False, "scout_enabled": True, "scout_weight": 0.6,
             "role_weights_fitted": dict.fromkeys(("top", "jungle", "mid", "adc", "support")),
             "comp_coherence": True, "comp_weight": 0.15,
             "synergy_v2": {"prior_sd_pp": 1.0, "w_stat": 0.5, "w_style": 0.25, "w_team": 0.25, "conf_k": 200.0,

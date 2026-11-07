@@ -8,6 +8,7 @@
   import Tags from './Tags.svelte';
   import Rules from './Rules.svelte';
   import PlanBar from './PlanBar.svelte';
+  import ScoutBox from './ScoutBox.svelte';
 
   const PAGES = { live: 'Live', prep: 'Prep', pools: 'Pools', champions: 'Champions', history: 'History', team: 'Team', settings: 'Settings' };
   const HIDDEN = { tags: 'Tags', rules: 'Rules' }; // the Champions tab opens the Tags page (fight style + tags) // reached from the Prep page's header, not the nav
@@ -83,6 +84,7 @@
     <h1>{view.status === 'error' ? 'Something went wrong' : view.message}</h1>
     {#if view.status === 'error'}<p class="error">{view.message}</p>{/if}
     {#if view.client}<p>League client: {view.client}</p>{/if}
+    {#if page === 'live' && view.status === 'waiting'}<div class="scoutwrap"><ScoutBox /></div>{/if}
   </main>
 {/if}
 
@@ -101,5 +103,6 @@
   .idle { display: grid; place-items: center; align-content: center; min-height: 80vh; gap: 4px; color: var(--muted); }
   .idle h1 { color: var(--text); font-size: 40px; font-weight: 600; margin: 0; }
   .idle p { font-size: 20px; margin: 4px; }
+  .scoutwrap { margin-top: 28px; display: flex; justify-content: center; width: 100%; }
   .error { color: var(--red); }
 </style>
