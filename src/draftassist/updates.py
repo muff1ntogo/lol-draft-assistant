@@ -37,8 +37,8 @@ INSTALL_ARGS = ("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICA
 
 def build_info(resources: Path | None = None) -> dict:
     path = (resources or RESOURCE_ROOT) / BUILD_INFO
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
+    try:  # utf-8-sig: Windows PowerShell 5 writes a byte-order mark in front
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return {}
 
@@ -135,8 +135,13 @@ class Updater:
                 with self._http() as http:
                     self.latest = latest_release(http)
                 self.error = None
+            except httpx.HTTPStatusError as e:
+                code = e.response.status_code
+                self.error = ("GitHub is limiting requests from this network: try again in an hour" if code in (403, 429)
+                              else f"couldn't check for updates (GitHub answered {code})")
+                log.warning("update check failed: %s", e)
             except httpx.HTTPError as e:
-                self.error = f"couldn't check for updates ({type(e).__name__})"
+                self.error = f"couldn't reach GitHub to check for updates ({type(e).__name__})"
                 log.warning("update check failed: %s", e)
             finally:
                 self.checked_at = self._clock()

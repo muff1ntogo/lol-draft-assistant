@@ -39,7 +39,9 @@ Step "Web UI" {
 Step "Tests" { uv run pytest -q tests/test_packaging.py tests/test_launcher.py tests/test_data_folder.py tests/test_updates.py }
 Step "Build number" {
     # Bundled next to the app (DraftAssistant.spec); the updater reads it
-    @{ version = $Version; commit = "$commit" } | ConvertTo-Json | Set-Content -Encoding utf8 packaging\build_info.json
+    # UTF-8 without a byte-order mark, in Windows PowerShell 5 as in PowerShell 7
+    $json = @{ version = $Version; commit = "$commit" } | ConvertTo-Json
+    [IO.File]::WriteAllText((Join-Path $root "packaging\build_info.json"), $json, (New-Object Text.UTF8Encoding $false))
 }
 Step "Bundle (PyInstaller)" { uv run pyinstaller packaging\DraftAssistant.spec --noconfirm --clean }
 Step "Smoke test" {

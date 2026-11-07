@@ -64,6 +64,18 @@ def test_no_release_or_no_installer_in_it():
         assert latest_release(http) is None
 
 
+def test_build_info_written_by_windows_powershell_5_is_read(tmp_path):
+    (tmp_path / "build_info.json").write_bytes(b"\xef\xbb\xbf" + json.dumps({"version": "0.1.42"}).encode())
+    assert build_info(tmp_path)["version"] == "0.1.42"  # its UTF-8 has a byte-order mark
+
+
+def test_github_limiting_requests_says_so(tmp_path):
+    u, _, _ = updater(tmp_path, http_factory=fake_github(status=403))
+    assert "limiting requests" in u.check()["error"]
+    u, _, _ = updater(tmp_path, http_factory=fake_github(status=500))
+    assert "answered 500" in u.check()["error"]
+
+
 def test_build_info_is_read_from_the_bundle(tmp_path):
     assert build_info(tmp_path) == {}
     (tmp_path / "build_info.json").write_text(json.dumps({"version": "0.1.42", "commit": "abc"}))
@@ -105,7 +117,7 @@ def test_no_network_is_an_error_not_a_crash(tmp_path):
         return httpx.Client(transport=httpx.MockTransport(handler))
     u, _, _ = updater(tmp_path, http_factory=offline)
     status = u.check()
-    assert status["error"].startswith("couldn't check") and status["available"] is False
+    assert status["error"].startswith("couldn't reach GitHub") and status["available"] is False
 
 
 # ---------- installing ----------

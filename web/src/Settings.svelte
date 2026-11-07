@@ -36,8 +36,42 @@
     if (res.ok) { appSetup = body; riotKey = ''; keyMessage = 'Key saved: used from now on.'; }
     else keyMessage = `Not saved: ${body.detail}`;
   }
+  let checking = $state(false);
+  let installing = $state(false);
+  let updateMessage = $state('');
+  const tellBanner = (status) => window.dispatchEvent(new CustomEvent('draftassist:update', { detail: status }));
+
+  function describe(s) {
+    if (s.error) return s.error;
+    if (s.available) return `Draft Assistant ${s.latest} is available (you have ${s.current}).`;
+    if (s.latest) return `You have the latest version (${s.current}). Checked just now.`;
+    return 'No release found on GitHub yet.';
+  }
+
   async function checkUpdate() {
-    appUpdate = await (await fetch('/api/update/check', { method: 'POST' })).json();
+    checking = true;
+    updateMessage = '';
+    try {
+      const res = await fetch('/api/update/check', { method: 'POST' });
+      appUpdate = await res.json();
+      updateMessage = res.ok ? describe(appUpdate) : `Couldn't check: ${appUpdate.detail ?? res.status}`;
+      if (res.ok) tellBanner(appUpdate);
+    } catch {
+      updateMessage = "Couldn't reach the app's server.";
+    } finally {
+      checking = false;
+    }
+  }
+
+  async function installUpdate() {
+    installing = true;
+    const res = await fetch('/api/update/install', { method: 'POST' });
+    if (res.ok) {
+      updateMessage = 'Installing: the app closes and opens again in a moment.';
+    } else {
+      updateMessage = (await res.json()).detail;
+      installing = false;
+    }
   }
   let scoutWeight = $state(0.6);
   // engine/model.py comfort_gate: the share of a counter pick's edge a player keeps
@@ -128,11 +162,15 @@
       Version: {appUpdate?.current ?? 'source checkout'}
       {#if appUpdate?.unsupported}<span class="muted">({appUpdate.unsupported})</span>
       {:else}
-        <button type="button" onclick={checkUpdate}>Check for updates</button>
-        {#if appUpdate?.checked_at}<span class="muted">{appUpdate.available ? `${appUpdate.latest} available: see the banner` : 'up to date'}</span>{/if}
-        {#if appUpdate?.error}<span class="muted">{appUpdate.error}</span>{/if}
+        <button type="button" onclick={checkUpdate} disabled={checking || installing}>
+          {checking ? 'Checking…' : 'Check for updates'}</button>
+        {#if appUpdate?.available}
+          <button type="button" onclick={installUpdate} disabled={installing}>
+            {installing ? 'Installing…' : `Update to ${appUpdate.latest}`}</button>
+        {/if}
       {/if}
     </p>
+    {#if updateMessage}<p class="muted">{updateMessage}</p>{/if}
   </section>
 
   <section>

@@ -15,6 +15,12 @@
     }
   }
   load();
+  // Settings' "Check for updates" tells the banner straight away, instead of at the next 10-minute look
+  $effect(() => {
+    const onUpdate = (e) => (update = e.detail);
+    window.addEventListener('draftassist:update', onUpdate);
+    return () => window.removeEventListener('draftassist:update', onUpdate);
+  });
   $effect(() => {
     const every = setup?.bootstrap?.state === 'running' ? 3000 : 10 * 60 * 1000;
     const t = setInterval(load, every);
