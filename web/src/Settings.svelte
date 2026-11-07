@@ -259,14 +259,14 @@
     <label class="row">Lane vs game matchup (0 = game only, 1 = lane only)
       <input type="number" min="0" max="1" step="0.1" bind:value={laneWeight} /></label>
     <p class="muted">Used for ban "best answers", counter risk and History's lane bars. The win % always uses the game matchup.</p>
-    <div class="row roles">How much each role's matchups count
+    <div class="row roles"><span class="rtitle">How much each role's matchups count</span>
       {#each Object.keys(roleFitted) as r}
-        <label>{r} <input type="number" min="0" max="3" step="0.1" placeholder={roleFitted[r] ?? '1'} bind:value={roleOverride[r]} /></label>
+        <label>{r === 'adc' ? 'ADC' : r} <input type="number" min="0" max="3" step="0.1" placeholder={roleFitted[r] ?? '1'} bind:value={roleOverride[r]} /></label>
       {/each}
     </div>
     <p class="muted">The greyed number is fitted from crawled games; these average 1. Type a number to override it, or clear it to go back.</p>
 
-    <div class="row roles">Blind pick safety weights
+    <div class="row roles"><span class="rtitle">Blind pick safety weights</span>
       {#each Object.keys(BLIND_LABELS) as k}
         <label>{BLIND_LABELS[k]} <input type="number" min="0" max="5" step="0.1" bind:value={blindWeights[k]} /></label>
       {/each}
@@ -325,24 +325,32 @@
 </main>
 
 <style>
-  .page { max-width: 800px; margin: 0 auto; padding: 20px 28px 60px; }
-  h1 { font-size: 32px; margin: 8px 0 16px; }
-  h2 { font-size: 20px; margin: 0 0 12px; }
-  h2.sub { font-size: 17px; margin: 18px 0 6px; }
-  .row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
-  .row input { width: 80px; background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
-               border-radius: 6px; padding: 4px 6px; font: inherit; }
-  section { background: var(--panel); border-radius: 8px; padding: 18px 20px; }
-  section.gap { margin-top: 18px; }
-  .slider { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; font-size: 16px; }
+  /* Roomy: a wider page, space between panels and rows; help text kept to a readable line length */
+  .page { max-width: 1040px; margin: 0 auto; padding: 28px 32px 80px; }
+  h1 { font-size: 34px; margin: 4px 0 22px; }
+  h2 { font-size: 21px; margin: 0 0 16px; }
+  h2.sub { font-size: 18px; margin: 30px 0 4px; padding-top: 24px; border-top: 1px solid var(--line); }
+  section { background: var(--panel); border: 1px solid #1d232c; border-radius: 10px; padding: 24px 28px; }
+  section + section, section.gap { margin-top: 22px; }
+  .row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin-top: 18px; }
+  .row input, .advanced input { width: 96px; height: 34px; background: var(--panel-2); color: var(--text);
+                                border: 1px solid var(--line); padding: 4px 10px; font: inherit; }
+  .slider { display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center; font-size: 16px; }
   input[type='range'] { width: 100%; }
-  .advanced { display: flex; gap: 16px; flex-wrap: wrap; margin: 10px 0; }
-  .advanced input { width: 80px; background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
-                    border-radius: 6px; padding: 4px 6px; font: inherit; }
-  details { margin: 12px 0; }
-  summary { cursor: pointer; color: var(--muted); }
-  .check { display: flex; gap: 8px; align-items: center; margin: 14px 0; }
-  button { background: var(--blue); color: white; border: 0; border-radius: 6px; padding: 8px 16px; font: inherit; cursor: pointer; }
-  .muted { color: var(--muted); font-size: 14px; }
+  .advanced { display: flex; gap: 14px 32px; flex-wrap: wrap; align-items: end; margin: 16px 0 6px; }
+  .advanced label { display: flex; align-items: center; gap: 10px; }
+  details { margin: 16px 0; }
+  summary { cursor: pointer; color: var(--muted); padding: 4px 0; }
+  summary:hover { color: var(--text); }
+  .check { display: flex; gap: 10px; align-items: flex-start; margin: 22px 0 6px; font-size: 16px; line-height: 1.45; }
+  .check input { margin-top: 4px; width: 16px; height: 16px; flex: none; }
+  button { background: var(--blue); color: white; border: 0; padding: 8px 18px; height: 36px; }
+  .muted { color: var(--muted); font-size: 14px; line-height: 1.55; max-width: 76ch; margin: 8px 0 4px; }
   .msg { color: var(--good); }
+  /* a title, then a small labelled number per role / factor, in an even grid */
+  .row.roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); align-items: end; gap: 10px 16px; }
+  .row.roles .rtitle { grid-column: 1 / -1; }
+  .row.roles label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  .row.roles label::first-letter { text-transform: uppercase; }
+  .row.roles input { width: 100%; }
 </style>

@@ -98,12 +98,22 @@ def _watch_window(window, chrome, folder: Path, state: dict) -> None:
     if events is None:
         return
 
-    def shown() -> None:
+    def style(handle) -> None:
         try:
-            if (hwnd := chrome.find_window(TITLE)) is not None:
+            if (hwnd := handle()) is not None:
                 chrome.style_window(hwnd)
         except Exception:  # noqa: BLE001 - looks only
             log.exception("couldn't style the window")
+
+    # before Windows first draws it (dark from the first frame), and again once it's shown in case that was too early
+    def before_show() -> None:
+        style(lambda: chrome.native_handle(window))
+
+    def shown() -> None:
+        style(lambda: chrome.native_handle(window) or chrome.find_window(TITLE))
+
+    if hasattr(events, "before_show"):
+        events.before_show += before_show
 
     def closing() -> None:
         try:

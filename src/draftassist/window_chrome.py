@@ -24,7 +24,8 @@ MIN_SIZE = (1000, 700)
 GEOMETRY_FILE = "window.json"
 
 # DWMWINDOWATTRIBUTE values (dwmapi.h)
-DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+DWMWA_USE_IMMERSIVE_DARK_MODE = 20  # Windows 10 20H1 (build 19041) and later
+DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19  # Windows 10 1809-1909 used this number
 DWMWA_WINDOW_CORNER_PREFERENCE = 33
 DWMWA_BORDER_COLOR = 34
 DWMWA_CAPTION_COLOR = 35
@@ -39,23 +40,55 @@ def colorref(hex_color: str) -> int:
     return (b << 16) | (g << 8) | r
 
 
-def style_window(hwnd: int, dwm=None) -> bool:
-    """Dark title bar in the app's colours, rounded corners. True if Windows took the dark mode (the rest is optional)."""
-    if dwm is None:
+SWP_FLAGS = 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020  # NOSIZE | NOMOVE | NOZORDER | NOACTIVATE | FRAMECHANGED
+WM_NCACTIVATE = 0x0086
+
+
+def style_window(hwnd: int, dwm=None, user32=None) -> bool:
+    """Dark title bar in the app's colours, rounded corners. True if Windows took the dark mode (the rest is optional).
+
+    Windows 10 has the dark title bar but not the colours or corners (those are Windows 11's), and it doesn't repaint
+    a title bar that's already on screen: so this asks for a repaint of the frame and the caption."""
+    if dwm is None or user32 is None:
         if sys.platform != "win32":
             return False
-        dwm = ctypes.windll.dwmapi  # type: ignore[attr-defined]
+        dwm = dwm or ctypes.windll.dwmapi  # type: ignore[attr-defined]
+        user32 = user32 or ctypes.windll.user32  # type: ignore[attr-defined]
 
     def setattr_(attr: int, value: int) -> bool:
         v = ctypes.c_int(value)
         return dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(v), ctypes.sizeof(v)) == 0
 
-    ok = setattr_(DWMWA_USE_IMMERSIVE_DARK_MODE, 1)
+    ok = setattr_(DWMWA_USE_IMMERSIVE_DARK_MODE, 1) or setattr_(DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, 1)
     setattr_(DWMWA_CAPTION_COLOR, colorref(CAPTION))
     setattr_(DWMWA_BORDER_COLOR, colorref(BORDER))
     setattr_(DWMWA_TEXT_COLOR, colorref("#e6edf3"))
     setattr_(DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND)
+    repaint_frame(hwnd, user32)
     return ok
+
+
+def repaint_frame(hwnd: int, user32) -> None:
+    """Make Windows redraw the title bar now (Windows 10 otherwise waits for the next focus change)."""
+    user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, SWP_FLAGS)
+    active = user32.GetForegroundWindow() == hwnd
+    user32.SendMessageW(hwnd, WM_NCACTIVATE, 0, 0)
+    user32.SendMessageW(hwnd, WM_NCACTIVATE, 1 if active else 0, 0)
+
+
+def native_handle(window) -> int | None:
+    """The window's handle from pywebview's WinForms form, without looking it up by title."""
+    form = getattr(window, "native", None)
+    handle = getattr(form, "Handle", None)
+    if handle is None:
+        return None
+    try:
+        return int(handle.ToInt64())
+    except (AttributeError, TypeError, ValueError):
+        try:
+            return int(handle)
+        except (TypeError, ValueError):
+            return None
 
 
 def find_window(title: str, user32=None) -> int | None:

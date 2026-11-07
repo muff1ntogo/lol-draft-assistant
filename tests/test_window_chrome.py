@@ -22,9 +22,25 @@ class FakeDwm:
         return 1 if attr in self.fail else 0
 
 
+class FakeUser32:
+    def __init__(self, foreground=42):
+        self.calls, self.foreground = [], foreground
+
+    def SetWindowPos(self, *args):
+        self.calls.append(("pos", *args))
+        return 1
+
+    def GetForegroundWindow(self):
+        return self.foreground
+
+    def SendMessageW(self, *args):
+        self.calls.append(("msg", *args))
+        return 0
+
+
 def test_the_title_bar_is_dark_in_the_apps_colours_with_round_corners():
     dwm = FakeDwm()
-    assert chrome.style_window(42, dwm) is True
+    assert chrome.style_window(42, dwm, FakeUser32()) is True
     attrs = {attr: value for _, attr, value, _ in dwm.calls}
     assert attrs[chrome.DWMWA_USE_IMMERSIVE_DARK_MODE] == 1
     assert attrs[chrome.DWMWA_CAPTION_COLOR] == chrome.colorref(chrome.CAPTION)
@@ -35,7 +51,34 @@ def test_the_title_bar_is_dark_in_the_apps_colours_with_round_corners():
 
 def test_windows_10_ignoring_the_colours_still_counts_dark_mode():
     dwm = FakeDwm(fail={chrome.DWMWA_CAPTION_COLOR, chrome.DWMWA_BORDER_COLOR, chrome.DWMWA_WINDOW_CORNER_PREFERENCE})
-    assert chrome.style_window(42, dwm) is True
+    assert chrome.style_window(42, dwm, FakeUser32()) is True
+
+
+def test_older_windows_10_gets_dark_mode_by_its_old_number():
+    dwm = FakeDwm(fail={chrome.DWMWA_USE_IMMERSIVE_DARK_MODE})  # 1809-1909 don't know 20
+    assert chrome.style_window(42, dwm, FakeUser32()) is True
+    assert (42, chrome.DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, 1, 4) in dwm.calls
+
+
+def test_the_title_bar_is_repainted_at_once_keeping_its_focus():
+    user32 = FakeUser32(foreground=42)
+    chrome.style_window(42, FakeDwm(), user32)
+    assert user32.calls[0] == ("pos", 42, 0, 0, 0, 0, 0, chrome.SWP_FLAGS)
+    assert user32.calls[1:] == [("msg", 42, chrome.WM_NCACTIVATE, 0, 0), ("msg", 42, chrome.WM_NCACTIVATE, 1, 0)]
+    background = FakeUser32(foreground=99)
+    chrome.style_window(42, FakeDwm(), background)
+    assert background.calls[-1] == ("msg", 42, chrome.WM_NCACTIVATE, 0, 0)  # not in front: stays inactive
+
+
+def test_the_handle_comes_from_pywebviews_form():
+    class IntPtr:
+        def ToInt64(self):
+            return 1234
+
+    assert chrome.native_handle(SimpleNamespace(native=SimpleNamespace(Handle=IntPtr()))) == 1234
+    assert chrome.native_handle(SimpleNamespace(native=SimpleNamespace(Handle=55))) == 55
+    assert chrome.native_handle(SimpleNamespace(native=None)) is None
+    assert chrome.native_handle(SimpleNamespace()) is None
 
 
 def test_the_caption_matches_the_pages_nav_bar():
