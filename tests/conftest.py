@@ -18,6 +18,16 @@ SAMPLE_CHAMPIONS = {
 
 
 @pytest.fixture(autouse=True)
+def scratch_account(monkeypatch, tmp_path_factory):
+    """No test reads or writes this machine's real account or Credential Manager (docs/shared-data.md, Stage 3)."""
+    from draftassist.data.shared import account
+
+    folder = tmp_path_factory.mktemp("account")
+    store = account.AccountStore(folder, account.MemorySecrets())
+    monkeypatch.setattr(account, "default_store", lambda: store)
+
+
+@pytest.fixture(autouse=True)
 def strict_guards(monkeypatch):
     """Suggestion guards raise instead of dropping (engine/guards.py)."""
     monkeypatch.setenv("DRAFTASSIST_STRICT", "1")

@@ -425,7 +425,9 @@ def load_execution_model(db: Engine) -> ExecutionModel | None:
         rows = s.exec(select(ExecutionFit)).all()
     if not rows:
         return None
-    latest = max(rows, key=lambda r: tuple(int(x) for x in r.window.split(".")))
+    from draftassist.data.synergy import latest_window, pick_fit
+
+    latest = pick_fit(rows, latest_window(db))
     return ExecutionModel.from_dict(json.loads(latest.body), Labels(*_labels(db)))
 
 

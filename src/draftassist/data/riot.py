@@ -1,4 +1,5 @@
-"""Riot API client: one shared token-bucket rate limiter and an on-disk cache of every response.
+"""Riot API client: one shared token-bucket rate limiter and an on-disk cache of every response (data/response_cache.py:
+one cache.sqlite, compressed; the older one-.json-file-per-request cache is still read until `draftassist cache-pack`).
 
 The API key travels only in the X-Riot-Token header; it is never logged, printed or cached.
 
@@ -111,9 +112,11 @@ class RateLimiter:
 
 
 def cache_path(cache_root: Path, host: str, path: str, params: dict | None) -> Path:
-    """Where RiotClient caches GET {host}{path}?{params}; cache_root is `<cache_dir>/riot`."""
-    key = json.dumps([host, path, sorted((params or {}).items())])
-    return cache_root / host / f"{hashlib.sha1(key.encode()).hexdigest()}.json"
+    """Where the older cache kept GET {host}{path}?{params} as a .json file; cache_root is `<cache_dir>/riot`. Still read
+    (data/response_cache.py), no longer written."""
+    from draftassist.data.response_cache import request_key
+
+    return cache_root / host / f"{request_key(host, path, params)}.json"
 
 
 def match_path(match_id: str) -> str:
@@ -127,7 +130,10 @@ class RiotClient:
         if not api_key:
             raise RiotAuthError("RIOT_API_KEY is not set (put it in .env)")
         self._http = httpx.Client(timeout=30, transport=transport, headers={"X-Riot-Token": api_key})
-        self._cache = cache_dir / "riot"
+        from draftassist.data.response_cache import open_cache
+
+        self._cache = cache_dir / "riot"  # the legacy files' folder
+        self._store = open_cache(cache_dir)
         self.key_id = key_id(api_key)
         self.limiter = limiter or RateLimiter(sleep=sleep)
         self._sleep, self._clock, self._max_retries = sleep, clock, max_retries
@@ -149,11 +155,11 @@ class RiotClient:
         Cached responses are reused forever (ttl=None) or while younger than ttl seconds, if fetched
         with the same key (bodies hold PUUIDs, which are encrypted per app). `cache_body=False`: neither read nor
         written, for responses too large to keep."""
-        cache = self._cache_path(host, path, params)
-        if cache_body and cache.is_file():
-            entry = json.loads(cache.read_text(encoding="utf-8"))
-            if entry.get("key") == self.key_id and (ttl is None or self._clock() - entry["fetched_at"] < ttl):
-                return entry["body"]
+        if cache_body:
+            entry = self._store.get(host, path, params)
+            if entry is not None and entry.key_id == self.key_id and (
+                    ttl is None or self._clock() - (entry.fetched_at or 0.0) < ttl):
+                return entry.body
 
         url = f"https://{host}.api.riotgames.com{path}"
         for attempt in range(self._max_retries + 1):
@@ -186,9 +192,7 @@ class RiotClient:
                 body = resp.json()
             if not cache_body:
                 return body
-            cache.parent.mkdir(parents=True, exist_ok=True)
-            cache.write_text(json.dumps({"fetched_at": self._clock(), "key": self.key_id, "body": body}),
-                             encoding="utf-8")
+            self._store.put(host, path, params, body, self._clock(), self.key_id)
             return body
         raise RuntimeError(f"Riot API: giving up on {path} after {self._max_retries + 1} attempts")
 

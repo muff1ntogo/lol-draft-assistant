@@ -105,6 +105,12 @@
               {/if}
             </div>
             {#if p.build.reasons.length}<ul class="why">{#each p.build.reasons as r}<li>{r}</li>{/each}</ul>{/if}
+            {#if p.build.hints?.length}
+              <div class="hints"><span class="k">Helpful in this lane</span>
+                <ul>{#each p.build.hints as h}<li>{h.text}</li>{/each}</ul>
+                <div class="muted small">Optional: did better against them than the same champion's other games against them.</div>
+              </div>
+            {/if}
           {/if}
 
           {#if p.opgg?.order}

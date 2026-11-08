@@ -11,6 +11,7 @@ from pathlib import Path
 from sqlalchemy import Engine
 from sqlmodel import Session, select
 
+from draftassist.data.shared.pull import PullStatus, pull
 from draftassist.db.models import BootstrapRoleStats, Champion
 
 log = logging.getLogger(__name__)
@@ -52,3 +53,18 @@ def save_riot_key(key: str, env_file: Path) -> None:
     kept = [ln for ln in lines if ln.split("=", 1)[0].strip().removeprefix("export ").strip() != KEY_NAME]
     env_file.parent.mkdir(parents=True, exist_ok=True)
     env_file.write_text("\n".join([*kept, f"{KEY_NAME}={key}"]) + "\n", encoding="utf-8")
+
+
+def pull_shared_first_run(db, store, log_fn=None) -> PullStatus:
+    """Pull shared stats before local bootstrap on a signed-in install.
+
+    ``pull`` is transactional and preserves the last good data on an offline
+    response. This wrapper makes the first-run policy explicit and testable.
+    """
+    if store is None:
+        return PullStatus("off", message="No shared database configured.")
+    try:
+        return pull(db, store, log=log_fn or (lambda _message: None))
+    except Exception as exc:  # first run must remain usable offline
+        log.exception("first-run shared pull failed")
+        return PullStatus("error", message=str(exc))

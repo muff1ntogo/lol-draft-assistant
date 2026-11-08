@@ -56,6 +56,8 @@ JOBS: dict[str, JobSpec] = {
                      "(after a crawl; downloads Meraki's champion data once a week)", needs_key=False),
     "backfill": JobSpec("Backfill", ("backfill",), "Damage, game length and traits from the cache, then re-aggregate",
                         needs_key=False),
+    "publish": JobSpec("Publish", ("publish",), "The crawl's counts and fits to the shared database, changed blocks only "
+                       "(after a crawl or fit; waits out champ select)", needs_key=False),
     "coverage": JobSpec("Coverage report", ("coverage",), "Matches per tier, matchup and calibration reports",
                         needs_key=False),
 }

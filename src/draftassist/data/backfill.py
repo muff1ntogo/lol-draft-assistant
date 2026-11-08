@@ -6,20 +6,19 @@ Safe to re-run.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from sqlalchemy import Engine, text
 from sqlmodel import Session
 
 from draftassist.data.crawler import parse_damage
-from draftassist.data.riot import REGION, cache_path, match_path
+from draftassist.data.response_cache import cached_match
 from draftassist.data.traits_map import PARTICIPANT_TRAIT_COLUMNS, parse_match_traits
 
 
 def _cached_match(cache_dir: Path, match_id: str) -> dict | None:
-    path = cache_path(cache_dir / "riot", REGION, match_path(match_id), None)
-    return json.loads(path.read_text(encoding="utf-8"))["body"] if path.is_file() else None
+    """A match body from the cache (packed, legacy file or archive), whichever key fetched it."""
+    return cached_match(cache_dir, match_id)
 
 
 def backfill_damage(db: Engine, cache_dir: Path) -> dict[str, int]:

@@ -6,6 +6,7 @@ import pytest
 from sqlmodel import Session
 
 from draftassist.data.builds import ORDER_MIN_GAMES, load_static, skill_max, summarize_order
+from draftassist.data.counts import refresh_counts
 from draftassist.data.timeline_map import parse_build_events
 from draftassist.data.timelines import store_build_events
 from draftassist.db.models import CrawledMatch, MatchParticipant
@@ -72,6 +73,7 @@ def test_ordered_build_from_the_crawl(db, tmp_path):
     seed(db, 60, (LUDENS, ZHONYAS))
     seed(db, 20, (ZHONYAS, LUDENS), start=100)
     seed(db, 10, (LUDENS, MORELLO), start=200, boots=MERC)
+    refresh_counts(db, "16.21", static)  # Strategy reads the counts (docs/shared-data.md, Stage 2)
     o = summarize_order(db, None, "16.21", CHAMP, "mid", "gold", static)
     assert o["core"]["names"] == ["Luden's Companion", "Zhonya's Hourglass"] and o["core"]["ref_games"] == 60
     assert o["core"]["order_share"] == pytest.approx(60 / 80) and o["core"]["wr"] == pytest.approx(0.5)
@@ -84,6 +86,7 @@ def test_ordered_build_from_the_crawl(db, tmp_path):
 def test_thin_options_are_hidden_and_no_names_means_nothing(db, tmp_path):
     write_static(tmp_path)
     seed(db, ORDER_MIN_GAMES - 1, (LUDENS, ZHONYAS))
+    refresh_counts(db, "16.21", load_static(tmp_path))
     o = summarize_order(db, None, "16.21", CHAMP, "mid", "gold", load_static(tmp_path))
     assert o["core"] is None and o["ref_games"] == ORDER_MIN_GAMES - 1
     assert summarize_order(db, None, "16.21", CHAMP, "mid", "gold", load_static(tmp_path / "none")) is None

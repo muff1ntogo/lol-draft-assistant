@@ -74,6 +74,101 @@
   const when = (t) => new Date(t * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
   const result = (h) => (h.stopped ? 'stopped' : h.exit === 0 ? 'finished' : h.exit == null ? 'ended' : `failed (exit ${h.exit})`);
   const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0);
+
+  // shared data (docs/shared-data.md, Stage 2): the last pull, quietly, and "Sync now"
+  let shared = $state(null);
+  let syncing = $state(false);
+  async function loadShared() {
+    try { shared = await (await fetch('/api/shared/status')).json(); } catch { /* restarting */ }
+  }
+  loadShared();
+  async function syncNow() {
+    syncing = true;
+    try { shared = await (await fetch('/api/shared/sync', { method: 'POST' })).json(); } finally { syncing = false; }
+  }
+  const role = $derived(data?.role ?? 'solo');
+
+  // members (admin, docs/shared-data.md Stage 3): an invite is shown once, right after it's made
+  let members = $state(null);
+  let newMember = $state('');
+  let shownInvites = $state(null);  // {name: code}
+  let confirmRemove = $state('');
+  let memberMessage = $state('');
+  async function loadMembers() {
+    if (role !== 'admin') return;
+    const res = await fetch('/api/members');
+    const out = await res.json();
+    if (res.ok) members = out.members; else memberMessage = out.detail;
+  }
+  $effect(() => { if (role === 'admin' && members === null) loadMembers(); });
+  async function memberCall(url, method, body) {
+    memberMessage = '';
+    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    const out = await res.json();
+    if (!res.ok) { memberMessage = out.detail; return null; }
+    members = out.members;
+    return out;
+  }
+  async function addMember() {
+    const name = newMember.trim();
+    const out = name && await memberCall('/api/members', 'POST', { name });
+    if (out) { shownInvites = { [name]: out.invite }; newMember = ''; }
+  }
+  async function renewMember(name) {
+    const out = await memberCall(`/api/members/${encodeURIComponent(name)}/renew`, 'POST');
+    if (out) shownInvites = { [name]: out.invite };
+  }
+  async function removeMember(name) {
+    if (confirmRemove !== name) { confirmRemove = name; return; }
+    confirmRemove = '';
+    const out = await memberCall(`/api/members/${encodeURIComponent(name)}`, 'DELETE');
+    if (out) shownInvites = out.reissued;
+  }
+  const copy = (text) => navigator.clipboard?.writeText(text);
+
+  // datasets (docs/shared-data.md Stage 4): the admin's list, the user's selection
+  let ds = $state(null);
+  let sel = $state(null);
+  let selMessage = $state('');
+  let newDs = $state({ dataset_id: '', name: '', scope: 'last_n', n: 3, half_life: 6 });
+  async function loadDatasets() {
+    if (role === 'solo') return;
+    try {
+      ds = await (await fetch('/api/datasets')).json();
+      sel = structuredClone(ds.selection);
+    } catch { /* restarting */ }
+  }
+  $effect(() => { if (role !== 'solo' && ds === null) loadDatasets(); });
+  const tiersFor = (b) => sel.tiers[b] ?? [b];
+  function toggleTier(b, t) {
+    const now = tiersFor(b);
+    const next = now.includes(t) ? now.filter((x) => x !== t) : [...now, t];
+    sel.tiers = { ...sel.tiers, [b]: next.length ? next : [b] };
+  }
+  function toggleQueue(q) {
+    const next = sel.queues.includes(q) ? sel.queues.filter((x) => x !== q) : [...sel.queues, q];
+    if (next.length) sel.queues = next;
+  }
+  async function saveSelection() {
+    selMessage = '';
+    const res = await fetch('/api/selection', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sel) });
+    const out = await res.json();
+    if (!res.ok) { selMessage = out.detail; return; }
+    selMessage = out.reload === 'deferred' ? 'Saved: applied when this draft is over.' : 'Applied.';
+    ds = { ...ds, fits_from: out.fits_from };
+  }
+  async function addDataset() {
+    selMessage = '';
+    const res = await fetch('/api/datasets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newDs) });
+    const out = await res.json();
+    if (res.ok) { ds = out; newDs = { dataset_id: '', name: '', scope: 'last_n', n: 3, half_life: 6 }; }
+    else selMessage = out.detail;
+  }
+  const SCOPE_LABELS = { default: "The admin's choice (as before)", current: 'Current patch only', last_n: 'Last N patches',
+                         patches: 'Specific patches', all: 'Every patch' };
+  const SYNC_STATES = { updated: 'updated', unchanged: 'up to date', offline: "couldn't reach the shared database",
+                        draft: 'waits for the draft to end', too_new: 'needs a newer app', too_old: 'waiting for the admin',
+                        error: 'failed', local: 'this machine crawls its own data', off: 'not set up' };
 </script>
 
 <main class="page">
@@ -81,10 +176,150 @@
   {#if !data}
     <p class="muted">Loading…</p>
   {:else}
-    {#if !data.riot_key_set}
+    {#if data.account}<p class="muted acct">{data.account.label}{#if data.account.warning} · <span class="warnline">{data.account.warning}</span>{/if}
+      · <a href="#/settings">Account</a></p>{/if}
+    {#if !data.riot_key_set && role !== 'user'}
       <p class="warn">The crawl needs your Riot API key: add it in <a href="#/settings">Settings</a>.</p>
     {/if}
 
+    {#if shared?.configured}
+      <section class="shared">
+        <h2>Shared data</h2>
+        <p>
+          {#if shared.pull?.published_at}Stats from {when(shared.pull.published_at)} (publish {shared.pull.publish_id}){:else}Nothing pulled yet{/if}
+          {#if shared.pull?.pulled_at}<span class="muted"> · pulled {when(shared.pull.pulled_at)}</span>{/if}
+          {#if shared.last}<span class="muted"> · last sync: {SYNC_STATES[shared.last.state] ?? shared.last.state}</span>{/if}
+          <button onclick={syncNow} disabled={syncing}>{syncing ? 'Syncing…' : 'Sync now'}</button>
+        </p>
+        {#if shared.last?.message && !['updated', 'unchanged'].includes(shared.last.state)}<p class="muted small">{shared.last.message}</p>{/if}
+        {#if role === 'admin' && data.quota}
+          <p class="muted">Rows written to the shared database this month: {data.quota.rows.toLocaleString()} of
+            {data.quota.limit.toLocaleString()} ({pct(data.quota.rows, data.quota.limit)}%). Publish warns from 70% and stops at 95%.</p>
+        {/if}
+      </section>
+    {/if}
+
+    {#if role === 'user'}
+      <section>
+        <h2>What's published</h2>
+        {#if data.published?.patches?.length}
+          <table>
+            <thead><tr><th>Patch</th><th>Matches per tier</th><th class="n">Total</th></tr></thead>
+            <tbody>
+              {#each data.published.patches as p}
+                <tr><td>{patchLabel(p.patch)}</td>
+                  <td>{#each Object.entries(p.brackets) as [b, n]}<span class="per1"><span class="tier">{b}</span> {n.toLocaleString()}</span>{/each}</td>
+                  <td class="n">{p.total.toLocaleString()}</td></tr>
+              {/each}
+            </tbody>
+          </table>
+        {:else}
+          <p class="muted">Nothing pulled yet: Sync now, above. Until then Live uses OP.GG's stats.</p>
+        {/if}
+        <p class="muted">The team's admin crawls and publishes; this machine pulls. Your own games, History and scouting stay on this machine.</p>
+      </section>
+    {/if}
+
+    {#if role === 'user' && ds && sel}
+      <section>
+        <h2>Data selection <small>{ds.fits_from}</small></h2>
+        <div class="form">
+          <label>Patches
+            <select bind:value={sel.scope}>
+              {#each Object.entries(SCOPE_LABELS) as [k, label]}<option value={k}>{label}</option>{/each}
+            </select>
+          </label>
+          {#if sel.scope === 'last_n'}<label>N <input type="number" min="1" max="20" bind:value={sel.n} /></label>{/if}
+          {#if ['last_n', 'patches', 'all'].includes(sel.scope)}
+            <label>Half-life <input type="number" min="0" max="20" step="0.5" bind:value={sel.half_life} /> patches (0 = equal)</label>
+          {/if}
+        </div>
+        {#if sel.scope === 'patches'}
+          <div class="form opts">{#each ds.patches as p}
+            <label class="cb"><input type="checkbox" value={p} bind:group={sel.patches} /> {patchLabel(p)}</label>{/each}</div>
+        {/if}
+        {#if sel.scope !== 'default'}
+          <div class="form opts">
+            <span class="muted lbl">Queues</span>
+            <label class="cb"><input type="checkbox" checked={sel.queues.includes(420)} onchange={() => toggleQueue(420)} /> Solo/Duo</label>
+            <label class="cb"><input type="checkbox" checked={sel.queues.includes(440)} onchange={() => toggleQueue(440)} /> Flex</label>
+          </div>
+          {#each ds.player_brackets as b}
+            <div class="form opts tiers">
+              <span class="muted lbl">Tiers for <span class="tier">{b}</span> players</span>
+              {#each ds.tiers as t}<label class="cb cap"><input type="checkbox" checked={tiersFor(b).includes(t)} onchange={() => toggleTier(b, t)} /> {t}</label>{/each}
+            </div>
+          {/each}
+        {/if}
+        <div class="form opts">
+          <label class="cb"><input type="checkbox" bind:checked={sel.master_tree} /> Master+ games for the Matchup tree</label>
+          <button onclick={saveSelection}>Apply</button>
+        </div>
+        {#if selMessage}<p class="muted">{selMessage}</p>{/if}
+        <p class="muted">Win rates, matchups and synergy are summed from the pulled counts for exactly this choice. Fits (matchup
+          model, synergy rules, traits) come from the admin's dataset closest to it, named above. Changes apply between drafts.</p>
+      </section>
+    {/if}
+
+    {#if role === 'admin' && ds}
+      <section>
+        <h2>Datasets</h2>
+        <table>
+          <thead><tr><th>Id</th><th>Name</th><th>Patches</th></tr></thead>
+          <tbody>{#each ds.datasets as d}<tr><td>{d.dataset_id}</td><td>{d.name}</td><td>{d.description}{d.source === 'master_plus' ? ' · Master+ database' : ''}</td></tr>{/each}</tbody>
+        </table>
+        <form class="form" onsubmit={(e) => { e.preventDefault(); addDataset(); }}>
+          <label>Id <input bind:value={newDs.dataset_id} placeholder="last3" /></label>
+          <label>Name <input bind:value={newDs.name} placeholder="Last 3 patches" /></label>
+          <label>Patches <select bind:value={newDs.scope}><option value="current">current</option><option value="last_n">last N</option><option value="all">every</option></select></label>
+          {#if newDs.scope === 'last_n'}<label>N <input type="number" min="1" max="20" bind:value={newDs.n} /></label>{/if}
+          <button type="submit" disabled={!newDs.dataset_id.trim() || !newDs.name.trim()}>Add</button>
+        </form>
+        <p class="muted">Each dataset gets its own fits, computed and published with the next Publish. Teammates get the one
+          closest to their selection.</p>
+        {#if selMessage}<p class="warn">{selMessage}</p>{/if}
+      </section>
+    {/if}
+
+    {#if role === 'admin'}
+      <section>
+        <h2>Members</h2>
+        {#if members === null}<p class="muted">Loading…</p>{:else}
+          {#if members.length}
+            <table>
+              <thead><tr><th>Name</th><th>Expires</th><th></th></tr></thead>
+              <tbody>
+                {#each members as m}
+                  <tr><td>{m.name}</td>
+                    <td>{m.expires_at ? when(m.expires_at) : 'never'}{#if m.expiring} <span class="warnline">expiring soon</span>{/if}</td>
+                    <td class="n"><button onclick={() => renewMember(m.name)}>Renew</button>
+                      <button onclick={() => removeMember(m.name)}>{confirmRemove === m.name ? 'Confirm: new codes for everyone' : 'Remove'}</button></td></tr>
+                {/each}
+              </tbody>
+            </table>
+          {:else}<p class="muted">No members yet.</p>{/if}
+          <form class="form" onsubmit={(e) => { e.preventDefault(); addMember(); }}>
+            <label>Display name <input bind:value={newMember} placeholder="no Riot ID needed" /></label>
+            <button type="submit" disabled={!newMember.trim()}>Create invite</button>
+          </form>
+          {#if shownInvites}
+            <div class="invites">
+              <p><strong>Send these privately. They're shown only now.</strong></p>
+              {#each Object.entries(shownInvites) as [name, code]}
+                <div class="invite"><span>{name}</span><code>{code}</code><button onclick={() => copy(code)}>Copy</button></div>
+              {/each}
+              <button onclick={() => (shownInvites = null)}>Done</button>
+            </div>
+          {/if}
+          <p class="muted">Turso can only invalidate every token at once, so removing a member rotates the database's keys and
+            gives everyone else a new code to send. Renew re-issues one member's code (the old one works until it expires).
+            Invites last 90 days; you and the member are warned 14 days ahead.</p>
+        {/if}
+        {#if memberMessage}<p class="warn">{memberMessage}</p>{/if}
+      </section>
+    {/if}
+
+    {#if role !== 'user'}
     <section>
       <h2>Crawl ranked matches</h2>
       {#if running}
@@ -189,6 +424,7 @@
         <p class="muted">Nothing crawled yet. Until the crawl has enough games, Live uses OP.GG's stats.</p>
       {/if}
     </section>
+    {/if}
 
     <section>
       <h2>Other jobs</h2>
@@ -217,6 +453,12 @@
 
 <style>
   .page { max-width: 1040px; margin: 0 auto; padding: 28px 32px 80px; }
+  .acct { margin: -12px 0 18px; }
+  .warnline { color: var(--gold); }
+  .per1 { margin-right: 14px; white-space: nowrap; }
+  .invites { margin-top: 16px; padding: 14px; border: 1px solid var(--gold); border-radius: 8px; }
+  .invite { display: flex; gap: 10px; align-items: center; margin: 8px 0; }
+  .invite code { flex: 1; overflow-wrap: anywhere; font-size: 12px; }
   h1 { font-size: 34px; margin: 4px 0 22px; }
   h2 { font-size: 21px; margin: 0 0 16px; display: flex; align-items: baseline; gap: 10px; }
   h2 small { font-size: 14px; color: var(--muted); font-weight: 400; }

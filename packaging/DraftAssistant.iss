@@ -67,7 +67,9 @@ Filename: "{app}\{#AppExe}"; Flags: nowait; Check: WizardSilent
 [Code]
 var
   KeyPage: TInputQueryWizardPage;
+  InvitePage: TInputQueryWizardPage;
   ImportPage: TInputDirWizardPage;
+  ImportArgs: String;
 
 function AlreadySetUp(): Boolean;
 begin
@@ -80,7 +82,11 @@ begin
     'Optional: lets the app read match history and scout your opponents.',
     'Paste your key from developer.riotgames.com. Leave it empty to skip; you can add it later in Settings.');
   KeyPage.Add('Riot API key:', False);
-  ImportPage := CreateInputDirPage(KeyPage.ID, 'Bring your data across',
+  InvitePage := CreateInputQueryPage(KeyPage.ID, 'Team invite',
+    'Optional: use the shared team statistics instead of crawling locally.',
+    'Paste the invite code from your team admin. Leave it empty for solo mode or team-admin setup.');
+  InvitePage.Add('Invite code:', False);
+  ImportPage := CreateInputDirPage(InvitePage.ID, 'Bring your data across',
     'Optional: did you use the app from a source checkout before?',
     'Pick that lol-draft-assistant folder (the one with data\ and .env in it) to copy your database, key and tags ' +
     'into the app. If the project still sits one folder down, pick that inner folder. Leave it empty to start fresh.',
@@ -90,7 +96,7 @@ end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
-  Result := ((PageID = KeyPage.ID) or (PageID = ImportPage.ID)) and AlreadySetUp();
+  Result := ((PageID = KeyPage.ID) or (PageID = InvitePage.ID) or (PageID = ImportPage.ID)) and AlreadySetUp();
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -113,9 +119,17 @@ begin
   if CurStep <> ssPostInstall then
     Exit;
   Folder := Trim(ImportPage.Values[0]);
-  if (Folder <> '') and not AlreadySetUp() then
-    Exec(ExpandConstant('{app}\{#CliExe}'), 'import-data "' + Folder + '"', '', SW_HIDE, ewWaitUntilTerminated,
+  if (Trim(InvitePage.Values[0]) <> '') and not AlreadySetUp() then
+    Exec(ExpandConstant('{app}\{#CliExe}'), 'account join "' + Trim(InvitePage.Values[0]) + '"', '', SW_HIDE, ewWaitUntilTerminated,
       ResultCode);
+  if (Folder <> '') and not AlreadySetUp() then
+  begin
+    ImportArgs := 'import-data "' + Folder + '"';
+    if Trim(InvitePage.Values[0]) <> '' then
+      ImportArgs := ImportArgs + ' --user';
+    Exec(ExpandConstant('{app}\{#CliExe}'), ImportArgs, '', SW_HIDE, ewWaitUntilTerminated,
+      ResultCode);
+  end;
   Key := Trim(KeyPage.Values[0]);
   if Key <> '' then
   begin

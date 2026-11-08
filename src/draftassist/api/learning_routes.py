@@ -119,7 +119,7 @@ def prep_matchup_tree(request: Request) -> dict:
     with source.connect() as conn:
         weights = crawl_weights(conn, model.window, half_life) if model is not None else {}
         counts = [{"patch": p, "matches": n, "weight": weights.get(p)} for p, n in conn.execute(text(
-            "SELECT patch, COUNT(*) FROM crawled_matches GROUP BY patch ORDER BY patch"))]
+            "SELECT patch, SUM(matches) FROM bracket_totals WHERE patch <> 'sel' GROUP BY patch ORDER BY patch"))]
     return {"roles": roles, "matches": counts, "half_life": half_life, "master": master is not None,
             "master_matches": master_matches(db_of(svc)), "master_needed": MIN_MATCHES}
 

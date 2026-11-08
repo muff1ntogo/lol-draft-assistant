@@ -20,7 +20,6 @@ from sqlmodel import Session
 from draftassist.data.synergy import window_weights
 
 BUILD_HALF_LIFE = 1.0  # patches: builds change with every patch, so the previous one counts half
-MIN_OPP_GAMES = 30  # games against one lane opponent before a vs-opponent build replaces the overall one
 MIN_BRACKET_GAMES = 40  # games in the player's bracket before its win rates are shown; else every tier pooled
 TOP_KEYSTONES = 3
 TOP_ITEMS = 6
@@ -55,6 +54,9 @@ def store_build(conn, match_id: str, champ_id: int, b: Mapping) -> None:
          "items": json.dumps(b.get("items") or []), "spells": json.dumps(b.get("spells") or [])})
 
 
+BACKFILL_COMMIT_EVERY = 2_000
+
+
 def backfill_builds(db: Engine, cache_dir: Path) -> dict[str, int]:
     """Crawled matches without builds: filled from the on-disk Riot cache (no API calls), or counted as missing."""
     from draftassist.data.backfill import _cached_match
@@ -73,8 +75,9 @@ def backfill_builds(db: Engine, cache_dir: Path) -> dict[str, int]:
             for p in body["info"]["participants"]:
                 store_build(conn, match_id, p["championId"], parse_build(p))
             updated += 1
-            if updated % 2000 == 0:
+            if updated % BACKFILL_COMMIT_EVERY == 0:
                 s.commit()
+                conn = s.connection()  # the commit closed the old one (backfills over 2,000 matches failed here)
         s.commit()
     return {"updated": updated, "missing": missing}
 
@@ -103,7 +106,7 @@ class Choice:
 class BuildSummary:
     champ: int
     role: str
-    opponent: int | None  # set when the vs-opponent sample was big enough
+    opponent: int | None  # always None since decision 6: the overall build, with lane hints beside it
     ref_label: str  # "Master+" or the bracket's own games when there's no Master+ data
     ref_games: float
     bracket_games: float
@@ -112,132 +115,227 @@ class BuildSummary:
     pages: list[Choice] = field(default_factory=list)  # full six-rune pages, the top one first
     items: list[Choice] = field(default_factory=list)  # every item held at the end, by share
     spells: list[Choice] = field(default_factory=list)
+    hints: list[Hint] = field(default_factory=list)  # "helpful in lane" vs the opponent (decision 6), usually none
 
 
-_ROWS_SQL = """
-WITH w(patch, weight) AS (VALUES {values})
-SELECT b.keystone, b.perks_json, b.items_json, b.spells_json, p.win, w.weight, m.bracket
-FROM match_builds b
-JOIN match_participants p ON p.match_id = b.match_id AND p.champ_id = b.champ_id
-JOIN crawled_matches m ON m.match_id = b.match_id
-JOIN w ON w.patch = m.patch
-{opp_join}
-WHERE b.champ_id = :champ AND p.role = :role {opp_where}
-"""
-
-
-def _rows(db: Engine, champ: int, role: str, weights: Mapping[str, float], opponent: int | None) -> list[tuple]:
-    if not weights:
-        return []
-    values = ", ".join(f"(:p{i}, :w{i})" for i in range(len(weights)))
-    params: dict = {"champ": champ, "role": role}
-    for i, (patch, w) in enumerate(weights.items()):
-        params |= {f"p{i}": patch, f"w{i}": w}
-    opp_join = opp_where = ""
-    if opponent is not None:
-        opp_join = ("JOIN match_participants o ON o.match_id = b.match_id AND o.role = p.role "
-                    "AND o.team_id <> p.team_id")
-        opp_where = "AND o.champ_id = :opp"
-        params["opp"] = opponent
-    sql = _ROWS_SQL.format(values=values, opp_join=opp_join, opp_where=opp_where)
-    with db.connect() as conn:
-        try:
-            return list(conn.execute(text(sql), params))
-        except Exception:  # a database from before match_builds existed
-            return []
+# Counts per option, weighted by patch: {bracket: {kind: {value: [games, wins, raw games]}}} (cnt_build / cnt_order)
+Counts = dict[str, dict[str, dict[str, list[float]]]]
 
 
 def _weights(db: Engine, patch: str) -> dict[str, float]:
+    from draftassist.data.counts import crawled_patches
+
     with db.connect() as conn:
         try:
-            patches = [r[0] for r in conn.execute(text("SELECT DISTINCT patch FROM crawled_matches"))]
+            patches = crawled_patches(conn)
         except Exception:
             return {}
     return window_weights([*patches, patch], patch, BUILD_HALF_LIFE)
 
 
-def _choices(ref: list[tuple], bracket: list[tuple], key_of, top: int, multi: bool = False) -> list[Choice]:
-    ref_total = sum(r[5] for r in ref)
-    counts: dict = defaultdict(float)
-    for r in ref:
-        for k in (key_of(r) if multi else [key_of(r)]):
-            if k is not None:
-                counts[k] += r[5]
+# The count tables are keyed (patch, bracket, queue, champion, role, ...): reading through the slices that exist
+# (cnt_bracket), as the outer loop (CROSS JOIN keeps SQLite from reordering it), makes every lookup a key seek instead
+# of a scan of the patch (db/optimize.hot_queries; tests/test_db_optimize.py checks the plans).
+COUNTS_SQL = """WITH w(patch, weight) AS (VALUES {values}),
+s AS MATERIALIZED (SELECT b.patch, b.bracket, b.queue, w.weight FROM cnt_bracket b JOIN w ON w.patch = b.patch)
+SELECT c.bracket, c.kind, c.value, SUM(c.games * s.weight), SUM(c.wins * s.weight), SUM(c.games)
+FROM s CROSS JOIN {table} c
+WHERE c.patch = s.patch AND c.bracket = s.bracket AND c.queue = s.queue AND c.champ_id = :champ AND c.role = :role
+GROUP BY c.bracket, c.kind, c.value"""
+LANE_SQL = """WITH w(patch, weight) AS (VALUES {values}),
+s AS MATERIALIZED (SELECT b.patch, b.bracket, b.queue, w.weight FROM cnt_bracket b JOIN w ON w.patch = b.patch)
+SELECT c.kind, c.value, SUM(c.games * s.weight), SUM(c.wins * s.weight), SUM(c.gold_n * s.weight),
+       SUM(c.gold_sum * s.weight), SUM(c.gold_sq * s.weight)
+FROM s CROSS JOIN cnt_lane c
+WHERE c.patch = s.patch AND c.bracket = s.bracket AND c.queue = s.queue AND c.champ_id = :champ AND c.role = :role
+      AND c.opp_id = :opp
+GROUP BY c.kind, c.value"""
+
+
+def _weight_params(weights: Mapping[str, float], params: dict) -> str:
+    """Binds the weights into `params`; returns the VALUES list."""
+    for i, (pt, w) in enumerate(weights.items()):
+        params |= {f"p{i}": pt, f"w{i}": w}
+    return ", ".join(f"(:p{i}, :w{i})" for i in range(len(weights)))
+
+
+def _counts(db: Engine | None, table: str, champ: int, role: str, patch: str) -> Counts:
+    out: Counts = defaultdict(lambda: defaultdict(dict))
+    if db is None:
+        return out
+    weights = _weights(db, patch)
+    if not weights:
+        return out
+    params: dict = {"champ": champ, "role": role}
+    values = _weight_params(weights, params)
+    with db.connect() as conn:
+        try:
+            rows = conn.execute(text(COUNTS_SQL.format(values=values, table=table)), params).all()
+        except Exception:  # a database from before the count tables
+            return out
+    for bracket, kind, value, g, wins, raw in rows:
+        out[bracket][kind][value] = [g, wins, raw]
+    return out
+
+
+def _pool(counts: Counts, brackets: Iterable[str] | None = None) -> dict[str, dict[str, list[float]]]:
+    pooled: dict[str, dict[str, list[float]]] = defaultdict(dict)
+    for b in sorted(counts):  # a fixed order: the float sums come out the same on every machine
+        if brackets is not None and b not in brackets:
+            continue
+        for kind, values in counts[b].items():
+            for v, c in values.items():
+                acc = pooled[kind].setdefault(v, [0.0, 0.0, 0])
+                for i in range(3):
+                    acc[i] += c[i]
+    return pooled
+
+
+def _total(pooled: Mapping[str, Mapping[str, list[float]]]) -> float:
+    return (pooled.get("total") or {}).get("", [0.0])[0]
+
+
+def _sides(main: Counts, ref: Counts, bracket: str):
+    """(reference, in-bracket, ref label): Master+ (else the bracket) says what; the bracket (else every tier) how well."""
+    in_bracket = _pool(main, [bracket])
+    if _total(in_bracket) < MIN_BRACKET_GAMES:
+        in_bracket = _pool(main)
+    reference, label = _pool(ref), "Master+"
+    if _total(reference) <= 0:
+        reference, label = in_bracket, "your bracket"
+    return reference, in_bracket, label
+
+
+def _choices(ref, mine, kind: str, top: int, convert=lambda v: v) -> list[Choice]:
+    ref_total = _total(ref)
+    options = sorted((ref.get(kind) or {}).items(), key=lambda kv: (-kv[1][0], kv[0]))[:top]
     out = []
-    for k, c in sorted(counts.items(), key=lambda kv: -kv[1])[:top]:
-        ch = Choice(k, c / ref_total if ref_total else 0.0, c)
-        for r in bracket:
-            keys = key_of(r) if multi else [key_of(r)]
-            if k in keys:
-                ch.games += r[5]
-                ch.wins += r[5] * bool(r[4])
-        out.append(ch)
+    for value, (c, _w, _n) in options:
+        g, w, _ = (mine.get(kind) or {}).get(value, [0.0, 0.0, 0])
+        out.append(Choice(convert(value), c / ref_total if ref_total else 0.0, c, g, w))
     return out
 
 
 def summarize(main: Engine, master: Engine | None, patch: str, champ: int, role: str, bracket: str,
               opponent: int | None = None) -> BuildSummary | None:
     """What to run on `champ` in `role`: Master+ games (when there's a Master+ database) for the options and their
-    shares, the main database's games in `bracket` (every tier when that's too few) for their win rates. Against
-    `opponent` when both have MIN_OPP_GAMES there; otherwise overall. None without any games."""
-    def load(db: Engine | None, opp: int | None) -> list[tuple]:
-        return [] if db is None else _rows(db, champ, role, _weights(db, patch), opp)
-
-    used_opp = None
-    main_rows, ref_rows = load(main, None), load(master, None)
-    if opponent is not None:
-        main_opp, ref_opp = load(main, opponent), load(master, opponent)
-        if sum(r[5] for r in main_opp) >= MIN_OPP_GAMES and (master is None or sum(r[5] for r in ref_opp) >= MIN_OPP_GAMES):
-            main_rows, ref_rows, used_opp = main_opp, ref_opp, opponent
-    in_bracket = [r for r in main_rows if r[6] == bracket]
-    if sum(r[5] for r in in_bracket) < MIN_BRACKET_GAMES:
-        in_bracket = main_rows
-    ref_label = "Master+"
-    if not ref_rows:
-        ref_rows, ref_label = in_bracket, "your bracket"
-    if not ref_rows:
+    shares, the main database's games in `bracket` (every tier when that's too few) for their win rates. From the count
+    tables, so a teammate's pulled data gives the same. Always the overall build; with `opponent`, the "helpful in lane"
+    hints against them (decision 6). None without any games."""
+    ref, mine, label = _sides(_counts(main, "cnt_build", champ, role, patch),
+                              _counts(master, "cnt_build", champ, role, patch), bracket)
+    if _total(ref) <= 0:
         return None
-    games = sum(r[5] for r in in_bracket)
-    summary = BuildSummary(champ, role, used_opp, ref_label, sum(r[5] for r in ref_rows), games,
-                           (sum(r[5] * bool(r[4]) for r in in_bracket) / games) if games else None)
-    summary.keystones = _choices(ref_rows, in_bracket, lambda r: r[0], TOP_KEYSTONES)
-    summary.pages = _choices(ref_rows, in_bracket, lambda r: r[1] if r[1] and r[1] != "[]" else None, 1)
-    summary.items = _choices(ref_rows, in_bracket, lambda r: json.loads(r[2] or "[]"), 30, multi=True)
-    summary.spells = _choices(ref_rows, in_bracket, lambda r: r[3] if r[3] and r[3] != "[]" else None, 1)
+    games = _total(mine)
+    wins = (mine.get("total") or {}).get("", [0.0, 0.0])[1]
+    summary = BuildSummary(champ, role, None, label, _total(ref), games, wins / games if games else None)
+    summary.keystones = _choices(ref, mine, "keystone", TOP_KEYSTONES, int)
+    summary.pages = _choices(ref, mine, "page", 1)
+    summary.items = _choices(ref, mine, "item", 30, int)
+    summary.spells = _choices(ref, mine, "spells", 1)
+    if opponent is not None:
+        exclude = {("rune", r) for p in summary.pages for r in json.loads(p.key)}
+        exclude |= {("first", c.key) for c in summary.items[:CORE_ITEMS]}
+        order = _pool(_counts(main, "cnt_order", champ, role, patch))
+        starter = max((order.get("starter") or {}).items(), key=lambda kv: (kv[1][0], kv[0]), default=None)
+        if starter is not None:
+            exclude |= {("start", i) for i in json.loads(starter[0])}
+        summary.hints = lane_hints(main, patch, champ, role, opponent, exclude)
     return summary
+
+
+# ---------- "helpful in lane" hints (decision 6; the rule agreed 8 Nov 2026) ----------
+HINT_MIN_GAMES = 30  # weighted games with the option, and without it, against this opponent
+HINT_MIN_GOLD = 300.0  # gold at 15 over the same champion's other games against them ...
+HINT_MIN_WR = 0.03  # ... or win rate points
+HINT_MIN_Z = 3.0  # and this many standard errors: about 0.1 false hints per lane from ~70 options tested
+HINT_MAX = 2
+HINT_KINDS = {"rune": "rune_total", "start": "item_total", "first": "item_total"}
+
+
+@dataclass(frozen=True)
+class LaneStats:
+    """One option's games against one opponent: games and wins, and the gold lead at 15 as count, sum, sum of squares."""
+    games: float
+    wins: float
+    gold_n: float
+    gold_sum: float
+    gold_sq: float
+
+    def _t(self) -> tuple:
+        return self.games, self.wins, self.gold_n, self.gold_sum, self.gold_sq
+
+    def __add__(self, o: LaneStats) -> LaneStats:
+        return LaneStats(*(a + b for a, b in zip(self._t(), o._t())))
+
+    def __sub__(self, o: LaneStats) -> LaneStats:
+        return LaneStats(*(a - b for a, b in zip(self._t(), o._t())))
+
+
+@dataclass(frozen=True)
+class Hint:
+    kind: str  # rune, start (a starting item), first (the first finished item)
+    value: int
+    measure: str  # "gold" (lead at 15) or "win" (win rate)
+    gain: float  # gold, or win-rate points as a fraction
+    z: float
+    games: float  # weighted games with it against this opponent
+    others: float  # ... and without it
+
+
+def lane_hint(with_it: LaneStats, total: LaneStats) -> Hint | None:
+    """The rule: HINT_MIN_GAMES with and without the option, and a gain of HINT_MIN_GOLD at 15 or HINT_MIN_WR win rate at
+    HINT_MIN_Z standard errors; the better z when both pass. kind and value are filled in by lane_hints."""
+    a, b = with_it, total - with_it
+    if a.games < HINT_MIN_GAMES or b.games < HINT_MIN_GAMES:
+        return None
+    found: list[tuple[float, str, float]] = []
+    if a.gold_n >= HINT_MIN_GAMES and b.gold_n >= HINT_MIN_GAMES:
+        ma, mb = a.gold_sum / a.gold_n, b.gold_sum / b.gold_n
+        va, vb = max(a.gold_sq / a.gold_n - ma * ma, 0.0), max(b.gold_sq / b.gold_n - mb * mb, 0.0)
+        se = math.sqrt(va / a.gold_n + vb / b.gold_n)
+        if se > 0 and ma - mb >= HINT_MIN_GOLD and (ma - mb) / se >= HINT_MIN_Z:
+            found.append(((ma - mb) / se, "gold", ma - mb))
+    pa, pb = a.wins / a.games, b.wins / b.games
+    p = (a.wins + b.wins) / (a.games + b.games)
+    se = math.sqrt(p * (1 - p) * (1 / a.games + 1 / b.games))
+    if se > 0 and pa - pb >= HINT_MIN_WR and (pa - pb) / se >= HINT_MIN_Z:
+        found.append(((pa - pb) / se, "win", pa - pb))
+    if not found:
+        return None
+    z, measure, gain = max(found)
+    return Hint("", 0, measure, gain, z, a.games, b.games)
+
+
+def lane_hints(db: Engine, patch: str, champ: int, role: str, opponent: int, exclude: set) -> list[Hint]:
+    """At most HINT_MAX hints against `opponent`, every tier of the database pooled, patches weighted as the builds are.
+    `exclude`: (kind, value) already in the overall build, which aren't hints."""
+    weights = _weights(db, patch)
+    if not weights:
+        return []
+    params: dict = {"champ": champ, "role": role, "opp": opponent}
+    values = _weight_params(weights, params)
+    with db.connect() as conn:
+        try:
+            rows = conn.execute(text(LANE_SQL.format(values=values)), params).all()
+        except Exception:  # a database from before the count tables
+            return []
+    stats = {(k, v): LaneStats(*(float(x or 0) for x in rest)) for k, v, *rest in rows}
+    hints = []
+    for (kind, value), s in stats.items():
+        total = stats.get((HINT_KINDS.get(kind), ""))
+        if total is None or (kind, int(value)) in exclude:
+            continue
+        h = lane_hint(s, total)
+        if h is not None:
+            hints.append(Hint(kind, int(value), h.measure, h.gain, h.z, h.games, h.others))
+    return sorted(hints, key=lambda h: (-h.z, h.kind, h.value))[:HINT_MAX]
 
 
 # ---------- builds in order, from timelines (docs/top-lane-power.md, Stage 3) ----------
 ORDER_MIN_GAMES = 50  # an option is shown with at least this many (weighted) reference games ...
 ORDER_MIN_SHARE = 0.05  # ... and this share of them
 STARTER_S = 60  # purchases in the first minute are the starting items
-
-_ORDER_SQL = """
-WITH w(patch, weight) AS (VALUES {values})
-SELECT e.purchases_json, e.skills, e.levels_json, p.win, w.weight, m.bracket
-FROM match_build_events e
-JOIN match_participants p ON p.match_id = e.match_id AND p.champ_id = e.champ_id
-JOIN crawled_matches m ON m.match_id = e.match_id
-JOIN w ON w.patch = m.patch
-WHERE e.champ_id = :champ AND p.role = :role
-"""
-
-
-def _order_rows(db: Engine | None, champ: int, role: str, patch: str) -> list[tuple]:
-    if db is None:
-        return []
-    weights = _weights(db, patch)
-    if not weights:
-        return []
-    values = ", ".join(f"(:p{i}, :w{i})" for i in range(len(weights)))
-    params: dict = {"champ": champ, "role": role}
-    for i, (pt, w) in enumerate(weights.items()):
-        params |= {f"p{i}": pt, f"w{i}": w}
-    with db.connect() as conn:
-        try:
-            return list(conn.execute(text(_ORDER_SQL.format(values=values)), params))
-        except Exception:  # a database from before match_build_events existed
-            return []
 
 
 def skill_max(skills: str) -> str | None:
@@ -273,9 +371,21 @@ def _features(row: tuple, static: GameStatic) -> dict:
             "level6_s": levels.get(6)}
 
 
-def _median(xs: list[float]) -> float | None:
-    xs = sorted(x for x in xs if x is not None)
-    return xs[len(xs) // 2] if xs else None
+def _binned_median(bins: Mapping[str, list[float]]) -> float | None:
+    """The median of seconds counted in TIME_BIN_S bins (raw games, as the per-row median was): the bin's middle."""
+    from draftassist.data.counts import TIME_BIN_S
+
+    items = sorted((int(v), c[2]) for v, c in bins.items())
+    n = sum(c for _, c in items)
+    seen = 0
+    for start, c in items:
+        seen += c
+        if seen > n // 2:
+            return start + TIME_BIN_S / 2
+    return None
+
+
+_ORDER_VALUE = {"core": lambda v: tuple(json.loads(v)), "starter": lambda v: tuple(json.loads(v)), "boots": int}
 
 
 def summarize_order(main: Engine, master: Engine | None, patch: str, champ: int, role: str, bracket: str,
@@ -283,42 +393,30 @@ def summarize_order(main: Engine, master: Engine | None, patch: str, champ: int,
     """Item order (the first two finished items, as an ordered pair and how often that order holds within the pair),
     starting items, skill max and first three skill points, with the median second of the first finished item and of
     level 6: what Master+ does (else the player's bracket), and how it wins in the player's bracket. Gated: an option
-    needs ORDER_MIN_GAMES reference games and ORDER_MIN_SHARE of them. None without item names or games."""
+    needs ORDER_MIN_GAMES reference games and ORDER_MIN_SHARE of them. From the count tables (cnt_order). None without
+    item names or games."""
     if not static.items:
         return None
-    main_rows = _order_rows(main, champ, role, patch)
-    ref_rows = _order_rows(master, champ, role, patch) if master is not None else []
-    in_bracket = [r for r in main_rows if r[5] == bracket]
-    if sum(r[4] for r in in_bracket) < MIN_BRACKET_GAMES:
-        in_bracket = main_rows
-    ref_label = "Master+"
-    if not ref_rows:
-        ref_rows, ref_label = in_bracket, "your bracket"
-    total = sum(r[4] for r in ref_rows)
+    ref, mine, label = _sides(_counts(main, "cnt_order", champ, role, patch),
+                              _counts(master, "cnt_order", champ, role, patch), bracket)
+    total = _total(ref)
     if total <= 0:
         return None
-    ref = [(_features(r, static), r[4]) for r in ref_rows]
-    mine = [(_features(r, static), r[4], bool(r[3])) for r in in_bracket]
 
     def best(key: str) -> dict | None:
-        counts: dict = defaultdict(float)
-        for f, w in ref:
-            if f[key] is not None:
-                counts[f[key]] += w
-        if not counts:
+        options = ref.get(key) or {}
+        if not options:
             return None
-        value, n = max(counts.items(), key=lambda kv: kv[1])
+        raw, (n, _w, _r) = max(options.items(), key=lambda kv: (kv[1][0], kv[0]))
         if n < ORDER_MIN_GAMES or n / total < ORDER_MIN_SHARE:
             return None
-        g = sum(w for f, w, _ in mine if f[key] == value)
-        wins = sum(w for f, w, won in mine if f[key] == value and won)
-        return {"value": value, "share": round(n / total, 3), "ref_games": round(n), "games": round(g),
-                "wr": round(wins / g, 3) if g else None}
+        g, wins, _ = (mine.get(key) or {}).get(raw, [0.0, 0.0, 0])
+        return {"value": _ORDER_VALUE.get(key, lambda v: v)(raw), "share": round(n / total, 3), "ref_games": round(n),
+                "games": round(g), "wr": round(wins / g, 3) if g else None}
 
     core = best("core")
     if core is not None:  # the pair in either order: how often this order holds
-        pair = set(core["value"])
-        both = sum(w for f, w in ref if f["core"] is not None and set(f["core"]) == pair)
+        both = (ref.get("core_set") or {}).get(json.dumps(sorted(core["value"])), [0.0])[0]
         core["order_share"] = round(core["ref_games"] / both, 3) if both else None
         core["names"] = [static.item_name(i) for i in core["value"]]
     boots, starter = best("boots"), best("starter")
@@ -326,10 +424,10 @@ def summarize_order(main: Engine, master: Engine | None, patch: str, champ: int,
         boots["names"] = [static.item_name(boots["value"])]
     if starter is not None:
         starter["names"] = [static.item_name(i) for i in starter["value"]]
-    return {"ref_label": ref_label, "ref_games": round(total), "core": core, "boots": boots, "starter": starter,
+    return {"ref_label": label, "ref_games": round(total), "core": core, "boots": boots, "starter": starter,
             "skill_max": best("max"), "first3": best("first3"),
-            "first_item_s": _median([f["first_item_s"] for f, _ in ref]),
-            "level6_s": _median([f["level6_s"] for f, _ in ref])}
+            "first_item_s": _binned_median(ref.get("first_item_s") or {}),
+            "level6_s": _binned_median(ref.get("level6_s") or {})}
 
 
 def most_common(values: Iterable) -> object | None:
@@ -387,6 +485,20 @@ def damage_thresholds(db: Engine, limit_teams: int = 60_000) -> DamageThresholds
         return None
     return DamageThresholds(round(_quantile(ad, HEAVY_PERCENTILE), 3), round(_quantile(ap, HEAVY_PERCENTILE), 3),
                             len(ad), round(_quantile(ad, 0.5), 3), round(_quantile(ap, 0.5), 3))
+
+
+def load_damage_thresholds(db: Engine, window: str | None = None) -> DamageThresholds | None:
+    """The stored thresholds for `window` (else the newest): aggregation writes them, a pull brings them."""
+    with db.connect() as conn:
+        try:
+            rows = conn.execute(text('SELECT "window", ad_heavy, ap_heavy, teams, median_ad, median_ap '
+                                     "FROM damage_thresholds")).all()
+        except Exception:  # a database from before the table
+            return None
+    if not rows:
+        return None
+    row = next((r for r in rows if r[0] == window), None) or max(rows, key=lambda r: _version_key(r[0]))
+    return DamageThresholds(ad_heavy=row[1], ap_heavy=row[2], teams=row[3], median_ad=row[4], median_ap=row[5])
 
 
 def main() -> int:

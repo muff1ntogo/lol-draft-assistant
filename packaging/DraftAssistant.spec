@@ -31,7 +31,9 @@ if BUILD_INFO.is_file():
 
 # The app imports its jobs and routers lazily, and uvicorn picks its loop and protocols by name
 HIDDEN = (collect_submodules("draftassist") + collect_submodules("uvicorn") + collect_submodules("webview")
-          + ["websockets", "httptools", "yaml"])
+          + ["websockets", "httptools", "yaml",
+             "zstandard",  # the Riot cache (data/response_cache.py)
+             "keyring.backends.Windows"])  # the sign-in's tokens in Windows Credential Manager (data/shared/account.py)
 
 a = Analysis(  # noqa: F821
     [str(ROOT / "packaging" / "entry.py")],

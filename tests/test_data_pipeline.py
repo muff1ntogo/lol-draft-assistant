@@ -90,7 +90,10 @@ def test_riot_client_sends_key_header_and_caches(tmp_path):
     assert len(calls) == 1
     assert calls[0].headers["X-Riot-Token"] == FAKE_KEY
     assert FAKE_KEY not in repr(c)
-    assert not any(FAKE_KEY in p.read_text() for p in (tmp_path / "riot").rglob("*.json"))
+    from draftassist.data.response_cache import CACHE_FILE, close_all
+
+    close_all()
+    assert FAKE_KEY.encode() not in (tmp_path / CACHE_FILE).read_bytes()
 
 
 def test_riot_client_ttl_and_404(tmp_path):

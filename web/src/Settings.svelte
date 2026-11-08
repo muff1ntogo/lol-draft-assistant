@@ -28,6 +28,27 @@
     appSetup = await (await fetch('/api/setup')).json();
     appUpdate = await (await fetch('/api/update')).json();
   })();
+  // Account (docs/shared-data.md, Stage 3): join with an invite, the admin's own tokens, sign out. Tokens are sent once and
+  // never come back from the server.
+  let account = $state(null);
+  let invite = $state('');
+  let showAdmin = $state(false);
+  let admin = $state({ url: '', org: '', database: '', name: '', db_token: '', platform_token: '' });
+  let accountMessage = $state('');
+  (async () => { account = await (await fetch('/api/account')).json(); })();
+  async function accountCall(url, body) {
+    accountMessage = '';
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) });
+    const out = await res.json();
+    if (res.ok) { account = out; return true; }
+    accountMessage = out.detail;
+    return false;
+  }
+  async function join() { if (await accountCall('/api/account/join', { invite })) invite = ''; }
+  async function saveAdmin() {
+    if (await accountCall('/api/account/admin', admin)) { admin = { url: '', org: '', database: '', name: '', db_token: '', platform_token: '' }; showAdmin = false; }
+  }
+  const signOut = () => accountCall('/api/account/sign-out');
   async function saveKey() {
     const res = await fetch('/api/setup/riot-key', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: riotKey }),
@@ -144,6 +165,40 @@
 
 <main class="page">
   <h1>Settings</h1>
+
+  <section>
+    <h2>Account</h2>
+    {#if account}
+      <p>{account.label}{#if account.url} <span class="muted">· {account.url}</span>{/if}</p>
+      {#if account.warning}<p class="warn">{account.warning}</p>{/if}
+      {#if account.role === 'solo'}
+        <form class="row" onsubmit={(e) => { e.preventDefault(); join(); }}>
+          <label>Invite code <input type="password" autocomplete="off" bind:value={invite} style="width: 40ch" placeholder="dav1.…" /></label>
+          <button type="submit" disabled={!invite.trim()}>Join my team</button>
+        </form>
+        <p class="muted">A teammate pastes the code the team's admin sent. The app then pulls the shared stats instead of
+          crawling; your own games, History and scouting stay on this machine. Without a code it works on its own, as before.</p>
+        <p><button type="button" onclick={() => (showAdmin = !showAdmin)}>{showAdmin ? 'Cancel' : 'I am the team admin'}</button></p>
+        {#if showAdmin}
+          <form class="admin" onsubmit={(e) => { e.preventDefault(); saveAdmin(); }}>
+            <label>Database URL <input bind:value={admin.url} placeholder="libsql://team-stats-you.turso.io" /></label>
+            <label>Organisation <input bind:value={admin.org} placeholder="your Turso organisation (slug)" /></label>
+            <label>Database name <input bind:value={admin.database} placeholder="team-stats" /></label>
+            <label>Your display name <input bind:value={admin.name} /></label>
+            <label>Full-access database token <input type="password" autocomplete="off" bind:value={admin.db_token} /></label>
+            <label>Platform API token <input type="password" autocomplete="off" bind:value={admin.platform_token} /></label>
+            <button type="submit">Save</button>
+          </form>
+          <p class="muted">Both tokens go to Windows Credential Manager, never into the data folder's .env, and are never
+            shown again. They stay on this machine: invites carry only a read-only token.</p>
+        {/if}
+      {:else}
+        <p><button type="button" onclick={signOut}>Sign out</button>
+          <span class="muted">Removes the stored tokens; this machine's data stays. Then join again with a new code, or use it on its own.</span></p>
+      {/if}
+      {#if accountMessage}<p class="warn">{accountMessage}</p>{/if}
+    {/if}
+  </section>
 
   <section>
     <h2>App</h2>
@@ -376,4 +431,9 @@
   .row.roles label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
   .row.roles label::first-letter { text-transform: uppercase; }
   .row.roles input { width: 100%; }
+  .admin { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; margin: 10px 0; }
+  .admin label { display: flex; flex-direction: column; gap: 4px; }
+  .admin input { height: 34px; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); padding: 4px 10px; font: inherit; }
+  .admin button { justify-self: start; }
+  .warn { color: var(--gold); margin: 8px 0 0; }
 </style>

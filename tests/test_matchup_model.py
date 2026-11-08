@@ -387,6 +387,9 @@ def test_aggregating_an_old_patch_refreshes_the_window_live_reads(crawled):
     from draftassist.db.models import ChampRoleStats, MatchupFit, SynergyRoleStats
 
     with Session(crawled) as s:
+        old_games = s.exec(select(SynergyRoleStats).where(SynergyRoleStats.window == "16.21",
+                                                          SynergyRoleStats.bracket == "all",
+                                                          SynergyRoleStats.champ_id == 1)).one().games
         _store_match(s, "EUW1_extra", (1, 10, 11, 12, 13), (3, 14, 15, 16, 17), True)
         s.commit()
     aggregate(crawled, "16.21", window="16.22")
@@ -399,10 +402,9 @@ def test_aggregating_an_old_patch_refreshes_the_window_live_reads(crawled):
         pooled = s.exec(select(SynergyRoleStats).where(SynergyRoleStats.window == "16.22",
                                                        SynergyRoleStats.bracket == "all",
                                                        SynergyRoleStats.champ_id == 1)).one()
-        old = s.exec(select(SynergyRoleStats).where(SynergyRoleStats.window == "16.21",
-                                                    SynergyRoleStats.bracket == "all",
-                                                    SynergyRoleStats.champ_id == 1)).one()
-        assert pooled.games == old.games + 1
+        assert pooled.games == old_games + 1
+        # older windows go when a newer one is built: nothing reads them (docs/shared-data-stage0.md, Stage 2 notes)
+        assert not s.exec(select(SynergyRoleStats).where(SynergyRoleStats.window == "16.21")).all()
         assert s.exec(select(MatchupFit).where(MatchupFit.window == "16.22")).first() is not None
 
 

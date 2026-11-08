@@ -43,12 +43,12 @@ class StrategyBuilds:
         return self._master
 
     def thresholds(self):
-        """What a damage-heavy team is, from the crawl (data/builds.damage_thresholds); None: the engine's defaults."""
+        """What a damage-heavy team is, from the crawl (stored by aggregation, or pulled); None: the engine's defaults."""
         if self._thresholds is False:
-            from draftassist.data.builds import damage_thresholds
+            from draftassist.data.builds import load_damage_thresholds
 
             try:
-                self._thresholds = damage_thresholds(self.db)
+                self._thresholds = load_damage_thresholds(self.db, self.patch)
             except Exception:
                 log.exception("damage thresholds unavailable; the Strategy view uses its defaults")
                 self._thresholds = None

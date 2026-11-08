@@ -145,6 +145,23 @@ def _healers(engine, theirs: Mapping[int, str]) -> list[int]:
     return [c for c, r in theirs.items() if _kit(engine, c, r, "sustain") >= KIT_STRONG]
 
 
+HINT_KIND_LABELS = {"rune": "rune", "start": "starting item", "first": "first item"}
+
+
+def lane_hint_payload(summary, static, opp_name: str | None) -> list[dict]:
+    """Decision 6: optional hints beside the overall build, an item or rune that did better against this opponent than the
+    same champion's other games against them (data/builds.lane_hints). Usually empty."""
+    out = []
+    for h in getattr(summary, "hints", None) or []:
+        name = static.rune_name(h.value) if h.kind == "rune" else static.item_name(h.value)
+        gain = f"+{h.gain:.0f} gold at 15" if h.measure == "gold" else f"+{100 * h.gain:.0f} pts win rate"
+        out.append({"kind": h.kind, "kind_label": HINT_KIND_LABELS.get(h.kind, h.kind), "id": h.value, "name": name,
+                    "measure": h.measure, "gain": round(h.gain, 3), "games": round(h.games),
+                    "text": f"{name} ({HINT_KIND_LABELS.get(h.kind, h.kind)}): {gain}"
+                            + (f" vs {opp_name}" if opp_name else "") + f" ({round(h.games)} games)"})
+    return out
+
+
 def build_plan(engine, role: str, champ: int, view: BuildView | None, theirs: Mapping[int, str],
                opp: int | None) -> dict | None:
     """Runes, spells, core items and situational items, each with its share and win rate and a reason."""
@@ -215,6 +232,7 @@ def build_plan(engine, role: str, champ: int, view: BuildView | None, theirs: Ma
     if len(healers) >= HEALERS:
         reasons.append("They heal a lot (" + ", ".join(name(h) for h in healers) + "): anti-heal is worth a slot.")
     return {
+        "hints": lane_hint_payload(s, st, name(opp) if opp else None),
         "ref_label": s.ref_label, "ref_games": round(s.ref_games), "bracket_games": round(s.bracket_games),
         "bracket_wr": None if s.bracket_wr is None else round(s.bracket_wr, 3),
         "vs_opponent": s.opponent is not None, "opponent_name": name(opp) if s.opponent is not None and opp else None,

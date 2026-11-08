@@ -34,6 +34,13 @@ def test_every_file_the_app_reads_from_the_bundle_is_in_it():
     assert "fixtures/lcu/flex-ranked-sample" in sources
 
 
+def test_the_cache_codec_is_bundled():
+    """cache.sqlite rows are zstd (data/response_cache.py): without the module the installed app can't read its cache."""
+    hidden = SPEC.split("HIDDEN = ", 1)[1].split("\n\n", 1)[0]
+    assert '"zstandard"' in hidden
+    assert '"keyring.backends.Windows"' in hidden  # the sign-in's tokens (Stage 3)
+
+
 def test_nothing_private_is_bundled():
     for src in bundled():
         assert not src.endswith((".sqlite", ".env")) and "cache" not in src and "recorded" not in src, src

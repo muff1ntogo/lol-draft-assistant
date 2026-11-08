@@ -13,7 +13,7 @@ from sqlalchemy import Engine
 from sqlmodel import Session, func, select
 
 from draftassist.data.crawler import MASTER_PLUS
-from draftassist.db.models import Champion, CrawledMatch
+from draftassist.db.models import BracketTotal, Champion, CrawledMatch
 from draftassist.db.session import get_engine, init_db
 
 FIRST_PATCH = "16.21"  # crawled from this patch on, every game counting the same
@@ -43,16 +43,31 @@ def _open(path: str) -> Engine:
 
 
 def master_matches(main: Engine) -> int:
-    """Master+ games stored so far, 0 before the first crawl."""
+    """Master+ games stored so far, 0 before the first crawl: crawled here, or pulled (bracket_totals, the counts)."""
     db = _master_engine(main)
     if db is None:
         return 0
     with Session(db) as s:
-        return s.exec(select(func.count()).select_from(CrawledMatch).where(CrawledMatch.bracket == MASTER_PLUS)).one()
+        crawled = s.exec(select(func.count()).select_from(CrawledMatch).where(CrawledMatch.bracket == MASTER_PLUS)).one()
+        pulled = s.exec(select(func.coalesce(func.sum(BracketTotal.matches), 0))
+                        .where(BracketTotal.bracket == MASTER_PLUS)).one()
+    return max(crawled, pulled)
+
+
+def tree_uses_master(main: Engine) -> bool:
+    """A user can turn Master+ off for the Matchup tree (their data selection, docs/shared-data.md Stage 4)."""
+    from draftassist.data.datasets import load_selection
+
+    try:
+        return load_selection(main).master_tree
+    except Exception:
+        return True
 
 
 def usable_master(main: Engine) -> Engine | None:
-    """The Master+ database, once it has enough games to read."""
+    """The Master+ database, once it has enough games to read (and unless the user's selection turned it off)."""
+    if not tree_uses_master(main):
+        return None
     return _master_engine(main) if master_matches(main) >= MIN_MATCHES else None
 
 

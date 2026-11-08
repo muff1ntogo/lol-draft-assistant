@@ -201,3 +201,173 @@ Every stage starts with failing tests and ends with `uv run pytest` green, plus 
 4. **Credentials:** `keyring` (Windows Credential Manager). The data-folder file is the fallback only where keyring is unavailable.
 5. **Refit locally:** later. Users take fits from the closest published dataset.
 6. **Strategy builds:** no counter-builds for the sake of it. Strategy shows the overall builds and runes, and players choose their own. On top of that it may *suggest* individual items or rune choices that look helpful in this lane, as optional hints. A hint needs enough games and a real gain against this opponent (lane lead or win rate) over the overall build, so most lanes get none. Shared data is therefore overall pages, items and spells, plus opponent × item and opponent × rune counts, used only for those hints. This changes Strategy's behaviour on the admin's machine too.
+
+## Measured (8 Nov 2026, on the admin's machine)
+
+From `scripts/measure_storage.py`. zstd was measured in a throwaway environment (`uv run --no-project --isolated --with
+zstandard`), so nothing was added to the project. Row counts and block sizes come from a read-only pass over the 30,434
+cached match bodies of patch 16.21, joined to `crawled_matches`. The local databases predate `match_builds`, so the script
+couldn't count builds from them. 16.22 had only 201 low-elo matches, so 16.21 stands in for a full patch.
+
+### Sizes
+
+| Location | Cache | `draftassist.sqlite` | `master.sqlite` |
+| --- | --- | --- | --- |
+| `%LOCALAPPDATA%\DraftAssistant` | 254 MB, 421 files: `updates/` 239 MB (5 files), `riot/` 9.2 MB, `ddragon/` 5.7 MB | 81.8 MB + 4.1 MB WAL | 34.8 MB |
+| old `lol-draft-assistant/` | **3.06 GB, 50,396 files**: `riot/europe` 3.04 GB (50,179 files, mean 60.7 KB), `riot/euw1` 3.9 MB, `ddragon/` 5.2 MB | 81.5 MB + 0.9 MB WAL | 34.8 MB + 11.8 MB WAL |
+
+- `draftassist.sqlite`, largest objects: `match_participants` 18.8 MB, `synergy_pairs` 16.5 MB + its autoindex 14.6 MB, `match_bans` 5.9 MB + autoindex 6.4 MB, `match_participants` autoindex 5.9 MB. The `sqlite_autoindex_*` copies add up to about 31 MB of the 82 MB, which is the `WITHOUT ROWID` saving to confirm in Stage 1.
+- `match_id` text: 2.9 MB each in `match_bans` and `match_participants`, under 1 MB elsewhere. That's about 15% of the file once the autoindex copies are counted, and most of it goes when `WITHOUT ROWID` removes the copy. These are crawl-only tables (users never hold them), so the integer match key isn't worth it. Stage 1 confirms on the scratch copy.
+- Free pages: 0 in every database, so `VACUUM` alone gains nothing.
+- `updates/` (239 MB of downloaded installers) is outside this task. It's a one-line cleanup after a successful update.
+
+### Codec (decision 3)
+
+400-file sample, train on half, test on the other half. Ratios are against compact JSON, which is 0.92× the on-disk size.
+
+| Codec | Ratio | ms/file | 3.04 GB `riot/` packed |
+| --- | ---: | ---: | ---: |
+| gzip-6 | 6.8× | 0.71 | ~410 MB |
+| gzip-9 | 7.0× | 0.92 | |
+| zlib-6 + 32 KB preset dictionary (stdlib) | 8.7× | 0.89 | ~320 MB |
+| lzma-6 | 9.0× | 9.2 | |
+| zstd-3 | 7.3× | 0.09 | |
+| zstd-19 | 8.7× | 29 | |
+| **zstd-3 + trained dictionary** | **10.3×** | **0.10** | **~270 MB** |
+
+Rule: `zstandard` only if it beats gzip-6 by at least 1.4×. zstd-3 with a dictionary does (10.3 / 6.8 = 1.51×), and plain zstd-3
+doesn't (1.07×). So it's **zstd-3 + a trained dictionary**, codec `zstd-d1`. The dictionary is stored in `cache.sqlite` and
+never changed once rows use it. gzip stays a readable codec. Against the best stdlib option (zlib + dictionary) the gain is
+1.18×, about 50 MB, and the speed difference doesn't matter at crawl rates. Python 3.14's stdlib `compression.zstd` reads the same format, so
+the dependency can go when the project moves to 3.14. Shared blocks stay gzip as decision 2 says: at 5–970 KB a block, a dictionary adds little.
+
+### Rows per (tier, queue), patch 16.21
+
+Distinct keys, which is the number of rows in each would-be shared table. Role is `teamPosition`, so off-role picks count.
+
+| tier / queue | matches | role | lanes | pairs | pages | spells | items | opp × keystone | opp × rune | opp × item |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| iron / 420 | 2,823 | 640 | 4,863 | 19,457 | 7,597 | 1,961 | 16,597 | 13,583 | 79,985 | 86,964 |
+| bronze / 420 | 2,870 | 623 | 4,907 | 19,648 | 7,394 | 1,723 | 15,989 | 13,391 | 79,852 | 88,732 |
+| silver / 420 | 2,704 | 595 | 4,883 | 19,433 | 7,119 | 1,533 | 15,428 | 13,068 | 78,009 | 87,550 |
+| gold / 420 | 2,513 | 590 | 4,858 | 19,287 | 7,283 | 1,439 | 15,016 | 12,700 | 76,568 | 85,023 |
+| platinum / 420 | 2,608 | 596 | 4,982 | 19,779 | 8,187 | 1,416 | 15,142 | 13,008 | 79,285 | 88,332 |
+| emerald / 420 | 2,580 | 568 | 4,987 | 19,835 | 9,115 | 1,348 | 14,821 | 12,819 | 79,658 | 88,249 |
+| master / 420 | 11,050 | 672 | 10,053 | 39,629 | 32,818 | 2,069 | 24,338 | 30,416 | 197,293 | 237,781 |
+| iron / 440 | 411 | 443 | 1,469 | 5,798 | 1,681 | 791 | 6,699 | 3,275 | 19,491 | 18,716 |
+| bronze / 440 | 362 | 420 | 1,385 | 5,467 | 1,619 | 762 | 6,277 | 3,048 | 18,149 | 17,122 |
+| silver / 440 | 535 | 446 | 1,898 | 7,582 | 2,127 | 839 | 7,685 | 4,223 | 25,364 | 24,940 |
+| gold / 440 | 710 | 514 | 2,375 | 9,431 | 2,804 | 1,003 | 9,238 | 5,338 | 32,293 | 31,954 |
+| platinum / 440 | 626 | 474 | 2,174 | 8,637 | 2,521 | 885 | 8,340 | 4,844 | 29,221 | 28,726 |
+| emerald / 440 | 642 | 489 | 2,250 | 8,926 | 2,697 | 924 | 8,533 | 4,985 | 30,290 | 29,626 |
+| **total** | **30,434** | **7,070** | **51,084** | **202,909** | **92,962** | **16,693** | **164,103** | **134,698** | **825,458** | **913,715** |
+
+There are 13 slices, not 14: the Master+ crawl is solo queue only. The opponent tables (decision 6) are 77% of the rows,
+against about 40k rows for role stats plus lane pairs. Build order, level timings and damage sums couldn't be counted, because
+timelines aren't cached and these databases have no `match_build_events`.
+
+### Blocks and Turso estimate (decision 2)
+
+One gzip-6 block per (patch, tier, queue, table), serialised as compact JSON arrays with realistic count and sum columns:
+
+| Table | Blocks | gzip total | Largest block |
+| --- | ---: | ---: | ---: |
+| role | 13 | 0.05 MB | 5 KB |
+| lanes | 13 | 0.22 MB | 46 KB |
+| pairs | 13 | 0.81 MB | 166 KB |
+| pages | 13 | 0.59 MB | 186 KB |
+| spells | 13 | 0.08 MB | 10 KB |
+| items | 13 | 0.69 MB | 111 KB |
+| opp × keystone | 13 | 0.57 MB | 135 KB |
+| opp × rune | 13 | 3.13 MB | 799 KB |
+| opp × item | 13 | 3.62 MB | **974 KB** (master/420) |
+| **measured** | **117** | **9.75 MB** | 2.41 M rows inside |
+
+- **Per patch today:** about 117 blocks plus about 50 unmeasured ones (bracket totals, order counts, level timings, damage sums), so **~170 blocks, ~11 MB**.
+- **Fits:** about 8 blocks per dataset, ~32 for the four defaults. `execution_fits` is one 1.9 MB row raw: check its gzip size, and split it if it's over 1 MB.
+- **Block size:** master's opponent × item block is already at the 1 MB cap with 11k matches. The two opponent tables are therefore split by role (5 blocks per slice), which brings a patch to about **250 blocks**.
+- **Writes:** a nightly publish rewrites the current patch's blocks plus the fits, about 280 rows. That's **~9k rows per month, 0.09% of the free tier's 10 M**. Even hourly publishing during a crawl stays under 1%.
+- **Storage:** ~11 MB per patch today. At the target of about 20k matches per tier, sublinear growth from master's numbers suggests 25–40 MB per patch. Twenty patches is therefore **0.2–0.8 GB of the 5 GB**.
+- **Reads:** a pull is `WHERE publish_id > ?` with an index on `publish_id`. That's about 280 rows a night, and a first full pull is ~5k rows. Against 500 M a month, that's nothing.
+- **Download:** a first full pull is ~11 MB per patch today.
+
+## Decision 6: the "helpful in lane" rule (agreed 8 Nov 2026)
+
+Strategy shows the overall build. Against a known lane opponent, an option is a hint only if all of these hold:
+- **The option** is one of: a rune of the page, a starting item, or the first finished item. End-of-game items mostly show who was already winning, so they don't count.
+- **At least 30 weighted games** with the option against this opponent, and at least 30 without it.
+- **It isn't already in the overall build:** the page's runes, the top three items, or the usual starter.
+- **A gain** of at least +300 gold at 15 minutes, or at least +3 points of win rate, over the same champion's other games against that opponent.
+- **z ≥ 3.** About 70 options are tested per lane, so chance alone gives about 0.1 false hints per lane.
+
+At most 2 hints are shown, ordered by z.
+
+The data comes from `builds.lane_hints` and `builds.lane_hint`, over `cnt_lane`. All tiers of the database are pooled, and patches are weighted as the builds are. The gold lead is stored as a count, a sum and a sum of squares, so its mean and spread add up across patches and tiers.
+
+## Stage 2 notes (built 8 Nov 2026)
+
+- **The admin's tables are derived the same way a pull derives them.** Aggregation builds the per-(patch, tier, queue) counts and runs the same `counts.derive` a pull runs, so its runtime tables are reproduced exactly on a teammate's machine. A scratch copy of the real databases confirmed it: 174 blocks, 12.1 MB gzipped, publish 19 s, pull 19 s, and both databases identical after the pull.
+- **Strategy reads the counts on every machine**, so these Strategy behaviours changed on the admin's machine too:
+  - Items that tie on share are ordered by item id. Before, slot order decided.
+  - An item held twice counts once.
+  - The median second of the first item and of level 6 now comes from 10-second bins.
+  - The vs-opponent build switch is gone (decision 6).
+- **Count reads are primary-key seeks:** the queries go through the `cnt_bracket` slices with `CROSS JOIN`. It's 19 ms per champion with an opponent on the real data, and `tests/test_db_optimize.py` checks the plans.
+- **Older synergy windows are deleted when a newer one is built.** Nothing read them.
+- **`champions.roles` follows the window patch.** Before, an older patch being aggregated could set it.
+- **The champion indexes on `match_builds` and `match_build_events` are dropped by `db-optimize`.** Strategy no longer reads those tables.
+- **Fixed on the way:** `backfill_builds` failed past 2,000 matches. The connection it used was closed by its own periodic commit.
+
+## Stage 3 notes (built 8 Nov 2026)
+
+- **Credentials** are in `data/shared/account.py`.
+  - Each secret is its own Windows Credential Manager entry (keyring, service `DraftAssistant`), named by key and a hash of the data folder, so a second `DRAFTASSIST_HOME` is a separate account. `credentials.json` in the data folder is the fallback only where no keyring works.
+  - `account.json` holds the role, name, URL, organisation, database and expiry: nothing secret.
+  - `import-data` copies neither file.
+- **Invites** are `dav1.` + base64url JSON: URL, read-only token, name and expiry. The default expiry is 90 days, with warnings from 14 days ahead.
+- **Members** live in the shared database's `members` table: name, role, the token's sha256, created, expires, revoked. It's there for the UI; Turso's token permissions are the real enforcement.
+  - **Remove:** rotates the keys, mints a new full-access token for the admin (stored, and the store is reopened with it), re-mints for everyone left, and shows their new codes once.
+  - **Renew:** re-mints one member's token without rotating.
+- **Roles:**
+  - **admin:** a full-access token plus the Platform API token.
+  - **user:** a read-only token from an invite.
+  - **solo:** nothing stored.
+  - **What a user can't do:** the crawl-data jobs and commands are refused with a 403 or exit code 2 (crawl, timelines, refetch, Master+, fit, power, backfill, coverage, publish, members).
+  - **What a user keeps:** the own-game jobs.
+  - **Solo mode** is today's behaviour, without Publish.
+- **No token in logs:** every secret the account loads or mints is registered, and every log record is redacted as it's created (`data/shared/redact.py`). Tests check job logs, `account status` output, a repo scan for token-shaped strings, and the bundle when one is built.
+- **Not done yet:** the installer pages (Stage 5) and Datasets on the Crawl page (Stage 4).
+
+## First live run (8 Nov 2026)
+
+- **Publish 1 is on Turso:** 174 blocks, 12.09 MB, 175 rows written. A test pull from Turso into an empty folder gave tables identical to the admin's, for both the main and Master+ databases.
+- **Found live, and fixed with tests:**
+  - **Turso sends blob base64 without `=` padding.** Every real pull failed on its first block. The client now pads.
+  - **A token minted straight after a key rotation was refused for good;** one minted a minute later worked. So after a rotation ("Remove member"), every new token is checked against the database and minted again until it works.
+- **The keys were rotated once,** at the admin's request, to kill a never-expiring read-only token that had sat in a text file. The admin's new full-access token is in Credential Manager.
+
+## Stage 4 notes (built 8 Nov 2026)
+
+- **Datasets** are rows in a shared table, published with the fits. The defaults:
+  - `current`: the current patch
+  - `recent`: the last 6 patches, half-life 6
+  - `all`: every patch, equal weights
+  - `master_plus`: the Master+ database's own fits, for the Matchup tree
+
+  The admin adds more on the Crawl page (Datasets).
+- **Before each publish, the admin's machine fits every dataset** under the window `ds:<id>` (`datasets.fit_datasets`): synergy window, traits, damage thresholds, synergy and matchup fits.
+  - **Data used:** a dataset's fits pool every tier and both queues, as all fits always have; tiers and queues shape only the additive tables.
+  - **Synergy windows:** each dataset's is only for fitting and is dropped afterwards.
+  - **Skipped** when neither the counts nor the datasets changed.
+  - **Code:** the fit code itself is unchanged; `synergy.crawl_weights` gives a dataset window its patch scope.
+- **A teammate's selection** (Crawl page, Data selection): patch scope (the admin's choice, current, last N, specific patches or all) with a half-life, queues, tiers to pool for each player bracket, and Master+ for the tree on or off.
+  - **Where it goes:** `datasets.apply_selection` sums the pulled counts for exactly that choice into the runtime tables under the patch key `sel`, so the per-patch rows the Matchup tree weighs stay as pulled.
+  - **Synergy and fits:** the synergy window is derived from the counts under the closest dataset's window, which holds that dataset's pulled fits. Every loader follows `synergy.latest_window`, which returns the active window.
+  - **The "Fits from" label** names the dataset in use.
+  - **The default selection** changes nothing: the admin's current window, exactly as in Stage 2.
+  - **Timing:** it's applied between drafts; a choice made during champ select waits for the next stats refresh after it. It's also re-applied after every pull.
+- **Closest dataset:** the same patch scope first (for last N, the nearest N), then the most patches in common, then the most tiers in common, then the dataset id.
+- **Not done:**
+  - **The "minimum games" setting.** The existing thresholds stay as they are.
+  - **Per-dataset execution fits.** The fit job still fits the current window only, so a selection uses the newest patch window's execution fit.
+  - **Refitting locally.** That's later, per decision 5.

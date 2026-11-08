@@ -142,7 +142,7 @@ def test_api_shows_the_crawl_and_runs_jobs(make_services, engine, tmp_path):
         body = client.get("/api/jobs").json()
         brackets = {r["bracket"]: r for r in body["crawl"]["brackets"]}
         assert brackets["gold"]["all"] == 2 and brackets["gold"]["timelines"] == 2 and brackets["iron"]["all"] == 1
-        assert {j["id"] for j in body["jobs"]} == set(JOBS)
+        assert {j["id"] for j in body["jobs"]} == set(JOBS) - {"publish"}  # solo mode: nothing to publish to
         assert client.post("/api/jobs/start", json={"job": "nope"}).status_code == 422
         assert client.post("/api/jobs/start", json={"job": "crawl", "hours": 99}).status_code == 422
         assert client.post("/api/jobs/start", json={"job": "crawl", "hours": 1}).json()["running"]["job"] == "crawl"

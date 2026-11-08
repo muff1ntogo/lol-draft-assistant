@@ -17,7 +17,6 @@ from sqlalchemy import Engine, text
 from sqlmodel import Session
 
 from draftassist.data.backfill import _cached_match
-from draftassist.data.riot import REGION, cache_path, match_path
 from draftassist.data.timeline_map import (
     PARTICIPANT_COLUMNS,
     TimelineStats,
@@ -134,6 +133,8 @@ def refetch_sample(db: Engine, share: float) -> list[str]:
 
 def estimate_refetch(ids: list[str], cache_dir: Path) -> dict[str, float]:
     """One request per timeline, and one per match not in the disk cache."""
-    uncached = sum(not cache_path(cache_dir / "riot", REGION, match_path(m), None).is_file() for m in ids)
+    from draftassist.data.response_cache import has_matches
+
+    uncached = len(ids) - has_matches(cache_dir, ids)
     requests = len(ids) + uncached
     return {"matches": len(ids), "requests": requests, "hours": requests / REQUESTS_PER_HOUR}

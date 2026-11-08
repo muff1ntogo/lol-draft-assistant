@@ -31,6 +31,9 @@ from draftassist.api.settings_routes import router as settings_router
 from draftassist.api.scout_routes import router as scout_router
 from draftassist.api.jobs_routes import router as jobs_router
 from draftassist.api.setup_routes import router as setup_router
+from draftassist.api.account_routes import router as account_router
+from draftassist.api.datasets_routes import router as datasets_router
+from draftassist.api.shared_routes import router as shared_router
 from draftassist.api.synergy_routes import router as synergy_router
 from draftassist.config import DATA_ROOT, RESOURCE_ROOT, Settings, ensure_user_files, load_settings
 from draftassist.data import ddragon
@@ -97,6 +100,11 @@ class Services:
     _synergy_v2: object | None = None  # built lazily, dropped on reload and after tag / rule edits
     _synergy_pending: object | None = None  # a rebuilt evaluator waiting for the draft to end
     roster_path: Path | None = None  # data/roster.json (docs/player-roster.md); None: not mirrored (tests)
+    shared_store: object | None = None  # tests: a FakeSharedStore; else from the signed-in account
+    account_store: object | None = None  # data/shared/account.AccountStore; tests point it at a scratch folder
+    members_override: object | None = None  # tests: a data/shared/members.Members on fakes
+    selection_pending: bool = False  # a data selection saved during a draft, applied after it (Stage 4)
+    shared_last: dict | None = None  # the last pull's outcome, for the Crawl page
 
     def save_roster(self) -> None:
         """Mirror our players and pools to the roster file, after any change to them."""
@@ -380,6 +388,69 @@ class Services:
         run_in_background(self.db, self.make_riot(), done, failed)
         return True
 
+    # ---------- shared data (docs/shared-data.md, Stages 2-3) ----------
+    def account(self):
+        """The signed-in account: admin, user or solo (data/shared/account.py)."""
+        if self.account_store is None:
+            from draftassist.data.shared.account import default_store
+
+            self.account_store = default_store()
+        return self.account_store.load()
+
+    def members(self):
+        if self.members_override is not None:
+            return self.members_override
+        from draftassist.data.shared.members import members_for
+
+        self.account()
+        return members_for(self.account_store)
+
+    def _shared(self):
+        if self.shared_store is not None:
+            return self.shared_store
+        from draftassist.data.shared.config import open_store
+
+        self.account()
+        config = self.account_store.shared_config()
+        return open_store(config) if config is not None else None
+
+    def crawls_here(self) -> bool:
+        """This machine has its own crawl (the admin, or solo mode): it publishes, it doesn't pull over its own data."""
+        from sqlalchemy import text
+
+        with self.db.connect() as conn:
+            return conn.execute(text("SELECT EXISTS (SELECT 1 FROM crawled_matches)")).scalar() == 1
+
+    def sync_shared(self) -> dict:
+        """Pull newer shared data, then reload the stats (between drafts, as every stats refresh). Never in a draft; on any
+        failure the last pull stays."""
+        from draftassist.data.shared.pull import pull
+
+        store = self._shared() if self.db is not None else None
+        if store is None:
+            self.shared_last = {"state": "off", "message": "No shared database set up."}
+        elif self.crawls_here():
+            self.shared_last = {"state": "local", "message": "This machine crawls its own data: nothing to pull."}
+        else:
+            try:
+                status = pull(self.db, store, in_draft=self.in_draft, log=log.info)
+                self.shared_last = {"state": status.state, "message": status.message, "publish_id": status.publish_id,
+                                    "blocks": status.blocks, "at": time.time()}
+            except Exception as e:
+                log.exception("shared pull failed; keeping the last pull")
+                self.shared_last = {"state": "error", "message": str(e), "at": time.time()}
+            if self.shared_last["state"] == "updated":
+                self.refresh_stats()
+        return self.shared_last
+
+    def shared_status(self) -> dict:
+        from draftassist.data.shared.pull import pull_status
+
+        account = self.account()
+        configured = self.shared_store is not None or account.role != "solo"
+        return {"configured": configured, "account": account.as_dict(),
+                "pull": pull_status(self.db) if self.db is not None else None, "last": self.shared_last}
+
     def in_draft(self) -> bool:
         """True while a champ select is running (suggestions must not change under the shot-caller)."""
         latest = self.hub.latest
@@ -389,6 +460,11 @@ class Services:
     def refresh_stats(self) -> str:
         """Reload stats if the crawl (or anything else) changed them, but only between drafts.
         Returns 'unchanged', 'deferred' (in a draft; retried next time) or 'reloaded'."""
+        if self.selection_pending and self.db is not None and not self.in_draft():
+            from draftassist.data.datasets import apply_selection
+
+            apply_selection(self.db)
+            self.selection_pending = False
         if self._synergy_pending is not None and not self.in_draft():
             self._swap_synergy(self._synergy_pending)
         if self.db is not None and not self.in_draft():
@@ -542,7 +618,9 @@ def load_draft_scale(db: Engine) -> float | None:
         rows = s.exec(select(ExecutionFit)).all()
     if not rows:
         return None
-    latest = max(rows, key=lambda r: tuple(int(x) for x in r.window.split(".")))
+    from draftassist.data.synergy import latest_window, pick_fit
+
+    latest = pick_fit(rows, latest_window(db))
     scale = json.loads(latest.body).get("draft_scale")
     return float(scale) if scale is not None else None
 
@@ -557,6 +635,19 @@ async def check_updates_forever(svc: Services) -> None:
         except Exception:
             log.exception("update check failed")
         await asyncio.sleep(CHECK_EVERY_S)
+
+
+SHARED_PULL_EVERY_S = 3 * 3600
+
+
+async def sync_shared_forever(svc: Services, every_s: float = SHARED_PULL_EVERY_S) -> None:
+    """Pull the shared data at start and every few hours (Services.sync_shared skips drafts and crawling machines)."""
+    while True:
+        try:
+            await asyncio.to_thread(svc.sync_shared)
+        except Exception:
+            log.exception("shared pull failed")
+        await asyncio.sleep(every_s)
 
 
 async def refresh_stats_forever(svc: Services, every_s: float) -> None:
@@ -631,12 +722,16 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         every = stats_refresh_s if stats_refresh_s is not None else (svc.settings.stats_refresh_s if svc.settings else 0)
         refresh_task = asyncio.create_task(refresh_stats_forever(svc, every)) if every > 0 else None
         demo_task = start_live_feed(svc)
-        update_task = None
-        if services is None:  # the real app, not a test: set itself up, and look for updates
+        update_task = shared_task = None
+        if services is None: # the real app, not a test: set itself up, and look for updates and shared data
+            # A signed-in user gets shared statistics before local bootstrap. For
+            # admin and solo installs sync_shared is a no-op/local result.
+            await asyncio.to_thread(svc.sync_shared)
             svc.start_bootstrap()
             update_task = asyncio.create_task(check_updates_forever(svc))
+            shared_task = asyncio.create_task(sync_shared_forever(svc))
         yield
-        for task in (demo_task, refresh_task, update_task):
+        for task in (demo_task, refresh_task, update_task, shared_task):
             if task:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -653,7 +748,7 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         await ws.app.state.services.hub.serve(ws)
 
     for router in (pool_router, settings_router, synergy_router, learning_router, history_router, scout_router,
-                   setup_router, jobs_router):
+                   setup_router, jobs_router, shared_router, account_router, datasets_router):
         app.include_router(router)
 
     if (web_dist / "index.html").is_file():

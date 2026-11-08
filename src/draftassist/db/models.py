@@ -10,6 +10,12 @@ from sqlalchemy import JSON, Column
 from sqlmodel import Field, SQLModel
 
 
+# Tables keyed by a text or composite primary key with small rows: stored WITHOUT ROWID, so the key is the table and isn't
+# kept a second time in a sqlite_autoindex (about a third of the database, docs/shared-data-stage0.md). Older databases are
+# rebuilt by `draftassist db-optimize` (db/optimize.py). Not for integer keys, big rows (drafts, frames, fits) or our own data.
+WITHOUT_ROWID = {"sqlite_with_rowid": False}
+
+
 class Champion(SQLModel, table=True):
     __tablename__ = "champions"
 
@@ -24,6 +30,7 @@ class Champion(SQLModel, table=True):
 
 class ChampRoleStats(SQLModel, table=True):
     __tablename__ = "champ_role_stats"
+    __table_args__ = dict(WITHOUT_ROWID)
 
     patch: str = Field(primary_key=True)
     bracket: str = Field(primary_key=True)
@@ -46,6 +53,7 @@ class ChampRoleStats(SQLModel, table=True):
 
 class Matchup(SQLModel, table=True):
     __tablename__ = "matchups"
+    __table_args__ = dict(WITHOUT_ROWID)
 
     patch: str = Field(primary_key=True)
     bracket: str = Field(primary_key=True)
@@ -65,6 +73,7 @@ class SynergyPair(SQLModel, table=True):
     `window` names the newest patch in the window; `bracket` is a tier or "all" (every tier pooled).
     Each pair is stored once, with (role_a, champ_a) < (role_b, champ_b)."""
     __tablename__ = "synergy_pairs"
+    __table_args__ = dict(WITHOUT_ROWID)
 
     window: str = Field(primary_key=True)
     bracket: str = Field(primary_key=True)
@@ -80,6 +89,7 @@ class SynergyPair(SQLModel, table=True):
 class SynergyRoleStats(SQLModel, table=True):
     """Champion strength per role over the same window as synergy_pairs, so it is removed consistently."""
     __tablename__ = "synergy_role_stats"
+    __table_args__ = dict(WITHOUT_ROWID)
 
     window: str = Field(primary_key=True)
     bracket: str = Field(primary_key=True)
@@ -168,6 +178,7 @@ class DraftAction(SQLModel, table=True):
 class SeedPlayer(SQLModel, table=True):
     """Ranked players per bracket whose match histories feed the crawl."""
     __tablename__ = "seed_players"
+    __table_args__ = dict(WITHOUT_ROWID)
 
     puuid: str = Field(primary_key=True)
     bracket: str = Field(index=True)
@@ -178,6 +189,7 @@ class SeedPlayer(SQLModel, table=True):
 
 class CrawledMatch(SQLModel, table=True):
     __tablename__ = "crawled_matches"
+    __table_args__ = dict(WITHOUT_ROWID)
 
     match_id: str = Field(primary_key=True)  # e.g. EUW1_7123456789
     patch: str = Field(index=True)  # major.minor, e.g. 16.21
@@ -210,6 +222,7 @@ class ParticipantTimeline(SQLModel):
 
 class MatchParticipant(ParticipantTimeline, table=True):
     __tablename__ = "match_participants"
+    __table_args__ = dict(WITHOUT_ROWID)
 
     match_id: str = Field(primary_key=True, foreign_key="crawled_matches.match_id")
     champ_id: int = Field(primary_key=True)
@@ -245,10 +258,11 @@ class MatchBuild(SQLModel, table=True):
     crawl, and from the Riot cache for matches stored before (data/builds.backfill_builds). No foreign key: the Master+
     database has its own matches."""
     __tablename__ = "match_builds"
+    __table_args__ = dict(WITHOUT_ROWID)
 
     match_id: str = Field(primary_key=True)
-    champ_id: int = Field(primary_key=True, index=True)
-    keystone: int | None = Field(default=None, index=True)
+    champ_id: int = Field(primary_key=True)
+    keystone: int | None = None  # no index: no query filters on it (db.session.DROPPED_INDEXES)
     primary_style: int | None = None
     sub_style: int | None = None
     perks_json: str | None = None  # JSON: the six rune ids (four primary, two secondary) in order
@@ -264,7 +278,7 @@ class MatchBuildEvents(SQLModel, table=True):
     __tablename__ = "match_build_events"
 
     match_id: str = Field(primary_key=True)
-    champ_id: int = Field(primary_key=True, index=True)
+    champ_id: int = Field(primary_key=True)
     purchases_json: str  # JSON: [[item_id, second], ...]
     skills: str  # "QEWQQRQ...", one letter per skill point
     levels_json: str  # JSON: {"2": second, "3": second, ...}
@@ -304,6 +318,7 @@ class MatchTeamState(SQLModel, table=True):
     """One team's game state, for crawled matches and our own games alike (no foreign key: ours aren't in crawled_matches).
     Nothing aggregates it. None = unknown, or gold_25 in a game that ended first."""
     __tablename__ = "match_team_state"
+    __table_args__ = dict(WITHOUT_ROWID)
 
     match_id: str = Field(primary_key=True)
     team_id: int = Field(primary_key=True)
@@ -324,6 +339,7 @@ class MatchTeamState(SQLModel, table=True):
 class MatchDraftLogOdds(SQLModel, table=True):
     """The draft model's view of a crawled match, from blue's side (docs/draft-vs-execution.md, Stage 2). A batch job: cached."""
     __tablename__ = "match_draft_logodds"
+    __table_args__ = dict(WITHOUT_ROWID)
 
     match_id: str = Field(primary_key=True)
     window: str  # the fit it came from; another window is recomputed
@@ -369,6 +385,7 @@ class GameExecutionRole(SQLModel, table=True):
 
 class MatchBan(SQLModel, table=True):
     __tablename__ = "match_bans"
+    __table_args__ = dict(WITHOUT_ROWID)
 
     match_id: str = Field(primary_key=True, foreign_key="crawled_matches.match_id")
     team_id: int = Field(primary_key=True)
@@ -379,6 +396,7 @@ class MatchBan(SQLModel, table=True):
 class BracketTotal(SQLModel, table=True):
     """Matches aggregated per patch and bracket: the denominator for pick and ban rates."""
     __tablename__ = "bracket_totals"
+    __table_args__ = dict(WITHOUT_ROWID)
 
     patch: str = Field(primary_key=True)
     bracket: str = Field(primary_key=True)
@@ -388,6 +406,7 @@ class BracketTotal(SQLModel, table=True):
 class BootstrapRoleStats(SQLModel, table=True):
     """OP.GG lane meta (all-tier aggregate), used for a bracket until our crawl covers it."""
     __tablename__ = "bootstrap_role_stats"
+    __table_args__ = dict(WITHOUT_ROWID)
 
     patch: str = Field(primary_key=True)
     champ_id: int = Field(primary_key=True)
@@ -455,6 +474,7 @@ class ChampionTraitRow(SQLModel, table=True):
     Percentiles within the role (0-1), except the damage shares (real shares) and ranged (0/1).
     None = the source field is missing or the champion has too few games."""
     __tablename__ = "champion_traits"
+    __table_args__ = dict(WITHOUT_ROWID)
 
     window: str = Field(primary_key=True)
     bracket: str = Field(primary_key=True)
@@ -509,6 +529,7 @@ class MatchupFit(SQLModel, table=True):
     """Fitted matchup model (docs/matchup-archetypes.md, Stage 3), refitted by aggregation. param: `E:a>b` or `K:g*h`
     (log-odds, pooled over patches and brackets) or `k_r` (the role's shrinkage in games)."""
     __tablename__ = "matchup_fits"
+    __table_args__ = dict(WITHOUT_ROWID)
 
     window: str = Field(primary_key=True)
     role: str = Field(primary_key=True)
@@ -523,6 +544,7 @@ class SynergyFit(SQLModel, table=True):
     model: style | team (coefficients, log-odds, pooled over brackets) | team_side (blue-side intercept;
     support = matches) | team_mean (per bracket: the average comp's feature, for Team = f(comp) - f(avg))."""
     __tablename__ = "synergy_fits"
+    __table_args__ = dict(WITHOUT_ROWID)
 
     window: str = Field(primary_key=True)
     bracket: str = Field(primary_key=True)
@@ -531,3 +553,184 @@ class SynergyFit(SQLModel, table=True):
     prior_pp: float | None = None  # the prior the fit used
     value: float = 0.0
     support: int = 0  # style: games of pairs the rule applies to; team: matches where it applied
+
+
+# ---------- per-(patch, tier, queue) counts (docs/shared-data.md, Stage 2) ----------
+# Built by the admin's aggregation from the per-match rows (data/counts.py) and published as they are; additive, so any
+# selection of patches, tiers and queues is a sum. The runtime tables (champ_role_stats, matchups, bracket_totals,
+# synergy_pairs, synergy_role_stats) are derived from them by the same code on every machine (counts.derive).
+class CountRole(SQLModel, table=True):
+    __tablename__ = "cnt_role"
+    __table_args__ = dict(WITHOUT_ROWID)
+
+    patch: str = Field(primary_key=True)
+    bracket: str = Field(primary_key=True)
+    queue: int = Field(primary_key=True)
+    champ_id: int = Field(primary_key=True)
+    role: str = Field(primary_key=True)
+    games: int = 0
+    wins: int = 0
+    dmg_phys_sum: float = 0.0  # sums of per-game damage shares over dmg_n games with damage: the mean is sum / n
+    dmg_magic_sum: float = 0.0
+    dmg_true_sum: float = 0.0
+    dmg_n: int = 0
+    games_short: int | None = None  # None (as in champ_role_stats) when no game of the slice has its length
+    wins_short: int | None = None
+    games_long: int | None = None
+    wins_long: int | None = None
+
+
+class CountBan(SQLModel, table=True):
+    """Matches of the slice that banned the champion: its own table, because a champion banned in a queue it wasn't
+    played in has no cnt_role row there."""
+    __tablename__ = "cnt_ban"
+    __table_args__ = dict(WITHOUT_ROWID)
+
+    patch: str = Field(primary_key=True)
+    bracket: str = Field(primary_key=True)
+    queue: int = Field(primary_key=True)
+    champ_id: int = Field(primary_key=True)
+    bans: int = 0
+
+
+class CountMatchup(SQLModel, table=True):
+    __tablename__ = "cnt_matchup"
+    __table_args__ = dict(WITHOUT_ROWID)
+
+    patch: str = Field(primary_key=True)
+    bracket: str = Field(primary_key=True)
+    queue: int = Field(primary_key=True)
+    role: str = Field(primary_key=True)
+    champ_a: int = Field(primary_key=True)
+    champ_b: int = Field(primary_key=True)
+    games: int = 0
+    wins_a: int = 0
+    lane_gold_sum: float = 0.0
+    lane_xp_sum: float = 0.0
+    lane_n: int = 0
+
+
+class CountBracket(SQLModel, table=True):
+    __tablename__ = "cnt_bracket"
+    __table_args__ = dict(WITHOUT_ROWID)
+
+    patch: str = Field(primary_key=True)
+    bracket: str = Field(primary_key=True)
+    queue: int = Field(primary_key=True)
+    matches: int = 0
+
+
+class CountPair(SQLModel, table=True):
+    """Same-team duos per patch: synergy_pairs is their decayed sum over the window."""
+    __tablename__ = "cnt_pair"
+    __table_args__ = dict(WITHOUT_ROWID)
+
+    patch: str = Field(primary_key=True)
+    bracket: str = Field(primary_key=True)
+    queue: int = Field(primary_key=True)
+    role_a: str = Field(primary_key=True)
+    champ_a: int = Field(primary_key=True)
+    role_b: str = Field(primary_key=True)
+    champ_b: int = Field(primary_key=True)
+    games: int = 0
+    wins: int = 0
+
+
+class CountBuild(SQLModel, table=True):
+    """Strategy's builds: games and wins per option. kind: total (value ''), keystone, page (the six runes, JSON), spells
+    (JSON), item (one row per item held at the end)."""
+    __tablename__ = "cnt_build"
+    __table_args__ = dict(WITHOUT_ROWID)
+
+    patch: str = Field(primary_key=True)
+    bracket: str = Field(primary_key=True)
+    queue: int = Field(primary_key=True)
+    champ_id: int = Field(primary_key=True)
+    role: str = Field(primary_key=True)
+    kind: str = Field(primary_key=True)
+    value: str = Field(primary_key=True)
+    games: int = 0
+    wins: int = 0
+
+
+class CountOrder(SQLModel, table=True):
+    """Strategy's build order (from timelines): kind total, core (first two finished items, JSON), core_set (the pair
+    sorted), boots, starter (JSON), first3, max, and first_item_s / level6_s (10-second bins, for the medians)."""
+    __tablename__ = "cnt_order"
+    __table_args__ = dict(WITHOUT_ROWID)
+
+    patch: str = Field(primary_key=True)
+    bracket: str = Field(primary_key=True)
+    queue: int = Field(primary_key=True)
+    champ_id: int = Field(primary_key=True)
+    role: str = Field(primary_key=True)
+    kind: str = Field(primary_key=True)
+    value: str = Field(primary_key=True)
+    games: int = 0
+    wins: int = 0
+
+
+class CountLane(SQLModel, table=True):
+    """Against one lane opponent, for the "helpful in lane" hints (decision 6): kind rune / start (a starting item) / first
+    (the first finished item), with rune_total and item_total (value '') the games that could have had one. The gold lead
+    at 15 as count, sum and sum of squares, so its mean and spread add up too."""
+    __tablename__ = "cnt_lane"
+    __table_args__ = dict(WITHOUT_ROWID)
+
+    patch: str = Field(primary_key=True)
+    bracket: str = Field(primary_key=True)
+    queue: int = Field(primary_key=True)
+    champ_id: int = Field(primary_key=True)
+    role: str = Field(primary_key=True)
+    opp_id: int = Field(primary_key=True)
+    kind: str = Field(primary_key=True)
+    value: str = Field(primary_key=True)
+    games: int = 0
+    wins: int = 0
+    gold_n: int = 0
+    gold_sum: float = 0.0
+    gold_sq: float = 0.0
+
+
+class DamageThresholdRow(SQLModel, table=True):
+    """data/builds.damage_thresholds, computed by aggregation (it reads per-match rows) and published."""
+    __tablename__ = "damage_thresholds"
+    __table_args__ = dict(WITHOUT_ROWID)
+
+    window: str = Field(primary_key=True)
+    ad_heavy: float
+    ap_heavy: float
+    teams: int
+    median_ad: float
+    median_ap: float
+
+
+class PublishState(SQLModel, table=True):
+    """The admin's record of what is published (data/shared/publish.py): one row per block slice, so a publish writes
+    only what changed, and resumes."""
+    __tablename__ = "publish_state"
+    __table_args__ = dict(WITHOUT_ROWID)
+
+    slice_key: str = Field(primary_key=True)  # source|table|slice JSON
+    hash: str
+    parts: int
+    publish_id: int
+
+
+class DatasetRow(SQLModel, table=True):
+    """An admin-published dataset (data/datasets.py, docs/shared-data.md Stage 4): a patch scope whose fits are published
+    under the window ds:<dataset_id>."""
+    __tablename__ = "datasets"
+
+    dataset_id: str = Field(primary_key=True)
+    name: str
+    scope: str  # current, last_n, patches, all
+    n: int | None = None
+    patches: str | None = None  # JSON list, for scope "patches"
+    half_life: float = 6.0
+    tiers: str | None = None  # JSON list; None = every tier
+    queues: str = "[420, 440]"
+    source: str = "main"  # or master_plus
+    status: str = "published"
+    created_at: float = 0.0
+    position: int = 0

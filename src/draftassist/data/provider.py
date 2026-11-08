@@ -193,6 +193,9 @@ def load_engine_inputs(db: Engine, use_matchup_model: bool = True) -> EngineInpu
     patch = ".".join(catalog.patch.split(".")[:2]) if catalog.patch else None
 
     if patch:
+        from draftassist.data.datasets import SEL, active_selection
+
+        stats_key = SEL if active_selection(db) else patch  # a user's data selection (docs/shared-data.md, Stage 4)
         model = load_matchup_model(db) if use_matchup_model else None
         lane_slopes = model.lane_slopes() if model is not None else None
         with Session(db) as s:
@@ -201,7 +204,7 @@ def load_engine_inputs(db: Engine, use_matchup_model: bool = True) -> EngineInpu
             brackets: dict[str, BracketStats] = {}
             crawled: dict[str, int] = {}
             for b in needed:
-                stats, crawled[b] = bracket_stats(s, patch, b, boot, model, lane_slopes)
+                stats, crawled[b] = bracket_stats(s, stats_key, b, boot, model, lane_slopes)
                 if stats is not None:
                     brackets[b] = stats
         if len(brackets) == len(needed):
@@ -210,12 +213,13 @@ def load_engine_inputs(db: Engine, use_matchup_model: bool = True) -> EngineInpu
 
             synergy = load_synergy(db, bracket=get_synergy_bracket(db))
             data = EngineData(brackets, names, synergy=synergy, damage=load_damage(db, synergy.window or patch),
-                              profiles=load_profiles(db, patch), bot=model.bot() if model is not None else None,
+                              profiles=load_profiles(db, stats_key), bot=model.bot() if model is not None else None,
                               traits=load_traits(db) if model is not None else None,
                               labels=model.labels_table() if model is not None else None, explainer=model)
             sources = {b: ("crawl" if boot is None else "opgg" if crawled[b] == 0 else "blend") for b in needed}
             kinds = set(sources.values())
             source = kinds.pop() if len(kinds) == 1 else "blend"
+            crawled = {b: round(n) for b, n in crawled.items()}  # a selection's weighted totals
             games = ", ".join(f"{b} {crawled[b]:,}" for b in needed)
             if boot is None:
                 note = f"Stats: our crawl only ({games} games)"

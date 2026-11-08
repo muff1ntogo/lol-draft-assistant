@@ -6,11 +6,11 @@ import pytest
 from sqlmodel import Session
 
 from draftassist.data.builds import (
-    MIN_OPP_GAMES,
     load_static,
     parse_build,
     summarize,
 )
+from draftassist.data.counts import refresh_counts
 from draftassist.data.crawler import parse_match
 from draftassist.db.models import CrawledMatch, MatchParticipant
 from draftassist.db.session import init_db
@@ -62,6 +62,7 @@ def seed(db, n, keystone, win_every, opp=OPP, bracket="gold", patch="16.21", sta
             s.add(MatchParticipant(match_id=mid, champ_id=opp, team_id=200, role="mid", win=not win))
             store_build(s.connection(), mid, CHAMP, parse_build(participant(CHAMP, keystone, (*items, 0, 0, 0)[:6])))
         s.commit()
+    refresh_counts(db, patch)  # Strategy reads the counts (docs/shared-data.md, Stage 2)
 
 
 @pytest.fixture
@@ -90,12 +91,13 @@ def test_master_says_what_the_bracket_says_how_well(main_db, tmp_path):
     assert s.keystones[0].games == 50 and s.keystones[0].wr == pytest.approx(0.2)
 
 
-def test_vs_opponent_only_with_enough_games(main_db):
-    seed(main_db, MIN_OPP_GAMES + 10, ELECTROCUTE, 2, opp=OPP)
+def test_the_build_is_always_the_overall_one(main_db):
+    """Decision 6 (8 Nov 2026): no vs-opponent build; hints beside the overall one instead (tests/test_counts.py)."""
+    seed(main_db, 40, ELECTROCUTE, 2, opp=OPP)
     seed(main_db, 5, FLEET, 2, opp=OTHER_OPP, start=500)
-    assert summarize(main_db, None, "16.21", CHAMP, "mid", "gold", OPP).opponent == OPP
-    s = summarize(main_db, None, "16.21", CHAMP, "mid", "gold", OTHER_OPP)
-    assert s.opponent is None and s.ref_games == MIN_OPP_GAMES + 15
+    for opp in (OPP, OTHER_OPP, None):
+        s = summarize(main_db, None, "16.21", CHAMP, "mid", "gold", opp)
+        assert s.opponent is None and s.ref_games == 45 and s.keystones[0].key == ELECTROCUTE
 
 
 def test_a_small_bracket_falls_back_to_every_tier(main_db):
@@ -237,7 +239,8 @@ def test_build_reasons_follow_their_damage_and_healing(main_db, tmp_path):
     eng = fake_engine(0, kit={(11, "sustain"): 1.0, (12, "sustain"): 0.8})
     eng.data.damage = {(11, "top"): (0.3, 0.7, 0.0), (12, "jungle"): (0.3, 0.7, 0.0)}
     plan = build_plan(eng, "mid", CHAMP, view, {11: "top", 12: "jungle"}, None)
-    assert [i["name"] for i in plan["core"]][:2] == ["Luden's Companion", "Zhonya's Hourglass"]
+    # both on all 90 games: a tie, broken by item id since Strategy reads counts (docs/shared-data.md, Stage 2)
+    assert {i["name"] for i in plan["core"][:2]} == {"Luden's Companion", "Zhonya's Hourglass"}
     assert any("anti-heal" in r for r in plan["reasons"])
     assert plan["situational"] == [] or all(i["why"] for i in plan["situational"])
 
@@ -278,3 +281,21 @@ def test_build_reasons_use_the_crawled_thresholds(main_db, tmp_path):
     strict = BuildView(summary, load_static(tmp_path), SimpleNamespace(ap_heavy=0.6, ad_heavy=0.7))
     assert any("magic" in r for r in build_plan(eng, "mid", CHAMP, loose, {11: "top"}, None)["reasons"])
     assert not any("magic" in r for r in build_plan(eng, "mid", CHAMP, strict, {11: "top"}, None)["reasons"])
+
+
+def test_backfilling_builds_survives_its_periodic_commits(main_db, tmp_path, monkeypatch):
+    """It commits every BACKFILL_COMMIT_EVERY matches; the connection it used then was closed (found on real data,
+    8 Nov 2026: any backfill over 2,000 matches failed)."""
+    import draftassist.data.builds as builds
+    from sqlalchemy import text
+
+    with Session(main_db) as s:
+        for i in range(5):
+            s.add(CrawledMatch(match_id=f"B{i}", patch="16.21", bracket="gold", queue_id=420, game_start_ms=i))
+        s.commit()
+    body = {"info": {"participants": [participant(CHAMP)]}}
+    monkeypatch.setattr("draftassist.data.backfill._cached_match", lambda cache, mid: body)
+    monkeypatch.setattr(builds, "BACKFILL_COMMIT_EVERY", 2)
+    assert builds.backfill_builds(main_db, tmp_path) == {"updated": 5, "missing": 0}
+    with main_db.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(DISTINCT match_id) FROM match_builds")).scalar() == 5

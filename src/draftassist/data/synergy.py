@@ -24,7 +24,15 @@ DECAY_PATCHES = 6  # weight halves every 6 patches
 
 
 def _version_key(patch: str) -> tuple[int, ...]:
-    return tuple(int(x) for x in patch.split("."))
+    """'16.21' -> (16, 21); a dataset window (ds:recent) or the selection's key sorts before every patch."""
+    try:
+        return tuple(int(x) for x in patch.split("."))
+    except (ValueError, AttributeError):
+        return (-1,)
+
+
+def is_patch(window: str | None) -> bool:
+    return bool(window) and _version_key(window) != (-1,)
 
 
 def window_weights(patches: Iterable[str], current: str, half_life: float = DECAY_PATCHES) -> dict[str, float]:
@@ -44,14 +52,21 @@ def weights_cte(weights: Mapping[str, float]) -> tuple[str, dict]:
 
 
 def crawl_weights(conn, current: str, half_life: float = DECAY_PATCHES) -> dict[str, float]:
-    """The pooling window ending at `current`: every crawled patch up to it, decayed. `current` counts even with no
-    matches yet, so the older patches' weights don't jump when its first match arrives."""
-    patches = [r[0] for r in conn.execute(text("SELECT DISTINCT patch FROM crawled_matches"))]
-    return window_weights([*patches, current], current, half_life)
+    """The pooling window ending at `current`: every patch with data up to it, decayed (data/counts.crawled_patches: the
+    admin's crawl or a teammate's pull). `current` counts even with no matches yet, so the older patches' weights don't
+    jump when its first match arrives."""
+    from draftassist.data.counts import crawled_patches
+    from draftassist.data.datasets import dataset_weights, is_dataset_window
+
+    if is_dataset_window(current):  # a published dataset's own patch scope (docs/shared-data.md, Stage 4)
+        return dataset_weights(conn, current)
+    return window_weights([*crawled_patches(conn), current], current, half_life)
 
 
-def aggregate_synergy(conn, window: str, patches: Mapping[str, float] | None = None) -> None:
-    """Rebuild one window of synergy_pairs and synergy_role_stats, per bracket and pooled ("all").
+def aggregate_synergy(conn, window: str, patches: Mapping[str, float] | None = None,
+                      queues: Iterable[int] | None = None) -> None:
+    """Rebuild one window of synergy_pairs and synergy_role_stats, per bracket and pooled ("all"), from the per-patch
+    counts (cnt_pair, cnt_role: data/counts.py), so a teammate's pull derives the same window.
     `conn` is an open connection inside the caller's transaction; `patches` maps patch -> weight."""
     weights = patches or {window: 1.0}
     values = ", ".join(f"(:p{i}, :w{i})" for i in range(len(weights)))
@@ -60,29 +75,34 @@ def aggregate_synergy(conn, window: str, patches: Mapping[str, float] | None = N
         params |= {f"p{i}": patch, f"w{i}": w}
     for table in ("synergy_pairs", "synergy_role_stats"):
         conn.execute(text(f'DELETE FROM {table} WHERE "window" = :window'), params)
+        # windows older than this one: nothing reads them (Live loads the newest, the fits get theirs passed), and a
+        # teammate's pull derives only the newest, so the admin keeps the same (docs/shared-data.md, Stage 2)
+        older = [w for (w,) in conn.execute(text(f'SELECT DISTINCT "window" FROM {table}'))
+                 if is_patch(w) and is_patch(window) and _version_key(w) < _version_key(window)]
+        for w in older:
+            conn.execute(text(f'DELETE FROM {table} WHERE "window" = :w'), {"w": w})
 
+    w = f"WITH w(patch, weight) AS (VALUES {values}) "
+    queue_filter = ""
+    if queues is not None:  # a user's selection: only these queues (data/datasets.py)
+        queue_filter = " AND c.queue IN (" + ", ".join(str(int(q)) for q in queues) + ")"
     brackets = [r[0] for r in conn.execute(text(
-        f"WITH w(patch, weight) AS (VALUES {values}) "
-        "SELECT DISTINCT cm.bracket FROM crawled_matches cm JOIN w ON w.patch = cm.patch"), params)]
+        f"{w}SELECT DISTINCT c.bracket FROM cnt_bracket c JOIN w ON w.patch = c.patch ORDER BY 1"), params)]
     for bracket in [*brackets, ALL]:
-        where = "" if bracket == ALL else "WHERE cm.bracket = :bracket"
+        where = ("WHERE 1 = 1" if bracket == ALL else "WHERE c.bracket = :bracket") + queue_filter
         p = {**params, "bracket": bracket}
-        matches = (f"WITH w(patch, weight) AS (VALUES {values}), "
-                   f"m AS (SELECT cm.match_id, w.weight FROM crawled_matches cm JOIN w ON w.patch = cm.patch {where})")
-        conn.execute(text(f"""{matches}
+        conn.execute(text(f"""{w}
             INSERT INTO synergy_role_stats ("window", bracket, champ_id, role, games, games_w, wins_w)
-            SELECT :window, :bracket, mp.champ_id, mp.role, COUNT(*), SUM(m.weight), SUM(mp.win * m.weight)
-            FROM match_participants mp JOIN m ON m.match_id = mp.match_id
-            GROUP BY mp.champ_id, mp.role"""), p)
+            SELECT :window, :bracket, c.champ_id, c.role, SUM(c.games), SUM(c.games * w.weight), SUM(c.wins * w.weight)
+            FROM cnt_role c JOIN w ON w.patch = c.patch {where}
+            GROUP BY c.champ_id, c.role"""), p)
         # same team, different roles: 10 pairs per team, each stored once ordered by (role, champ)
-        conn.execute(text(f"""{matches}
+        conn.execute(text(f"""{w}
             INSERT INTO synergy_pairs ("window", bracket, role_a, champ_a, role_b, champ_b, games, games_w, wins_w)
-            SELECT :window, :bracket, a.role, a.champ_id, b.role, b.champ_id, COUNT(*), SUM(m.weight),
-                   SUM(a.win * m.weight)
-            FROM match_participants a JOIN m ON m.match_id = a.match_id
-            JOIN match_participants b ON b.match_id = a.match_id AND b.team_id = a.team_id
-                 AND (a.role < b.role OR (a.role = b.role AND a.champ_id < b.champ_id))
-            GROUP BY a.role, a.champ_id, b.role, b.champ_id"""), p)
+            SELECT :window, :bracket, c.role_a, c.champ_a, c.role_b, c.champ_b, SUM(c.games), SUM(c.games * w.weight),
+                   SUM(c.wins * w.weight)
+            FROM cnt_pair c JOIN w ON w.patch = c.patch {where}
+            GROUP BY c.role_a, c.champ_a, c.role_b, c.champ_b"""), p)
 
 
 def load_damage(db: Engine, patch: str | None) -> dict[tuple[int, str], tuple[float, float, float]]:
@@ -102,10 +122,23 @@ def load_damage(db: Engine, patch: str | None) -> dict[tuple[int, str], tuple[fl
     return {(c, r): (p, m, t) for c, r, p, m, t in rows}
 
 
-def latest_window(db: Engine) -> str | None:
-    with Session(db) as s:
-        windows = s.exec(select(SynergyRoleStats.window).distinct()).all()
-    return max(windows, key=_version_key) if windows else None
+def latest_window(db: Engine, conn=None) -> str | None:
+    """The window Live reads: a user's selected dataset window (data/datasets.apply_selection) while it's set, else the
+    newest patch window."""
+    from draftassist.data.datasets import active_window
+
+    def pick(c):
+        windows = [r[0] for r in c.execute(text('SELECT DISTINCT "window" FROM synergy_role_stats'))]
+        active = active_window(c)
+        if active is not None and active in windows:
+            return active
+        patches = [w for w in windows if is_patch(w)]
+        return max(patches, key=_version_key) if patches else None
+
+    if conn is not None:
+        return pick(conn)
+    with db.connect() as c:
+        return pick(c)
 
 
 def load_synergy(db: Engine, window: str | None = None, bracket: str = ALL) -> SynergyTable:
@@ -124,3 +157,12 @@ def load_synergy(db: Engine, window: str | None = None, bracket: str = ALL) -> S
         pairs[(a, b)] = pair_score(r.wins_w, r.games_w, strengths.get(a, 0.5), strengths.get(b, 0.5),
                                    raw_games=r.games)
     return SynergyTable(window, bracket, pairs, strengths)
+
+
+def pick_fit(rows, window: str | None):
+    """The fit row for `window` (a selected dataset's), else the newest patch window's, else any."""
+    for r in rows:
+        if r.window == window:
+            return r
+    patches = [r for r in rows if is_patch(r.window)]
+    return max(patches, key=lambda r: _version_key(r.window)) if patches else rows[0]

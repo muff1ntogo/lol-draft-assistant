@@ -36,7 +36,11 @@ def test_cache_from_another_key_is_a_miss(tmp_path):
     assert client(tmp_path, handler, KEY_A).get("euw1", "/ladder") == ["aaaa"]  # cached
     assert client(tmp_path, handler, KEY_B).get("euw1", "/ladder") == ["bbbb"]  # other key: refetched
     assert calls == [KEY_A, KEY_B]
-    assert not any(k in p.read_text() for p in (tmp_path / "riot").rglob("*.json") for k in (KEY_A, KEY_B))
+    from draftassist.data.response_cache import CACHE_FILE, close_all
+
+    close_all()
+    stored = (tmp_path / CACHE_FILE).read_bytes()
+    assert not any(k.encode() in stored for k in (KEY_A, KEY_B))
 
 
 def test_cache_entries_written_before_fingerprints_are_misses(tmp_path):
