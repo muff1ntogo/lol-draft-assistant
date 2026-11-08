@@ -1,6 +1,6 @@
 # UI/UX, History stats and engine review (8 Nov 2026)
 
-A review after `import-games.md`. Proposals only, none built yet except **0**. Each one is sized as a possible task doc;
+A review after `import-games.md`. Proposals only, none built yet except **0**. Your answers are under **Decisions** at the end. Each one is sized as a possible task doc;
 pick the ones you want and I'll write them up one stage at a time.
 
 ## 0. Done in this change: Tags out of the nav
@@ -60,8 +60,7 @@ Notes:
   of games, a 60% that is really 3 / 5 should look as weak as it is.
 - Per game, add a **"what would have changed it"** line: the step with the biggest swing already exists
   (`review.biggest_swing`); add its best alternative and the pp it would have gained.
-- Charts: inline SVG Svelte components like `Timeline.svelte`, so no new dependency. A charting library would need
-  your OK (the spec's stack table).
+- Charts: Apache ECharts (see Decisions); the per-game timeline can stay as it is.
 
 ## 3. Engine: reliability, responsiveness, enemy pools and lanes, fewer outside lookups
 
@@ -117,3 +116,28 @@ Notes:
 4. Matchup card and win conditions (3: fewer lookups).
 5. Nav grouping and Live polish (1).
 6. Items and runes, only if you want to widen the scope.
+
+## Decisions (8 Nov 2026)
+
+1. **First task: Live speed and no-crash** (section 3, responsiveness and reliability). Built one stage at a time,
+   stopping for review after each.
+2. **Scope widened: a Strategy tab on Live.** Live gets two views, **Draft** (today's screen) and **Strategy**, with a
+   switch at the top of the Live view. Strategy covers runes and builds, with why, plus the game plan.
+   - **When:** per pick, as we lock. Each of our locked champions gets its runes, build and lane plan straight away,
+     updated once their lane opponent is known. The team game plan appears when all 10 are locked. No hovers.
+   - **Data: blend both.** What to build comes from Master+ (`data/master.sqlite`), how well it wins from the player's
+     own bracket (Pools page). Both numbers are shown. Needs new aggregation: runes and items per champion, role and
+     lane opponent, from the match-v5 data the crawl caches, for both databases.
+   - **Content: all four.** A lane plan per player (who is stronger early, level 2 / 6 spikes, trade pattern; from
+     matchups, gold at 15, archetype and kit tags), team win conditions (power curves, objectives to trade or contest,
+     what our comp wants), threats to track (enemy player and champion by comfort × threat, with what beats them) and
+     why this build (a short reason per rune and item choice, e.g. "3 AP threats: early MR", with win rates).
+   - This replaces "matchup card and win conditions" (order item 4) and "items and runes" (item 6): one task.
+3. **Nav: group the tabs.** Live · Prep · Review (History + Team trends as sub-tabs) · Roster (Pools), with Crawl and
+   Settings as icons on the right.
+4. **History charts: Apache ECharts.** A new dependency in `web/` (outside the spec's stack table; approved here).
+   Import only the chart types used (`echarts/core` plus the needed charts and components), so the bundle grows by
+   the parts used, not the whole ~1 MB. Colours stay the validated palette.
+
+Updated order: Live speed and no-crash → enemy pools and lanes → History charts (ECharts) → Strategy tab →
+nav grouping and Live polish.
