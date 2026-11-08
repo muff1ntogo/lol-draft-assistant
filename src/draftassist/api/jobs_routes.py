@@ -41,6 +41,28 @@ def crawl_summary(db, patch: str | None = None) -> dict:
             "total": sum(r["all"] for r in brackets), "total_patch": sum(r["patch"] for r in brackets)}
 
 
+TIER_GROUPS = (  # the Crawl page's sets: what the default crawl covers, above it, and the Master+ database
+    ("emerald_minus", "Emerald and below", ("iron", "bronze", "silver", "gold", "platinum", "emerald")),
+    ("emerald_plus", "Above Emerald", ("diamond",)),
+    ("master_plus", "Master+ (Master, Grandmaster, Challenger: own database)", ("master",)),
+)
+
+
+def grouped_summary(main, master, patch: str | None) -> list[dict]:
+    """Every rank in its set, those not crawled yet at 0, with a subtotal per set. Master+ comes from its own database,
+    where Master, Grandmaster and Challenger are one bracket."""
+    rows = {r["bracket"]: r for r in crawl_summary(main, patch)["brackets"]}
+    if master is not None:
+        rows.update({r["bracket"]: r for r in crawl_summary(master, patch)["brackets"] if r["bracket"] == "master"})
+    groups = []
+    for gid, label, tiers in TIER_GROUPS:
+        members = [rows.get(t, {"bracket": t, "all": 0, "patch": 0, "timelines": 0}) for t in tiers]
+        groups.append({"id": gid, "label": label, "rows": members, "total": sum(r["all"] for r in members),
+                       "total_patch": sum(r["patch"] for r in members),
+                       "timelines": sum(r["timelines"] for r in members)})
+    return groups
+
+
 def published_summary(db) -> dict:
     """What a user has pulled (Stage 3's read-only summary): matches per tier and patch, from bracket_totals, newest
     patch first; Master+ from its own database."""
@@ -58,6 +80,11 @@ def published_summary(db) -> dict:
         by_patch.setdefault(patch, {})[bracket] = by_patch.get(patch, {}).get(bracket, 0) + n
     patches = sorted(by_patch, key=version_key, reverse=True)
     return {"patches": [{"patch": p, "brackets": by_patch[p], "total": sum(by_patch[p].values())} for p in patches]}
+
+
+def _master_or_none(svc):
+    master = _summary_db(svc, "master")
+    return None if master is db_of(svc) else master
 
 
 def _summary_db(svc, database: str):
@@ -97,6 +124,7 @@ def get_jobs(request: Request, patch: str | None = None, database: str = "main")
         extra["quota"] = {"rows": rows_this_month(db_of(svc)), "limit": FREE_TIER_ROWS}
     return {**status, **extra, "role": role, "account": svc.account().as_dict(),
             "crawl": crawl_summary(_summary_db(svc, database), patch or None), "database": database,
+            "groups": grouped_summary(db_of(svc), _master_or_none(svc), patch or None),
             "master_exists": _summary_db(svc, "master") is not db_of(svc),
             "riot_key_set": bool(svc.settings and svc.settings.has_riot_api_key)}
 

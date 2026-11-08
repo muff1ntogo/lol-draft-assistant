@@ -24,17 +24,24 @@ moves the tracked files, but the local ones stay in the old subfolder: `.env`, `
 
 ## Environment
 - Windows (the League client only runs there). Python 3.12 managed with `uv`; web UI is Vite + Svelte 5 in `web/` (FastAPI serves `web/dist`).
-- Run tests: `uv run pytest` (~1,250 tests, ~180 s; the fuzz test and the planted-data fits are the slow part). Tests run with `DRAFTASSIST_STRICT=1`, so suggestion guard violations raise.
+- Run tests: `uv run pytest` (~1,600 tests, ~6 min; the fuzz test and the planted-data fits are the slow part). Tests run with `DRAFTASSIST_STRICT=1`, so suggestion guard violations raise.
 - Run the app: double-click **Draft Assistant** on the Desktop. `.venv\Scripts\draftassist-app.exe` starts the server and opens the app in its own window (pywebview on Edge WebView2), with no console; closing the window stops it, and output goes to `cache/launcher.log`. `draftassist.exe` is the same with a console; `--browser` opens the default browser instead (also the automatic fallback without WebView2). Dev: `uv run uvicorn draftassist.api.main:app --reload`.
 - Installer and updates (`packaging/README.md`): every push to `main` (except docs-only) publishes a release with the installer (`.github/workflows/release.yml`, version `major.minor.<run number − release_run_base>`: 0.1.x ended at v0.1.10; 0.2.x starts at v0.2.1, the power-spike work); installed apps offer it as a one-click Update (`updates.py`, never from champ select to the end of the game). The installer asks for the Riot key and offers `import-data` from a checkout; the app fetches champions and OP.GG stats itself on first start (`first_run.py`). By hand: `packaging\build-installer.ps1`. The repo must be public for apps to see releases. `DRAFTASSIST_BUILD_TEST=1 uv run pytest tests/test_packaging.py` builds the bundle and runs it.
 - After changing the UI: `cd web; npm run build`. After changing Python: restart the app (stats refresh live, code doesn't).
+- **Shared data and roles** (`docs/shared-data.md`, built 8 Nov 2026). One **admin** crawls, fits and publishes the crawl's
+  counts and fits to one Turso database (`league-drafter`); **users** (teammates) join with an invite code and pull them into
+  their local SQLite; **solo** (signed out) is today's app. Live, Prep and Review always read local SQLite, so champ select
+  never waits on the network and the app works offline from its last pull ("Stats from <date>" on the Crawl page).
+  Tokens live in Windows Credential Manager (`keyring`), never in `.env` or the repo; nothing outside `data/shared/` talks
+  to Turso. The admin's Live keeps the admin's own data; a user's Live can follow their own data selection (Crawl page).
 
 ### Commands
 The **Crawl page** (`#/crawl`, `jobs.py`, `api/jobs_routes.py`) runs the crawl and the other jobs from the app: one at a time, each as its own process with no console (output in `cache/jobs/`), so a crawl keeps going if the app closes and is found again when it reopens (`cache/jobs/running.json`). It shows matches per tier for the current patch. Updates wait until a job ends.
 
-Each job is also a subcommand of the app (`draftassist crawl --hours 8`, or `draftassist-cli crawl --hours 8` when installed): crawl, fit, learn, split, postgame, import-games, ddragon, opgg, coverage, power, backfill, pools, scout-check (`src/draftassist/commands.py`). `scout-check` reports which enemy identity fields the recorded champ selects carry, per queue (`docs/enemy-scouting.md`).
+Each job is also a subcommand of the app (`draftassist crawl --hours 8`, or `draftassist-cli crawl --hours 8` when installed): crawl, fit, learn, split, postgame, import-games, ddragon, opgg, coverage, power, backfill, pools, scout-check, and for storage and shared data cache-pack, cache-archive, db-optimize, publish, pull, shared-inspect, account, members (`src/draftassist/commands.py`). A user (signed in with an invite) can't run crawl, fit, power, backfill, coverage, publish or members (exit 2; the Crawl page hides them). `scout-check` reports which enemy identity fields the recorded champ selects carry, per queue (`docs/enemy-scouting.md`).
 
-**Where files live.** A source checkout keeps everything in itself, as below. The installed app (PyInstaller, `config.is_frozen()`) reads its bundled files from the bundle (`config.RESOURCE_ROOT`: `web/dist`, `data/archetype_matchups.yaml`, sample fixtures) and writes to `%LOCALAPPDATA%\DraftAssistant` (`config.DATA_ROOT`: the databases, `cache/`, `.env`, recordings, `data/roster.json`, and the tags and rules YAML, seeded from the bundle on first run and never overwritten). `DRAFTASSIST_HOME` overrides the data folder. `draftassist import-data <checkout>` copies a checkout's databases, `.env` and edited YAML into it (`--with-cache` for `cache/`).
+**Where files live.** A source checkout keeps everything in itself, as below. The installed app (PyInstaller, `config.is_frozen()`) reads its bundled files from the bundle (`config.RESOURCE_ROOT`: `web/dist`, `data/archetype_matchups.yaml`, sample fixtures) and writes to `%LOCALAPPDATA%\DraftAssistant` (`config.DATA_ROOT`: the databases, `cache/`, `.env`, recordings, `data/roster.json`, and the tags and rules YAML, seeded from the bundle on first run and never overwritten). `DRAFTASSIST_HOME` overrides the data folder. `draftassist import-data <checkout>` copies a checkout's databases, `.env` and edited YAML into it (`--with-cache` for `cache/`; `--user` keeps only a teammate's own data: crawl tables, ladder seeds and publishing settings are dropped, because they come from Turso).
+Since `docs/shared-data.md`: the Riot cache is one `cache/cache.sqlite` (zstd with a trained dictionary; old `.json` files are still read until `cache-pack`); `account.json` in the data folder holds the role, name and database URL (nothing secret); the tokens are in Credential Manager (service `DraftAssistant`, one entry per secret and data folder), with `credentials.json` in the data folder only where no keyring works. `import-data` copies neither.
 
 | What | Command |
 | --- | --- |
@@ -55,6 +62,15 @@ Each job is also a subcommand of the app (`draftassist crawl --hours 8`, or `dra
 | Lane power curves by milestone (Strategy tab; after a crawl; downloads Meraki's data weekly) | `uv run python -m draftassist.data.power` |
 | What the crawl says a damage-heavy team is (Strategy view), and how many matches have builds | `uv run python -m draftassist.data.builds` |
 | App without the client | `draftassist --demo` or `draftassist --replay fixtures/lcu/flex-ranked-sample` |
+| Pack the Riot cache's `.json` files into `cache/cache.sqlite` (verifies every row before deleting a file; resumable; `--keep` keeps the files) | `draftassist cache-pack` |
+| Move old patches' cached matches into `cache/cache-archive-<patch>.sqlite` (still read) | `draftassist cache-archive --older-than-patches 6` |
+| Smaller databases: measure on a scratch copy, then apply (WITHOUT ROWID, unused indexes, VACUUM; refuses while a job runs) | `draftassist db-optimize --dry-run`, then `draftassist db-optimize` |
+| Publish the counts and fits to Turso (admin; changed blocks only; fits the datasets first; resumable) | `draftassist publish [--dry-run]` (or Publish on the Crawl page) |
+| Pull the shared data (users; the app also does it at start, every 3 h and on Sync now) | `draftassist pull` |
+| What is published, decoded (Turso's console only shows blocks) | `draftassist shared-inspect [--table cnt_role --patch 16.22]` |
+| Sign in or out | `draftassist account status`, `account join <code>`, `account admin --url ... --org ... --database ... --name ...` (asks for the tokens), `account sign-out` |
+| The team's members (admin) | `draftassist members list`, `add NAME`, `renew NAME`, `remove NAME --yes` (rotates keys: everyone else gets a new code) |
+| Crawl only some Master+ ladders (own database) | `draftassist crawl --master --apex-tiers challenger grandmaster --hours 4` |
 
 Env vars: `DRAFTASSIST_LCU` (client | demo | replay | off), `DRAFTASSIST_REPLAY`, `DRAFTASSIST_DB` (use a scratch copy for experiments), `DRAFTASSIST_RECORD`, `DRAFTASSIST_DEMO_LOG`, `DRAFTASSIST_STATS_REFRESH_S`, `DRAFT_FORMAT` (auto | tournament | ranked).
 
@@ -125,6 +141,8 @@ Review (History + Team) · Roster (Pools) with Crawl and Settings as icons, and 
 After pulling: `uv sync`, `cd web; npm ci; npm run build`, then `data.ddragon` (item and rune names) and `data.backfill`
 (runes and items for matches already crawled).
 
+`shared-data.md` (Stages 0–6, built 8 Nov 2026; the measurements, notes and the decision log are in `shared-data-stage0.md` and the task doc): storage (packed zstd cache, WITHOUT ROWID databases: 82 → 48 MB), per-(patch, tier, queue) count tables (`data/counts.py`) from which every machine derives the runtime tables the same way, publish/pull of compressed blocks over Turso's HTTP API (`data/shared/`), invite sign-in with admin/user/solo roles and members (rotation re-issues everyone's codes), datasets with their own fits and each user's data selection (`data/datasets.py`), the installer's Join / Team admin / Solo choice. Strategy reads the counts and shows "Helpful in this lane" hints instead of a vs-opponent build (decision 6). The Crawl page picks tiers in sets (Emerald and below, Above Emerald, Master+) and shows matches the same way. Its **Storage** section (`data/storage.py`, `api/storage_routes.py`) shows what takes space in the data folder, clears downloaded installers and backups, and runs Pack cache, Archive old patches and Optimise databases as jobs; raw crawl matches are never deleted.
+
 Open points:
 - Ranked 5s queue id and what `theirTeam` shows in Ranked 5s: unknown until the first recorded Ranked 5s champ select (recordings land in `fixtures/lcu/recorded/`).
 
@@ -141,6 +159,10 @@ Open points:
 - The app around the engine: `launcher.py` (window or browser, subcommands), `window_chrome.py` (title bar, icon, remembered size), `config.py` (`RESOURCE_ROOT` / `DATA_ROOT`), `commands.py` (jobs as subcommands, `import-data`), `jobs.py` + `api/jobs_routes.py` (Crawl page), `updates.py` + `first_run.py` + `api/setup_routes.py` (updates, first run, Riot key), `packaging/` (installer).
 
 ## Lessons learned (don't relearn these)
+- Turso (8 Nov 2026): blobs come back as base64 **without** `=` padding; a token minted straight after a key rotation is signed with the retiring key and stays dead (one minted a minute later works), so after a rotation every new token is checked and minted again; Turso's console only shows the blocks (`draftassist shared-inspect` decodes them).
+- The admin's per-match rows must stay on the admin's machine: counts, traits, the execution fit, power curves and build backfills are all computed from them. Publishing copies counts and fits out; it frees nothing locally.
+- The count tables are keyed (patch, bracket, queue, ...): read them through the slices in `cnt_bracket` with a `CROSS JOIN`, or SQLite scans a whole patch per lookup (`tests/test_db_optimize.py` checks the plans). WITHOUT ROWID makes secondary indexes on text keys a little bigger (they hold the key instead of a rowid); the database still shrinks by about 40%.
+- Secrets never go on a command line (other programs can read it): the CLI asks with a hidden prompt, and the installer hands them over in a file in its temp folder that the app deletes as soon as it has read it.
 - The League client's PUUID (a plain UUID) is not the Riot API's (encrypted per key). Players keep both: `client_puuid` for champ select, `api_puuid` for match-v5 (from account-v1).
 - LCU: a skipped ban is championId `-1` (0 = not chosen yet). Standard-draft bans are one simultaneous turn and the enemy's stay hidden until `ten_bans_reveal`. The two picks of a turn can lock in either order. `myTeam[].championId` is also set while hovering: locked picks come from completed actions.
 - `theirTeam` in Flex has no names, PUUIDs or positions: no enemy scouting there.

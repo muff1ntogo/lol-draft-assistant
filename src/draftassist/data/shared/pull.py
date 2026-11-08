@@ -48,13 +48,21 @@ def _master_engine(main: Engine) -> Engine:
     return prepare_master(main, master_path(Path(main.url.database)))
 
 
-def _fetch(store: SharedStore, since: int, latest: int) -> list[tuple]:
+def _fetch(store: SharedStore, since: int, latest: int,
+           on_progress: Callable[[int, int], None] | None = None) -> list[tuple]:
+    total = 0
+    if on_progress is not None:
+        total = store.execute("SELECT COUNT(*) FROM shared_blocks WHERE publish_id > ? AND publish_id <= ?",
+                              (since, latest))[0][0]
+        on_progress(0, total)
     rows, last = [], ""
     while True:
         page = store.execute("SELECT block_id, source, tbl, slice, part, parts, schema_version, publish_id, hash, codec, "
                              "data, deleted FROM shared_blocks WHERE publish_id > ? AND publish_id <= ? AND block_id > ? "
                              "ORDER BY block_id LIMIT ?", (since, latest, last, PAGE))
         rows += page
+        if on_progress is not None:
+            on_progress(len(rows), max(total, len(rows)))
         if len(page) < PAGE:
             return rows
         last = page[-1][0]
@@ -120,7 +128,9 @@ def _apply(conn, slices: dict, window: str | None, previous_window: str | None) 
 
 
 def pull(main: Engine, store: SharedStore, in_draft: Callable[[], bool] = lambda: False,
-         log: Callable[[str], None] = print, clock: Callable[[], float] = time.time) -> PullStatus:
+         log: Callable[[str], None] = print, clock: Callable[[], float] = time.time,
+         on_progress: Callable[[int, int], None] | None = None) -> PullStatus:
+    """`on_progress(blocks downloaded, blocks to download)`: the first run's progress bar."""
     if in_draft():
         return PullStatus("draft", message="In champ select: the pull waits until the draft is over.")
     state = pull_status(main)
@@ -146,7 +156,7 @@ def pull(main: Engine, store: SharedStore, in_draft: Callable[[], bool] = lambda
     if publish_id <= since:
         return PullStatus("unchanged", publish_id)
     try:
-        rows = _fetch(store, since, publish_id)
+        rows = _fetch(store, since, publish_id, on_progress)
     except SharedStoreError as e:
         if e.offline:
             return PullStatus("offline", state["publish_id"], message=str(e))

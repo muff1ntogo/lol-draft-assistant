@@ -12,7 +12,25 @@
   let now = $state(Date.now() / 1000);
   let logBox = $state(null);
   // crawl options (jobs.crawl_options); '' = the current patch / every tier
-  const TIERS = ['iron', 'bronze', 'silver', 'gold', 'platinum', 'emerald', 'diamond'];
+  // the tier picker's sets: the default crawl, above it, and Master+ (its own database, data/master.py)
+  const TIER_SETS = [
+    { id: 'emerald_minus', label: 'Emerald and below', tiers: ['iron', 'bronze', 'silver', 'gold', 'platinum', 'emerald'] },
+    { id: 'emerald_plus', label: 'Above Emerald', tiers: ['diamond'] },
+    { id: 'master_plus', label: 'Master+', tiers: ['master', 'grandmaster', 'challenger'], apex: true },
+  ];
+  const APEX = TIER_SETS[2].tiers;
+  const isApex = (t) => APEX.includes(t);
+  function toggleCrawlTier(t) {
+    if (tiers.includes(t)) { tiers = tiers.filter((x) => x !== t); return; }
+    // Master+ crawls into its own database: one kind or the other per crawl
+    tiers = [...tiers.filter((x) => isApex(x) === isApex(t)), t];
+  }
+  function toggleSet(set) {
+    const all = set.tiers.every((t) => tiers.includes(t));
+    tiers = all ? tiers.filter((t) => !set.tiers.includes(t))
+                : [...new Set([...tiers.filter((x) => isApex(x) === !!set.apex), ...set.tiers])];
+  }
+  const apexPicked = $derived(tiers.some(isApex));
   let patch = $state('');
   let tiers = $state([]);
   let idsPerQueue = $state(20);
@@ -46,7 +64,7 @@
   $effect(() => { data?.log; if (logBox) logBox.scrollTop = logBox.scrollHeight; });
 
   const jobs = $derived(Object.fromEntries((data?.jobs ?? []).map((j) => [j.id, j])));
-  const others = $derived((data?.jobs ?? []).filter((j) => !CRAWLS.includes(j.id)));
+  const others = $derived((data?.jobs ?? []).filter((j) => !CRAWLS.includes(j.id) && !(j.id in STORAGE_JOBS)));
   async function post(url, body) {
     message = '';
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) });
@@ -55,9 +73,10 @@
     else message = out.detail;
   }
   const takesOptions = (job) => job === 'crawl' || job === 'timelines';
+  const takesTiers = (job) => job === 'crawl' || job === 'timelines' || job === 'master';
   const start = (job) => post('/api/jobs/start', {
     job, hours: jobs[job]?.hours ? +hours : null,
-    options: takesOptions(job) ? { patch: patch || null, brackets: tiers.length ? tiers : null,
+    options: takesTiers(job) ? { patch: patch || null, brackets: tiers.length ? tiers : null,
                                    ids_per_queue: +idsPerQueue === 20 ? null : +idsPerQueue, no_timelines: noTimelines } : null,
   });
   const PHASES = { starting: 'Starting', seeding: 'Finding players (ladder)', timelines: 'Fetching gold leads (timelines)',
@@ -125,6 +144,25 @@
     if (out) shownInvites = out.reissued;
   }
   const copy = (text) => navigator.clipboard?.writeText(text);
+
+  // local storage: what takes space, the safe clears, the optimising jobs (data/storage.py)
+  let storage = $state(null);
+  let storageMessage = $state('');
+  const STORAGE_JOBS = { pack: 'pack', archive: 'archive', optimize: 'optimize' };
+  async function loadStorage() {
+    try { storage = await (await fetch('/api/storage')).json(); } catch { /* restarting */ }
+  }
+  loadStorage();
+  async function clearStorage(what) {
+    storageMessage = '';
+    const res = await fetch('/api/storage/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify({ what }) });
+    const out = await res.json();
+    if (res.ok) { storage = out; storageMessage = `Freed ${mbs(out.freed)}.`; } else storageMessage = out.detail;
+  }
+  const mbs = (b) => (b >= 1e9 ? `${(b / 1e9).toFixed(2)} GB` : `${(b / 1e6).toFixed(1)} MB`);
+  let wasRunning = false;
+  $effect(() => { const r = !!data?.running; if (wasRunning && !r) loadStorage(); wasRunning = r; });
 
   // datasets (docs/shared-data.md Stage 4): the admin's list, the user's selection
   let ds = $state(null);
@@ -369,13 +407,29 @@
             <label>Match ids per player <input type="number" min="1" max="100" bind:value={idsPerQueue} /></label>
             <label class="cb"><input type="checkbox" bind:checked={noTimelines} /> Skip timelines (faster, no gold leads)</label>
           </div>
-          <div class="form opts tiers">
-            <span class="muted lbl">Tiers</span>
-            {#each TIERS as t}
-              <label class="cb cap"><input type="checkbox" value={t} bind:group={tiers} /> {t}</label>
+        {/if}
+        {#if takesTiers(crawlJob)}
+          <div class="tierpick">
+            {#each TIER_SETS.filter((s) => crawlJob === 'master' ? s.apex : crawlJob !== 'timelines' || !s.apex) as set}
+              <div class="tset">
+                <button type="button" class="tsetname" onclick={() => toggleSet(set)}
+                        title="Pick or clear the whole set">{set.label}</button>
+                <div class="chips">
+                  {#each set.tiers as t}
+                    <button type="button" class="chip" class:on={tiers.includes(t)} aria-pressed={tiers.includes(t)}
+                            onclick={() => toggleCrawlTier(t)}>{t}</button>
+                  {/each}
+                </div>
+              </div>
             {/each}
-            <span class="muted lbl">{tiers.length ? '' : '(none ticked = every tier up to Emerald, plus any set on the Roster)'}</span>
           </div>
+          <p class="muted small">
+            {#if apexPicked}Master, Grandmaster and Challenger crawl into the Master+ database (the Matchup tree and
+              Strategy's Master+ builds), Solo/Duo only, never into Live's stats: this runs as the Master+ crawl.
+            {:else if tiers.length}Crawling {tiers.join(', ')}.
+            {:else if crawlJob === 'master'}None picked: all three Master+ ladders.
+            {:else}None picked: every tier up to Emerald, plus any set on the Roster.{/if}
+          </p>
         {/if}
         <p class="muted">{jobs[crawlJob]?.about}. Live and scouting keep working meanwhile; they share the key's rate
           limits, so both run a little slower.</p>
@@ -394,32 +448,35 @@
             <option value="">{running && prog?.patch ? 'the crawl\'s patch' : 'current patch'}</option>
             {#each data.crawl.patches as p}<option value={p}>{patchLabel(p)}</option>{/each}
           </select>
-          {#if data.master_exists}
-            <select bind:value={viewDb} aria-label="Database shown">
-              <option value="">{running ? 'the crawl\'s database' : 'main database'}</option>
-              <option value="main">main</option><option value="master">Master+</option>
-            </select>
-          {/if}
         </span></h2>
-      {#if data.crawl.brackets.length}
+      {#if data.groups}
         <table>
           <thead><tr><th>Tier</th><th class="n">This patch</th><th class="bar">of {TARGET.toLocaleString()} wanted</th>
             <th class="n">Every patch</th><th class="n">With timeline</th></tr></thead>
-          <tbody>
-            {#each data.crawl.brackets as b}
-              <tr>
-                <td class="tier">{b.bracket}</td>
-                <td class="n">{b.patch.toLocaleString()}</td>
-                <td class="bar"><span class="track"><span class="fill" style="width:{Math.min(100, pct(b.patch, TARGET))}%"></span></span>
-                  <small>{pct(b.patch, TARGET)}%</small></td>
-                <td class="n">{b.all.toLocaleString()}</td>
-                <td class="n">{pct(b.timelines, b.all)}%</td>
-              </tr>
-            {/each}
-          </tbody>
-          <tfoot><tr><td>Total</td><td class="n">{data.crawl.total_patch.toLocaleString()}</td><td></td>
-            <td class="n">{data.crawl.total.toLocaleString()}</td><td></td></tr></tfoot>
+          {#each data.groups as g}
+            <tbody class="grp">
+              <tr class="ghead"><td colspan="5">{g.label}</td></tr>
+              {#each g.rows as b}
+                <tr class:none={!b.all}>
+                  <td class="tier">{b.bracket === 'master' ? 'Master+' : b.bracket}</td>
+                  <td class="n">{b.patch.toLocaleString()}</td>
+                  <td class="bar"><span class="track"><span class="fill" style="width:{Math.min(100, pct(b.patch, TARGET))}%"></span></span>
+                    <small>{pct(b.patch, TARGET)}%</small></td>
+                  <td class="n">{b.all.toLocaleString()}</td>
+                  <td class="n">{b.all ? `${pct(b.timelines, b.all)}%` : '—'}</td>
+                </tr>
+              {/each}
+              {#if g.rows.length > 1}
+                <tr class="sub"><td>{g.label}</td><td class="n">{g.total_patch.toLocaleString()}</td><td></td>
+                  <td class="n">{g.total.toLocaleString()}</td><td class="n">{g.total ? `${pct(g.timelines, g.total)}%` : '—'}</td></tr>
+              {/if}
+            </tbody>
+          {/each}
+          <tfoot><tr><td>Total</td><td class="n">{data.groups.reduce((a, g) => a + g.total_patch, 0).toLocaleString()}</td><td></td>
+            <td class="n">{data.groups.reduce((a, g) => a + g.total, 0).toLocaleString()}</td><td></td></tr></tfoot>
         </table>
+        <p class="muted small">Bars: this patch's matches against the {TARGET.toLocaleString()} per tier the coverage check wants;
+          they move while a crawl of this patch stores matches. Master+ counts Master, Grandmaster and Challenger together.</p>
       {:else}
         <p class="muted">Nothing crawled yet. Until the crawl has enough games, Live uses OP.GG's stats.</p>
       {/if}
@@ -437,6 +494,32 @@
         {/each}
       </div>
     </section>
+
+    {#if storage}
+      <section>
+        <h2>Storage <small>{mbs(storage.total)} in {storage.data_folder}</small>
+          <span class="view"><button onclick={loadStorage}>Refresh</button></span></h2>
+        <table>
+          <tbody>
+            {#each storage.items.filter((i) => i.bytes > 0) as i}
+              <tr>
+                <td>{i.label}{#if i.note}<div class="muted small">{i.note}</div>{/if}</td>
+                <td class="n">{mbs(i.bytes)}</td>
+                <td class="n">
+                  {#if i.action === 'clear'}<button onclick={() => clearStorage(i.id)} disabled={!i.clearable}>Clear</button>
+                  {:else if i.action === 'pack' && jobs.pack}<button onclick={() => start('pack')} disabled={!!running}>Pack cache</button>
+                  {:else if i.action === 'archive' && jobs.archive}<button onclick={() => start('archive')} disabled={!!running}>Archive old patches</button>
+                  {:else if i.action === 'optimize' && i.id === 'database' && jobs.optimize}<button onclick={() => start('optimize')} disabled={!!running}>Optimise databases</button>{/if}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+        {#if storageMessage}<p class="muted">{storageMessage}</p>{/if}
+        <p class="muted">The optimising runs as a job (one at a time, output above). The crawl's raw matches are never
+          deleted: counts, fits and backfills are computed from them, and publishing copies only counts and fits.</p>
+      </section>
+    {/if}
 
     {#if data.history.length}
       <section>
@@ -499,6 +582,17 @@
   .cb input { width: 16px; height: 16px; }
   .lbl { margin: 0; }
   .tiers { gap: 8px 16px; }
+  .tierpick { display: flex; flex-wrap: wrap; gap: 14px 28px; margin-top: 14px; }
+  .tset { display: flex; flex-direction: column; gap: 6px; }
+  .tsetname { background: none; border: 0; padding: 0; color: var(--muted); font-size: 13px; text-align: left; cursor: pointer; }
+  .tsetname:hover { color: var(--text); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { text-transform: capitalize; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line, #2a3240);
+          background: var(--panel-2); color: var(--muted); font-size: 14px; cursor: pointer; }
+  .chip.on { border-color: var(--accent, #4a9eff); color: var(--text); background: color-mix(in srgb, var(--accent, #4a9eff) 22%, transparent); }
+  .grp .ghead td { padding-top: 14px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 0; }
+  .grp .sub td { color: var(--muted); font-size: 13px; }
+  tr.none td { color: var(--muted); }
   .run { margin: 14px 0 4px; padding: 12px 14px; background: var(--panel-2); border-radius: 8px; display: grid; gap: 6px; font-size: 15px; }
   .run .k { display: inline-block; width: 86px; color: var(--muted); }
   .run .per { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 14px; color: var(--muted); }

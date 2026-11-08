@@ -143,7 +143,11 @@ def running_job(cache_dir: Path) -> dict | None:
         info = json.loads((Path(cache_dir) / "jobs" / "running.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    return info if isinstance(info, dict) and pid_alive(int(info.get("pid") or 0)) else None
+    if not isinstance(info, dict) or not pid_alive(int(info.get("pid") or 0)):
+        return None
+    if info.get("job") == "optimize":  # this very run, started from the Crawl page as a job
+        return None
+    return info
 
 
 # ---------- the command ----------

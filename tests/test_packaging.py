@@ -146,3 +146,13 @@ def test_the_frozen_app_serves_the_ui_and_writes_only_to_its_data_folder(tmp_pat
     assert not list((dist / "DraftAssistant").rglob("*.sqlite"))
     help_text = subprocess.run([str(exe), "--help"], env=env, capture_output=True, text=True, check=True).stdout
     assert "import-data" in help_text
+
+
+def test_the_installer_offers_join_admin_or_solo_and_keeps_secrets_off_command_lines():
+    assert "Join my team" in ISS and "Team admin" in ISS and "Solo" in ISS
+    assert "AdminPage.Add('Full-access database token:', True)" in ISS  # password fields
+    assert "AdminPage.Add('Platform API token:', True)" in ISS and "InvitePage.Add('Invite code:', True)" in ISS
+    assert "account join --file" in ISS and "account admin --file" in ISS and "{tmp}" in ISS
+    code = ISS.split("[Code]", 1)[1]
+    assert "Values[0]) + '\"'" not in code.split("account join", 1)[1].split("\n", 1)[0]  # no code on the command line
+    assert "import-data \"' + Folder + '\" --user" in ISS  # members bring only their own data

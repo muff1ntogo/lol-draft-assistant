@@ -58,12 +58,34 @@ JOBS: dict[str, JobSpec] = {
                         needs_key=False),
     "publish": JobSpec("Publish", ("publish",), "The crawl's counts and fits to the shared database, changed blocks only "
                        "(after a crawl or fit; waits out champ select)", needs_key=False),
+    "pack": JobSpec("Pack cache", ("cache-pack",), "The Riot cache's .json files into one compressed file, about 10x "
+                    "smaller; checks every entry before deleting a file (resumable)", needs_key=False),
+    "archive": JobSpec("Archive old patches", ("cache-archive", "--older-than-patches", "6"),
+                       "Cached matches older than the newest 6 patches into archive files (still read by backfills)",
+                       needs_key=False),
+    "optimize": JobSpec("Optimise databases", ("db-optimize",), "Smaller databases (WITHOUT ROWID, unused indexes, "
+                        "VACUUM); not during a game: Live waits while a table is rebuilt", needs_key=False),
     "coverage": JobSpec("Coverage report", ("coverage",), "Matches per tier, matchup and calibration reports",
                         needs_key=False),
 }
 HOURS = (0.5, 24.0)
 CRAWL_OPTIONS = ("crawl", "timelines")  # the jobs that take the crawl options below (Master+ always crawls all of its own)
 _PATCH = re.compile(r"^\d{1,2}\.\d{1,2}$")
+
+
+def apex_choice(options: dict | None) -> list[str] | None:
+    """The Master+ ladders picked on the Crawl page (Master, Grandmaster, Challenger), or None when none are. They crawl
+    into the Master+ database (data/master.py), so they can't be mixed with the main database's tiers."""
+    from draftassist.data.crawler import APEX_TIERS, LEAGUE_TIERS
+
+    tiers = [str(t).lower() for t in (options or {}).get("brackets") or []]
+    unknown = set(tiers) - set(LEAGUE_TIERS) - set(APEX_TIERS)
+    if unknown:
+        raise ValueError(f"tiers are {', '.join((*LEAGUE_TIERS, *reversed(APEX_TIERS)))}")
+    apex = [t for t in reversed(APEX_TIERS) if t in tiers]  # ladder order: master, grandmaster, challenger
+    if apex and len(apex) != len(tiers):
+        raise ValueError("Master and above crawl into their own database: pick them on their own, or only Iron to Diamond")
+    return [t for t in APEX_TIERS if t in apex] or None
 
 
 def crawl_options(options: dict | None) -> list[str]:
@@ -100,6 +122,14 @@ def job_argv(job: str, hours: float | None = None, options: dict | None = None) 
         if not HOURS[0] <= h <= HOURS[1]:
             raise ValueError(f"hours must be between {HOURS[0]:g} and {HOURS[1]:g}")
         argv = [a.replace("{hours}", f"{h:g}") for a in spec.argv]
+    apex = apex_choice(options) if job in (*CRAWL_OPTIONS, "master") else None
+    if apex is not None and job not in ("crawl", "master"):
+        raise ValueError("Master and above are crawled by the Crawl or Master+ crawl, not this job")
+    if job == "master" and options and options.get("brackets") and apex is None:
+        raise ValueError("the Master+ crawl takes Master, Grandmaster or Challenger")
+    if apex is not None:  # Master and above: the Master+ crawl, for just those ladders
+        argv = job_argv("master", hours) + ["--apex-tiers", *apex]
+        return argv + (["--no-timelines"] if options.get("no_timelines") else [])
     if options and job in CRAWL_OPTIONS:
         argv += crawl_options(options)
     return argv

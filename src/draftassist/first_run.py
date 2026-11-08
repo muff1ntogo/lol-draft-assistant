@@ -29,12 +29,12 @@ def needs_bootstrap(db: Engine) -> bool:
                 or s.exec(select(BootstrapRoleStats).limit(1)).first() is None)
 
 
-def bootstrap(run_job=None) -> dict[str, str]:
+def bootstrap(run_job=None, jobs: tuple[str, ...] = BOOTSTRAP_JOBS) -> dict[str, str]:
     """Run the first-run jobs in order; one failing (no internet, say) is reported and the rest still run."""
     if run_job is None:
         from draftassist.commands import run as run_job
     out = {}
-    for job in BOOTSTRAP_JOBS:
+    for job in jobs:
         try:
             code = run_job([job])
             out[job] = "done" if code == 0 else f"failed (exit {code})"
@@ -55,16 +55,14 @@ def save_riot_key(key: str, env_file: Path) -> None:
     env_file.write_text("\n".join([*kept, f"{KEY_NAME}={key}"]) + "\n", encoding="utf-8")
 
 
-def pull_shared_first_run(db, store, log_fn=None) -> PullStatus:
-    """Pull shared stats before local bootstrap on a signed-in install.
-
-    ``pull`` is transactional and preserves the last good data on an offline
-    response. This wrapper makes the first-run policy explicit and testable.
-    """
+def pull_shared_first_run(db, store, log_fn=None, on_progress=None) -> PullStatus:
+    """A signed-in user's first pull, before the app's own setup (Services.start_bootstrap): with progress for the
+    banner. `pull` is transactional and keeps the last good data when offline, so a failure here leaves the app usable
+    on OP.GG's stats; the regular sync tries again."""
     if store is None:
         return PullStatus("off", message="No shared database configured.")
     try:
-        return pull(db, store, log=log_fn or (lambda _message: None))
+        return pull(db, store, log=log_fn or (lambda _message: None), on_progress=on_progress)
     except Exception as exc:  # first run must remain usable offline
         log.exception("first-run shared pull failed")
         return PullStatus("error", message=str(exc))

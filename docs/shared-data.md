@@ -211,3 +211,28 @@ A change of selection triggers the same live stats refresh as today, never durin
 - Real username/password accounts (that needs an auth provider such as Turso's bring-your-own-auth JWT integration; maybe later).
 - Sharing drafts, History or scouting between teammates.
 - A hosted web version of the app.
+
+
+---
+
+## Decision log (8 Nov 2026)
+
+The answers to the ASKs, and the decisions made while building. Measurements and the per-stage notes are in
+`shared-data-stage0.md`.
+
+| # | Question | Decision |
+| --- | --- | --- |
+| 1 | Turso client | HTTP API over `httpx` (Hrana `v2/pipeline`, Platform API): no new dependency; `pyturso` had no Windows wheel, `libsql` was 14 months stale |
+| 2 | Quota | One gzip block per (patch, tier, queue, table), with a content hash and `publish_id`; about 175 rows per publish against the free tier's 10 M a month. `draftassist shared-inspect` decodes what's published |
+| 3 | Codec for the Riot cache | zstd-3 with a trained dictionary (10.3× against gzip-6's 6.8× on the real cache; passed the 1.4× rule). Shared blocks stay gzip |
+| 4 | Credentials | `keyring` (Windows Credential Manager); `credentials.json` in the data folder only where no keyring works |
+| 5 | Refit locally | Later: users take fits from the closest published dataset |
+| 6 | Strategy builds | The overall build only; optional "Helpful in this lane" hints for a rune, starting item or first item. Rule (chosen 8 Nov 2026, "strict"): 30+ weighted games with and without it against the opponent, +300 gold at 15 or +3 win-rate points, z ≥ 3, not already in the overall build, at most 2 |
+| 7 | Integer match key | Not done: `match_id` text was ~15% of the file, mostly in the autoindex copies WITHOUT ROWID removes, and on tables users never hold |
+| 8 | Runtime tables on every machine | Derived from the counts by the same code (`counts.derive`) on the admin's machine and after every pull, so a pull reproduces the admin's tables exactly |
+| 9 | Datasets' fits | Pool every tier and both queues, as all fits always have; tiers and queues shape the additive tables only. A user's selection lives under the patch key `sel` and the closest dataset's window |
+| 10 | Tiers above Diamond | Master, Grandmaster and Challenger stay in the Master+ database (one bracket); the Crawl page picks which ladders the Master+ crawl seeds from (`--apex-tiers`), never mixed with Iron–Diamond in one crawl |
+| 11 | Freeing local space after a publish | Not automatic: the admin's per-match rows are needed to recount and refit. The Crawl page's Storage section runs the space savers (Pack cache, Archive old patches, Optimise databases as jobs) and clears downloaded installers and backups |
+
+Not built: the "minimum games" setting (Stage 4; the existing thresholds stay), per-dataset execution fits (a selection
+uses the current window's), and refitting on users' machines (decision 5).

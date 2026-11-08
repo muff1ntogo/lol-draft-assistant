@@ -142,8 +142,10 @@ class CrawlStats:
 
 class Crawler:
     def __init__(self, riot: RiotClient, db: Engine, patch: str, brackets: Iterable[str] = BRACKETS,
-                 clock=time.time, timelines: bool = False, queues: Iterable[int] = QUEUES, newer_patches: bool = False):
+                 clock=time.time, timelines: bool = False, queues: Iterable[int] = QUEUES, newer_patches: bool = False,
+                 apex_tiers: Iterable[str] = APEX_TIERS):
         self.riot, self.db, self.patch = riot, db, patch
+        self.apex_tiers = tuple(t for t in APEX_TIERS if t in set(apex_tiers))  # the Master+ ladders to seed and crawl
         self.timelines = timelines  # one more request per match, for gold leads (data/timelines.py)
         self.brackets = tuple(brackets)
         self.queues = tuple(queues)
@@ -153,7 +155,7 @@ class Crawler:
     def _ladder(self, bracket: str, pages: int) -> Iterable[tuple[str | None, str, str]]:
         """(puuid, tier, division) for everyone seeded for a bracket."""
         if bracket == MASTER_PLUS:
-            for tier in APEX_TIERS:
+            for tier in self.apex_tiers:
                 league = self.riot.apex_league(tier)
                 for e in league.get("entries", []):
                     yield e.get("puuid"), league.get("tier", tier.upper()), e.get("rank", "I")
@@ -180,8 +182,10 @@ class Crawler:
 
     def _next_players(self, bracket: str, limit: int) -> list[SeedPlayer]:
         with Session(self.db) as s:
-            q = (select(SeedPlayer).where(SeedPlayer.bracket == bracket)
-                 .order_by(col(SeedPlayer.last_crawled_at).is_not(None), SeedPlayer.last_crawled_at, SeedPlayer.puuid)
+            q = select(SeedPlayer).where(SeedPlayer.bracket == bracket)
+            if bracket == MASTER_PLUS and self.apex_tiers != APEX_TIERS:  # only the chosen ladders' players
+                q = q.where(col(SeedPlayer.tier).in_([t.upper() for t in self.apex_tiers]))
+            q = (q.order_by(col(SeedPlayer.last_crawled_at).is_not(None), SeedPlayer.last_crawled_at, SeedPlayer.puuid)
                  .limit(limit))
             return list(s.exec(q).all())
 

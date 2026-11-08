@@ -400,3 +400,80 @@ def test_the_admin_manages_members_through_the_api(tmp_path, make_services, team
         assert set(removed["reissued"]) == {"Mika"} and platform.rotations == 1
         assert client.get("/api/jobs").json()["role"] == "admin"
         assert "publish" in {j["id"] for j in client.get("/api/jobs").json()["jobs"]}
+
+
+def test_a_user_import_keeps_own_data_and_drops_crawl_data(tmp_path):
+    import sqlite3
+
+    from sqlmodel import Session
+
+    from draftassist.commands import import_data
+    from draftassist.db.models import AppSetting, CrawledMatch, Player, SeedPlayer
+    from draftassist.db.session import init_db
+
+    src = tmp_path / "checkout"
+    db = init_db(src / "data" / "draftassist.sqlite")
+    with Session(db) as s:
+        s.add(CrawledMatch(match_id="EUW1_1", patch="16.21", bracket="gold", queue_id=420, game_start_ms=0))
+        s.add(SeedPlayer(puuid="ladder-puuid", bracket="gold", tier="GOLD", division="I"))
+        s.add(Player(puuid="unresolved:mid", riot_id="Me#EUW", role="mid", rank="GOLD II", bracket="gold"))
+        for key in ("shared_quota", "datasets_fitted", "pinned_plan"):
+            s.add(AppSetting(key=key, value="{}"))
+        s.commit()
+    db.dispose()
+    import_data(src, tmp_path / "app", user=True)
+    conn = sqlite3.connect(tmp_path / "app" / "data" / "draftassist.sqlite")
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM crawled_matches").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM seed_players").fetchone()[0] == 0  # the admin key's PUUIDs
+        assert conn.execute("SELECT COUNT(*) FROM players").fetchone()[0] == 1  # our own
+        assert {r[0] for r in conn.execute("SELECT key FROM app_settings")} == {"pinned_plan"}
+    finally:
+        conn.close()
+
+
+def test_the_installer_hands_secrets_over_in_a_file_that_is_deleted(tmp_path, monkeypatch, capsys):
+    from draftassist import commands
+
+    acc = store_at(tmp_path / "acc")
+    monkeypatch.setattr(commands, "account_store", lambda: acc)
+    invite = tmp_path / "invite.txt"
+    invite.write_text("﻿" + encode_invite(URL, "eyJ.read.only", "Mika", NOW + 90 * DAY) + "\r\n", encoding="utf-8")
+    monkeypatch.setattr("time.time", lambda: NOW)
+    assert commands.run(["account", "join", "--file", str(invite)]) == 0
+    assert acc.load().role == "user" and not invite.exists()
+    admin = tmp_path / "admin.txt"
+    admin.write_text(f"url={URL}\r\norg=ajtan\r\ndatabase=team-stats\r\nname=AJ\r\ndb_token={FULL}\r\n"
+                     f"platform_token={PLATFORM}\r\n", encoding="utf-8")
+    assert commands.run(["account", "admin", "--file", str(admin)]) == 0
+    assert acc.load().label == "Signed in as AJ (Admin)" and acc.platform_token() == PLATFORM and not admin.exists()
+    bad = tmp_path / "bad.txt"
+    bad.write_text("dav1.garbage", encoding="utf-8")
+    assert commands.run(["account", "join", "--file", str(bad)]) == 1 and not bad.exists()  # deleted even so
+    assert FULL not in capsys.readouterr().out
+
+
+def test_a_teammates_first_run_pulls_with_progress_before_its_own_setup(tmp_path, make_services):
+    from draftassist.data.aggregate import aggregate
+    from draftassist.data.shared.publish import publish
+    from draftassist.db.session import init_db
+    from test_counts import crawl
+
+    admin = init_db(tmp_path / "admin.sqlite")
+    crawl(admin, n=60, patches=("16.21",))
+    aggregate(admin, "16.21")
+    store = FakeSharedStore()
+    publish(admin, None, store, app_version="x", log=lambda *_: None)
+
+    user = init_db(tmp_path / "user" / "draftassist.sqlite")
+    svc = make_services(db=user)
+    svc.account_store = store_at(tmp_path / "acc")
+    svc.account_store.join(encode_invite(URL, "eyJ.read.only", "Mika", NOW + 90 * DAY))
+    svc.shared_store = store
+    ran = []
+    assert svc.first_pull_needed()
+    assert svc.start_bootstrap(run_job=lambda argv: ran.append(argv[0]) or 0, wait=True)
+    assert svc.bootstrap["state"] == "done" and svc.bootstrap["jobs"]["pull"] == "done"
+    assert svc.bootstrap["pull"]["done"] == svc.bootstrap["pull"]["total"] > 0
+    assert ran == ["ddragon"]  # champion names still; OP.GG's stats aren't needed once the team's are in
+    assert not svc.first_pull_needed()

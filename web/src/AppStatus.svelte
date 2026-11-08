@@ -50,7 +50,12 @@
     {/if}
   </div>
 {/if}
-{#if setup?.bootstrap?.state === 'running'}
+{#if setup?.bootstrap?.state === 'running' && setup.bootstrap.pull}
+  <div class="banner setup">Pulling the team's stats: {setup.bootstrap.pull.done.toLocaleString()} of
+    {setup.bootstrap.pull.total ? setup.bootstrap.pull.total.toLocaleString() : '…'} blocks
+    <span class="pbar"><span style="width:{setup.bootstrap.pull.total ? Math.round(100 * setup.bootstrap.pull.done / setup.bootstrap.pull.total) : 0}%"></span></span>
+    · Live uses OP.GG's stats until it's done</div>
+{:else if setup?.bootstrap?.state === 'running'}
   <div class="banner setup">Setting up: fetching champions and starting stats (about a minute)…</div>
 {:else if setup?.bootstrap?.state === 'done' && Object.values(setup.bootstrap.jobs).some((s) => s !== 'done')}
   <div class="banner setup">First-run setup couldn't fetch everything (no internet?): it tries again at the next start.</div>
@@ -67,6 +72,8 @@
             align-items: center; flex-wrap: wrap; }
   .update { background: #12324f; color: #cfe6ff; }
   .setup { background: #3d3214; color: var(--gold); }
+  .pbar { display: inline-block; width: 160px; height: 6px; border-radius: 3px; background: #1d1a10; overflow: hidden; }
+  .pbar span { display: block; height: 100%; background: var(--gold); }
   .key { background: #1f2630; color: var(--muted); }
   .key a { color: #8ec5ff; }
   button { background: #2f6fb7; color: white; border: 0; border-radius: 6px; padding: 3px 12px; font: inherit; cursor: pointer; }

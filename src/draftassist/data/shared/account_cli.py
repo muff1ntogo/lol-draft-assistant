@@ -3,7 +3,9 @@ doesn't echo, never from the command line (other programs can read a process's a
 
     draftassist account status
     draftassist account join dav1....                          a teammate: paste the invite
+    draftassist account join --file invite.txt                 the installer: the code in a file (deleted after)
     draftassist account admin --url libsql://... --org ORG --database DB --name NAME   (asks for both tokens)
+    draftassist account admin --file admin.txt                 the installer: key=value lines (deleted after)
     draftassist account sign-out                               removes the stored tokens; local data stays
 
     draftassist members list | add NAME [--days 90] | renew NAME | remove NAME --yes
@@ -13,7 +15,16 @@ from __future__ import annotations
 import argparse
 import getpass
 import sys
+from pathlib import Path
 from datetime import datetime
+
+
+def _take(path: Path) -> str:
+    """A file the installer wrote with a secret in it: read, then deleted whatever happens next."""
+    try:
+        return Path(path).read_text(encoding="utf-8-sig")
+    finally:
+        Path(path).unlink(missing_ok=True)
 
 
 def _store():
@@ -34,19 +45,32 @@ def account_main() -> int:
     sub.add_parser("status")
     join = sub.add_parser("join")
     join.add_argument("invite", nargs="?", help="the invite code (asked for if left out)")
+    join.add_argument("--file", type=Path, help="read the code from this file, then delete it")
     admin = sub.add_parser("admin")
     for flag in ("--url", "--org", "--database", "--name"):
-        admin.add_argument(flag, required=True)
+        admin.add_argument(flag)
+    admin.add_argument("--file", type=Path, help="url=, org=, database=, name=, db_token=, platform_token= lines; "
+                                                 "deleted after")
     sub.add_parser("sign-out")
     args = parser.parse_args(sys.argv[1:])
     store = _store()
     try:
         if args.cmd == "join":
-            acc = store.join(args.invite or getpass.getpass("Invite code: "))
+            code = _take(args.file).strip() if args.file else args.invite or getpass.getpass("Invite code: ")
+            acc = store.join(code)
         elif args.cmd == "admin":
-            db_token = getpass.getpass("Full-access database token: ")
-            platform = getpass.getpass("Turso Platform API token: ")
-            acc = store.set_admin(args.url, db_token, platform, args.org, args.database, args.name)
+            if args.file:
+                f = dict(line.split("=", 1) for line in _take(args.file).splitlines() if "=" in line)
+                f = {k.strip(): v.strip() for k, v in f.items()}
+                acc = store.set_admin(f.get("url", ""), f.get("db_token", ""), f.get("platform_token", ""),
+                                      f.get("org", ""), f.get("database", ""), f.get("name", ""))
+            else:
+                if not all((args.url, args.org, args.database, args.name)):
+                    print("--url, --org, --database and --name are needed (or --file)")
+                    return 1
+                db_token = getpass.getpass("Full-access database token: ")
+                platform = getpass.getpass("Turso Platform API token: ")
+                acc = store.set_admin(args.url, db_token, platform, args.org, args.database, args.name)
         elif args.cmd == "sign-out":
             acc = store.sign_out()
         else:

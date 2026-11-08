@@ -164,3 +164,17 @@ def test_the_tree_uses_the_2v2_tables_it_is_given():
     given = object()
     wrapped = eng.resp_data(frozenset(), base=base, bot=given)
     assert wrapped is not base and wrapped._bot is given
+
+
+def test_only_the_chosen_apex_ladders_are_seeded_and_crawled(engine, tmp_path):
+    fake = FakeLadder({}, {"challenger": ["c1"], "grandmaster": ["g1"], "master": ["m1"]})
+    crawler = Crawler(riot_client(tmp_path, fake), engine, "16.21", brackets=(MASTER_PLUS,),
+                      apex_tiers=("challenger",))
+    assert crawler.seed() == 1
+    assert not any("grandmaster" in c or "/masterleagues/" in c for c in fake.calls)
+    with Session(engine) as s:  # seeds from an earlier crawl of every apex ladder
+        s.add(SeedPlayer(puuid="m0", bracket=MASTER_PLUS, tier="MASTER", division="I"))
+        s.commit()
+    assert [p.puuid for p in crawler._next_players(MASTER_PLUS, 10)] == ["c1"]  # Master isn't crawled this time
+    every = Crawler(riot_client(tmp_path, fake), engine, "16.21", brackets=(MASTER_PLUS,))
+    assert {p.puuid for p in every._next_players(MASTER_PLUS, 10)} == {"c1", "m0"}

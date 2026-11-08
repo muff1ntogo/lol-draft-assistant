@@ -172,11 +172,22 @@ def test_crawl_options_become_arguments():
                                  "no_timelines": True})
     assert argv == ["crawl", "--hours", "2", "--patch", "16.20", "--brackets", "gold", "iron", "--ids-per-queue", "50",
                     "--no-timelines"]
-    assert job_argv("master", 2, {"patch": "16.20"}) == job_argv("master", 2)  # Master+ takes no options
+    assert job_argv("master", 2, {"patch": "16.20"}) == job_argv("master", 2)  # Master+ takes no patch
     assert job_argv("crawl", 2, {"patch": None, "brackets": None}) == ["crawl", "--hours", "2"]
-    for bad in ({"patch": "16.20; rm -rf"}, {"brackets": ["challenger"]}, {"ids_per_queue": 500}):
+    for bad in ({"patch": "16.20; rm -rf"}, {"brackets": ["mythic"]}, {"ids_per_queue": 500},
+                {"brackets": ["diamond", "challenger"]}):  # Master and above have their own database: not mixed
         with pytest.raises(ValueError):
             job_argv("crawl", 2, bad)
+
+
+def test_tiers_above_diamond_run_as_the_master_plus_crawl():
+    """Master, Grandmaster and Challenger crawl into the Master+ database (data/master.py), so they never reach Live's
+    stats; picking some of them on the Crawl page runs that crawl for just those ladders."""
+    argv = job_argv("crawl", 3, {"brackets": ["Challenger", "grandmaster"], "no_timelines": True})
+    assert argv == [*job_argv("master", 3), "--apex-tiers", "challenger", "grandmaster", "--no-timelines"]
+    assert job_argv("master", 3, {"brackets": ["master"]}) == [*job_argv("master", 3), "--apex-tiers", "master"]
+    with pytest.raises(ValueError):
+        job_argv("master", 3, {"brackets": ["gold"]})
 
 
 def test_a_running_job_reports_its_progress(tmp_path):
@@ -242,3 +253,26 @@ def test_the_crawl_pauses_while_a_ranked_5s_champ_select_scouts(tmp_path):
     r.make_way()
     assert r.yield_file.exists()
     wait_until(lambda: r.running() is None)
+
+
+def test_the_crawl_page_shows_every_rank_in_sets(tmp_path):
+    from sqlmodel import Session
+
+    from draftassist.api.jobs_routes import grouped_summary
+    from draftassist.db.models import CrawledMatch
+    from draftassist.db.session import init_db
+
+    main, master = init_db(tmp_path / "main.sqlite"), init_db(tmp_path / "master.sqlite")
+    with Session(main) as s:
+        for i, b in enumerate(["gold", "gold", "diamond"]):
+            s.add(CrawledMatch(match_id=f"M{i}", patch="16.22", bracket=b, queue_id=420, game_start_ms=i))
+        s.commit()
+    with Session(master) as s:
+        s.add(CrawledMatch(match_id="X1", patch="16.22", bracket="master", queue_id=420, game_start_ms=0))
+        s.commit()
+    groups = grouped_summary(main, master, "16.22")
+    assert [g["id"] for g in groups] == ["emerald_minus", "emerald_plus", "master_plus"]
+    assert [r["bracket"] for r in groups[0]["rows"]] == ["iron", "bronze", "silver", "gold", "platinum", "emerald"]
+    assert groups[0]["total_patch"] == 2 and groups[0]["rows"][0]["all"] == 0  # not crawled yet: shown at 0
+    assert groups[1]["total"] == 1 and groups[2]["total"] == 1
+    assert grouped_summary(main, None, "16.22")[2]["total"] == 0  # no Master+ database yet

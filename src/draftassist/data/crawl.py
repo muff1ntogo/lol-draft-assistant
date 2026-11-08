@@ -25,6 +25,7 @@ from draftassist.config import load_settings
 from draftassist.data.aggregate import aggregate
 from draftassist.data.coverage import coverage, format_report
 from draftassist.data.crawler import (
+    APEX_TIERS,
     LEAGUE_TIERS,
     MASTER_PLUS,
     QUEUES,
@@ -54,6 +55,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--patch", help="crawl this older patch instead of the current one, e.g. 16.21")
     parser.add_argument("--master", action="store_true",
                         help="Master+ Solo/Duo from 16.21 on, into its own database: only the Matchup tree reads it")
+    parser.add_argument("--apex-tiers", nargs="+", choices=APEX_TIERS, default=list(APEX_TIERS),
+                        help="with --master: only these ladders (default: all three)")
     parser.add_argument("--ids-per-queue", type=int, default=20, metavar="N",
                         help="match ids per player and queue, newest first (default 20, Riot's maximum is 100)")
     parser.add_argument("--no-timelines", action="store_true",
@@ -159,7 +162,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{time.strftime('%H:%M')} timelines: {result['updated']} matches done, {result['left']} left", flush=True)
         else:
             crawler = Crawler(riot, db, patch, brackets, timelines=not args.no_timelines,
-                              queues=SOLO_DUO if args.master else QUEUES, newer_patches=args.master)
+                              queues=SOLO_DUO if args.master else QUEUES, newer_patches=args.master,
+                              apex_tiers=args.apex_tiers)
             with Session(db) as s:
                 seeds = s.exec(select(func.count()).select_from(SeedPlayer)).one()
             if args.reseed or seeds == 0:

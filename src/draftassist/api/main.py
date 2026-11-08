@@ -33,6 +33,7 @@ from draftassist.api.jobs_routes import router as jobs_router
 from draftassist.api.setup_routes import router as setup_router
 from draftassist.api.account_routes import router as account_router
 from draftassist.api.datasets_routes import router as datasets_router
+from draftassist.api.storage_routes import router as storage_router
 from draftassist.api.shared_routes import router as shared_router
 from draftassist.api.synergy_routes import router as synergy_router
 from draftassist.config import DATA_ROOT, RESOURCE_ROOT, Settings, ensure_user_files, load_settings
@@ -231,18 +232,45 @@ class Services:
                                          on_done=done)
         return self._job_runner
 
-    def start_bootstrap(self, run_job=None) -> bool:
-        """A fresh install: fetch the champions and OP.GG's starting stats in the background, then reload. False if
-        there's nothing to do or it's already running."""
-        from draftassist.first_run import bootstrap, needs_bootstrap
+    def first_pull_needed(self) -> bool:
+        """A teammate's install that has never pulled (docs/shared-data.md, Stage 5)."""
+        from draftassist.data.shared.pull import pull_status
 
-        if self.db is None or self.bootstrap["state"] == "running" or not needs_bootstrap(self.db):
+        return (self.db is not None and self.account().role == "user" and not self.crawls_here()
+                and pull_status(self.db)["publish_id"] is None)
+
+    def start_bootstrap(self, run_job=None, wait: bool = False) -> bool:
+        """A fresh install, in the background, then reload: a teammate's first pull of the shared stats (with progress
+        for the banner), then the champions and, unless shared stats arrived, OP.GG's starting stats (only the fallback
+        for users). False if there's nothing to do or it's already running. `wait`: run here (tests)."""
+        from draftassist.first_run import BOOTSTRAP_JOBS, bootstrap, needs_bootstrap, pull_shared_first_run
+
+        first_pull = self.first_pull_needed()
+        if self.db is None or self.bootstrap["state"] == "running" or not (first_pull or needs_bootstrap(self.db)):
             return False
         self.bootstrap = {"state": "running", "jobs": {}}
+        if first_pull:  # the banner's progress bar
+            self.bootstrap["pull"] = {"done": 0, "total": 0}
 
         def work() -> None:
-            jobs = bootstrap(run_job)
-            self.bootstrap = {"state": "done", "jobs": jobs}
+            jobs: dict[str, str] = {}
+            pulled = False
+            if first_pull:
+                def progress(done: int, total: int) -> None:
+                    self.bootstrap = {**self.bootstrap, "pull": {"done": done, "total": total}}
+
+                status = pull_shared_first_run(self.db, self._shared(), log.info, progress)
+                self.shared_last = {"state": status.state, "message": status.message, "publish_id": status.publish_id,
+                                    "blocks": status.blocks, "at": time.time()}
+                jobs["pull"] = "done" if status.state in ("updated", "unchanged") else status.state
+                pulled = status.state == "updated"
+            if needs_bootstrap(self.db):
+                wanted = tuple(j for j in BOOTSTRAP_JOBS if not (pulled and j == "opgg"))  # OP.GG: the fallback only
+                jobs.update(bootstrap(run_job, wanted))
+            done = {"state": "done", "jobs": jobs}
+            if first_pull:
+                done["pull"] = self.bootstrap.get("pull")
+            self.bootstrap = done
             try:
                 self.refresh_stats()  # the new champions and stats change the stats version: the engine reloads
             except Exception:
@@ -250,7 +278,10 @@ class Services:
 
         import threading
 
-        threading.Thread(target=work, name="first-run", daemon=True).start()
+        if wait:
+            work()
+        else:
+            threading.Thread(target=work, name="first-run", daemon=True).start()
         return True
 
     def set_riot_key(self, key: str) -> None:
@@ -640,8 +671,10 @@ async def check_updates_forever(svc: Services) -> None:
 SHARED_PULL_EVERY_S = 3 * 3600
 
 
-async def sync_shared_forever(svc: Services, every_s: float = SHARED_PULL_EVERY_S) -> None:
-    """Pull the shared data at start and every few hours (Services.sync_shared skips drafts and crawling machines)."""
+async def sync_shared_forever(svc: Services, every_s: float = SHARED_PULL_EVERY_S, first_delay_s: float = 0) -> None:
+    """Pull the shared data at start and every few hours (Services.sync_shared skips drafts and crawling machines).
+    `first_delay_s`: wait first, when the first-run setup is doing the first pull."""
+    await asyncio.sleep(first_delay_s)
     while True:
         try:
             await asyncio.to_thread(svc.sync_shared)
@@ -723,13 +756,12 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         refresh_task = asyncio.create_task(refresh_stats_forever(svc, every)) if every > 0 else None
         demo_task = start_live_feed(svc)
         update_task = shared_task = None
-        if services is None: # the real app, not a test: set itself up, and look for updates and shared data
-            # A signed-in user gets shared statistics before local bootstrap. For
-            # admin and solo installs sync_shared is a no-op/local result.
-            await asyncio.to_thread(svc.sync_shared)
-            svc.start_bootstrap()
+        if services is None:  # the real app, not a test: set itself up, and look for updates and shared data
+            # a teammate's first pull runs inside the setup, with a progress banner, so the window opens at once
+            first_pull = svc.start_bootstrap() and svc.bootstrap.get("pull") is not None
             update_task = asyncio.create_task(check_updates_forever(svc))
-            shared_task = asyncio.create_task(sync_shared_forever(svc))
+            shared_task = asyncio.create_task(sync_shared_forever(
+                svc, first_delay_s=SHARED_PULL_EVERY_S if first_pull else 0))
         yield
         for task in (demo_task, refresh_task, update_task, shared_task):
             if task:
@@ -748,7 +780,7 @@ def create_app(services: Services | None = None, web_dist: Path = WEB_DIST,
         await ws.app.state.services.hub.serve(ws)
 
     for router in (pool_router, settings_router, synergy_router, learning_router, history_router, scout_router,
-                   setup_router, jobs_router, shared_router, account_router, datasets_router):
+                   setup_router, jobs_router, shared_router, account_router, datasets_router, storage_router):
         app.include_router(router)
 
     if (web_dist / "index.html").is_file():

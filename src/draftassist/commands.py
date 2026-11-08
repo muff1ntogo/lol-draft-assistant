@@ -104,7 +104,11 @@ USER_SHARED_TABLES = {
     "cnt_bracket", "cnt_role", "cnt_ban", "cnt_matchup", "cnt_pair", "cnt_build",
     "cnt_order", "cnt_lane", "champion_traits", "matchup_fits", "synergy_fits",
     "execution_fits", "damage_thresholds", "power_curves", "datasets",
+    "seed_players", "publish_state",  # ladder PUUIDs fetched with the admin's key; what the admin published
 }
+# app_settings keys that belong to the crawl and publishing, not to the user's own settings
+USER_SHARED_SETTINGS = ("shared_quota", "shared_publish", "datasets_fitted", "shared_pull", "active_window",
+                        "riot_api_key_id")
 
 
 def _remove_shared_data(db: Path) -> None:
@@ -115,6 +119,8 @@ def _remove_shared_data(db: Path) -> None:
         for table in sorted(USER_SHARED_TABLES):
             if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)).fetchone():
                 conn.execute(f'DELETE FROM "{table}"')
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'app_settings'").fetchone():
+            conn.executemany("DELETE FROM app_settings WHERE key = ?", [(k,) for k in USER_SHARED_SETTINGS])
         conn.commit()
     finally:
         conn.close()
