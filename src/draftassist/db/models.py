@@ -147,6 +147,7 @@ class Draft(SQLModel, table=True):
     plan_json: str | None = None  # JSON: the plan pinned for this game (docs/synergy-v2.md, Stage 6)
     timeline_version: int = 0  # data/timelines.TIMELINE_VERSION: own_game_participants filled, or the game has none
     imported: bool = False  # from match-v5 afterwards, not watched live: no suggestions, pick order approximate
+    scout_json: str | None = None  # JSON: how scouting went in this champ select (docs/scouting-research.md)
 
 
 class DraftAction(SQLModel, table=True):
@@ -389,6 +390,7 @@ class ScoutPlayer(SQLModel, table=True):
     status: str = "new"  # new | mastery (pool from mastery only) | games (history being read) | done | missing | error
     games_wanted: int = 0  # match ids found for the window
     fetched_at: float = 0.0  # epoch seconds, when the last fetch finished or started
+    rank_json: str | None = None  # JSON: league-v4 entries by PUUID, [{queue, tier, rank, lp, wins, losses}]
 
 
 class ScoutGame(SQLModel, table=True):
@@ -402,6 +404,7 @@ class ScoutGame(SQLModel, table=True):
     win: bool
     queue_id: int | None = None
     game_start_ms: int
+    patch: str | None = None  # major.minor, for weighting by patch (docs/scouting-research.md)
 
 
 class ChampionTraitRow(SQLModel, table=True):

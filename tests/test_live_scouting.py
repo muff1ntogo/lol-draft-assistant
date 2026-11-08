@@ -5,7 +5,7 @@ import time
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from draftassist.api.main import create_app
 from draftassist.data.scout import ScoutRunner
@@ -237,3 +237,49 @@ def test_open_enemy_slots_show_their_players_likely_picks(svc, engine):
     assert top["open_role"] == "top" and len(top["likely"]) == 3
     pool = {t["champ"]["id"] for t in top["scout"]["top"]}
     assert {l["champ"]["id"] for l in top["likely"]} & pool  # their pool shows up in what they're likely to pick
+
+
+# ---------- docs/scouting-research.md: Ranked 5s only, measured ----------
+def test_flex_is_never_scouted(svc, engine):
+    from pathlib import Path
+
+    store_pools(engine, svc)
+    svc.scout_manual[:] = NAMES  # even with names pasted
+    flex = json.loads((Path(__file__).resolve().parents[1] / "fixtures" / "lcu" / "flex-ranked-sample"
+                       / "0004-session.json").read_text(encoding="utf-8"))
+    view = svc.live.view(flex)
+    assert view["scouting"] is None
+    assert svc.riot.calls == 0
+
+
+def test_a_ranked_5s_draft_records_how_scouting_went(svc, engine):
+    from draftassist.db.models import Draft
+
+    store_pools(engine, svc)
+    svc.live.logger.pin_provider = None
+    events = [copy.deepcopy(e) for e in demo_sessions(svc.engine, TOURNAMENT, "blue", game_id=7_500_000_001)]
+    for e in events:
+        for m, name, pos in zip(e["theirTeam"], NAMES, POSITIONS):
+            m["gameName"], m["tagLine"] = name.split("#")
+            m["assignedPosition"] = pos
+    svc.live.handle_phase("ChampSelect", None)
+    for e in events:
+        svc.live.handle_session(e)
+    svc.live.handle_phase("InProgress", None)
+    with Session(engine) as s:
+        rec = json.loads(s.exec(select(Draft)).first().scout_json)
+    assert rec["source"] == "client" and rec["players"] == 5 and rec["found"] == 5 and rec["done"] == 5
+    assert rec["all_found_s"] >= 0 and rec["all_found_step"] == 0
+
+
+def test_scout_record_keeps_the_best_seen():
+    from draftassist.api.draftlog import scout_record
+
+    info = lambda statuses: {"source": "client", "players": [{"status": s, "games_read": 3} for s in statuses]}
+    r = scout_record(None, info(["mastery"] * 4 + ["new"]), 100.0, 0)
+    assert r["found"] == 4 and "all_found_s" not in r
+    r = scout_record(r, info(["mastery"] * 5), 112.0, 2)
+    assert r["all_found_s"] == 12.0 and r["all_found_step"] == 2 and r["done"] == 0
+    r = scout_record(r, info(["done"] * 4 + ["missing"]), 150.0, 6)
+    assert r["done"] == 4 and r["missing"] == 1 and "all_done_s" not in r
+    assert scout_record(r, None, 160.0, 7) is r

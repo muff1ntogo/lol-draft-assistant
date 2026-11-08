@@ -105,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
     if deadline is None and args.max_matches is None and not args.timelines_refetch:
         parser.error("give --hours, --minutes or --max-matches")
 
-    from draftassist.data.progress import Progress
+    from draftassist.data.progress import Progress, wait_while_yielding
 
     progress = Progress()
     database = "master" if args.master else "main"
@@ -113,12 +113,22 @@ def main(argv: list[str] | None = None) -> int:
                     stored={}, timelines_done=0, timelines_total=None, players=0, deadline=deadline)
     printed = {"n": 0}
 
+    def make_way() -> None:  # a Ranked 5s champ select is scouting: leave it the key's rate limit
+        def paused() -> None:
+            progress.update(force=True, phase="paused for scouting")
+            print(f"{time.strftime('%H:%M')} paused: a Ranked 5s champ select is scouting", flush=True)
+
+        if wait_while_yielding(on_pause=paused) > 0:
+            print(f"{time.strftime('%H:%M')} resumed", flush=True)
+
     def on_timeline(done: int, total: int) -> None:
+        make_way()
         progress.update(phase="timelines", timelines_done=done, timelines_total=total)
         if done % 100 == 0:
             print(f"{time.strftime('%H:%M')} timelines: {done:,} of {total:,}", flush=True)
 
     def on_crawl(st: CrawlStats) -> None:
+        make_way()
         progress.update(phase="crawling", stored=dict(st.stored), players=st.players_crawled,
                         skipped_other_patch=st.skipped_other_patch)
         if st.total_stored - printed["n"] >= 100:

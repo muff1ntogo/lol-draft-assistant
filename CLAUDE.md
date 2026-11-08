@@ -85,6 +85,13 @@ decisions 13–17): mastery always a recency-weighted prior, joint role guessing
 certainty that scales the blend, banned mains renormalised in the ban tables, failed fetches retried once, pasted IDs
 fill gaps the client leaves.
 
+`scouting-research.md` (8 Nov 2026): scouting is **Ranked 5s only** (tournament draft): their last 30 ranked games,
+weighted by patch (`patch_weight`), each match read once for the whole team, all mastery and their rank, a running
+crawl pauses while a 5s champ select scouts (`cache/jobs/yield.json`), and each draft records how scouting went
+(`drafts.scout_json`; History chip and Overview line). Crawl page: live progress (`cache/jobs/progress.json`), crawl
+options (patch, tiers, ids, timelines), a tier table that follows the running crawl (`crawl-page.md`). Strategy's
+damage-heavy thresholds come from the crawl (`data/builds.damage_thresholds`).
+
 `player-roster.md` (built 7 Nov 2026): one active player per role (`players.active`) and a bench that keeps a swapped-out
 player's pool; "Swap in a sub" on the Pools page (`POST /api/players/swap`), Forget for benched players. A new Riot ID for
 a linked player benches them; an unlinked one is renamed. Players and pools are mirrored to `data/roster.json` in the

@@ -44,6 +44,9 @@ class ScoutedPlayer:
     mastery: tuple[tuple[int, int], ...] = ()  # (champ, points), highest first
     mastery_age: tuple[tuple[int, float], ...] = ()  # (champ, days since they last played it), when the API said
     certainty: float = 1.0  # how sure we are they play `role`: 1 from the client's positions, less when inferred
+    # (champ, games x patch weight) in this role (docs/scouting-research.md): when given, the share reads these, so
+    # this patch's games count most; `games` stays the plain record for reasons and labels
+    weighted: tuple[tuple[int, float], ...] = ()
 
     @property
     def n(self) -> int:
@@ -79,7 +82,8 @@ class ScoutedPlayer:
 
     def share(self, role_shares: Mapping[int, Mapping[str, float]]) -> tuple[dict[int, float], float]:
         """Their share per champion in this role, and how many (pseudo-)games it rests on."""
-        counts: dict[int, float] = {c: float(g) for c, g, _ in self.games}
+        counts: dict[int, float] = ({c: float(w) for c, w in self.weighted} if self.weighted
+                                    else {c: float(g) for c, g, _ in self.games})
         for c, g in self.any_role:  # the same champion in another role: a flex pick or a role swap
             off = g - self.record(c)[0]
             if off > 0 and role_shares.get(c, {}).get(self.role, 0.0) >= MASTERY_ROLE_SHARE:

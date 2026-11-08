@@ -42,3 +42,40 @@ def read_progress(path: Path) -> dict | None:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+
+
+# ---------- the crawl makes way for scouting (docs/scouting-research.md) ----------
+YIELD_ENV = "DRAFTASSIST_YIELD"
+YIELD_FRESH_S = 90.0  # the app refreshes the file on every Live update in a Ranked 5s champ select; older = over
+YIELD_MAX_S = 600.0  # never pause longer than this in one go
+
+
+def request_yield(path: Path, clock=time.time) -> None:
+    """The app: a Ranked 5s champ select is scouting, so a running crawl should leave it the key's rate limit."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"at": clock()}), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def yield_requested(path: Path | None, clock=time.time) -> bool:
+    if path is None:
+        return False
+    data = read_progress(path)
+    return bool(data) and clock() - float(data.get("at", 0)) < YIELD_FRESH_S
+
+
+def wait_while_yielding(path: str | Path | None = None, sleep=time.sleep, clock=time.time,
+                        on_pause=None) -> float:
+    """The crawl: pause while the app asks (at most YIELD_MAX_S). Returns the seconds paused."""
+    path = path if path is not None else os.environ.get(YIELD_ENV)
+    path = Path(path) if path else None
+    start = clock()
+    told = False
+    while yield_requested(path, clock) and clock() - start < YIELD_MAX_S:
+        if not told and on_pause is not None:
+            on_pause()
+            told = True
+        sleep(2.0)
+    return clock() - start

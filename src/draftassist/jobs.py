@@ -179,6 +179,17 @@ class JobRunner:
     def progress_file(self) -> Path:
         return self.folder / "progress.json"
 
+    @property
+    def yield_file(self) -> Path:
+        """Refreshed by the app while a Ranked 5s champ select scouts: a running crawl pauses (data/progress.py)."""
+        return self.folder / "yield.json"
+
+    def make_way(self) -> None:
+        if self.running() is not None:
+            from draftassist.data.progress import request_yield
+
+            request_yield(self.yield_file, self._clock)
+
     def start(self, job: str, hours: float | None = None, options: dict | None = None) -> dict:
         if job not in JOBS:
             raise ValueError(f"unknown job {job!r}")
@@ -193,7 +204,7 @@ class JobRunner:
             logfile = self.folder / f"{job}-{time.strftime('%Y%m%d-%H%M%S', time.localtime(started))}.log"
             self.progress_file.unlink(missing_ok=True)
             env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8",
-                   "DRAFTASSIST_PROGRESS": str(self.progress_file)}
+                   "DRAFTASSIST_PROGRESS": str(self.progress_file), "DRAFTASSIST_YIELD": str(self.yield_file)}
             flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0  # no console window
             with open(logfile, "ab") as out:
                 proc = self._popen(command(argv, self._frozen), stdout=out, stderr=subprocess.STDOUT,

@@ -232,10 +232,10 @@
         <span class="role" class:scouted={slot.scout}>
           {slot.role_label || slot.open_role_label || (slot.scout?.role ?? '')}
           {#if slot.scout}
-            <span class="player" title={slot.scout.riot_id}>{slot.scout.name}</span>
+            <span class="player" title={slot.scout.riot_id}>{slot.scout.name}{#if slot.scout.rank} <small class="rk">{slot.scout.rank}</small>{/if}</span>
             <span class="pool">
               {#each slot.scout.top as t}
-                <span title={t.games ? `${t.champ?.name}: ${t.games} games, ${Math.round((100 * t.wins) / t.games)}%` : `${t.champ?.name}: mastery`}>
+                <span title={t.games ? `${t.champ?.name}: ${t.games} of their last 30 games, ${Math.round((100 * t.wins) / t.games)}% won${t.this_patch ? `, ${t.this_patch} this patch` : ''}` : `${t.champ?.name}: mastery`}>
                   <Champ champ={t.champ} size={22} /></span>
               {/each}
             </span>
@@ -276,6 +276,7 @@
                  cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -1px; }
   .tabs button.on { color: var(--text); font-weight: 600; border-bottom-color: var(--gold); }
   .tabs .count { font-size: 12px; background: var(--panel-2); border-radius: 8px; padding: 0 6px; margin-left: 4px; }
+  .rk { font-size: 11px; color: var(--muted); }
   .roleprobs { display: block; font-size: 12px; color: var(--gold); font-weight: 400; }
   .likely { display: flex; gap: 6px; }
   .lk { display: flex; flex-direction: column; align-items: center; font-size: 11px; color: var(--muted); }

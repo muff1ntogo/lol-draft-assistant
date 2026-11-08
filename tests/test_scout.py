@@ -150,8 +150,87 @@ def test_matches_already_stored_arent_fetched_again(engine):
 
 
 def test_old_games_fall_out_of_the_pool(engine):
+    from draftassist.data.scout import WINDOW_DAYS
+
     scout(engine, FakeRiot(games=3), TEAM[:1], now=NOW)
-    assert load_pools(engine, TEAM[:1], now=NOW + 59 * 86_400)["Alpha#EUW"].games_read == 1
+    assert load_pools(engine, TEAM[:1], now=NOW + (WINDOW_DAYS - 1) * 86_400)["Alpha#EUW"].games_read == 1
+
+
+def test_only_their_last_max_games_count(engine):
+    scout(engine, FakeRiot(games=MAX_GAMES), TEAM[:1], now=NOW)
+    with Session(engine) as s:  # an older game stored from before: past their last MAX_GAMES
+        s.add(ScoutGame(api_puuid="puuid-alpha", match_id="EUW1_old", champ_id=555, role="top", win=True,
+                        game_start_ms=int(NOW * 1000) - 300 * DAY_MS))
+        s.commit()
+    pool = load_pools(engine, TEAM[:1], now=NOW)["Alpha#EUW"]
+    assert pool.games_read == MAX_GAMES and 555 not in pool.games["top"]
+
+
+# ---------- docs/scouting-research.md: Ranked 5s scouting ----------
+class PremadeRiot(FakeRiot):
+    """Five players who play every game together: each match holds all five."""
+
+    def __init__(self, games=10):
+        super().__init__(games=games)
+
+    def match_ids(self, puuid, queue, start_time, count=20, start=0, end_time=None):
+        self.calls.append(("ids", puuid))
+        return [f"EUW1_team_{n}" for n in range(self.games)][:count]
+
+    def match(self, match_id):
+        self.calls.append(("match", match_id))
+        n = int(match_id.split("_")[-1])
+        return {"info": {"gameDuration": 1800, "queueId": 440, "gameVersion": f"16.{21 - n // 5}.1.1",
+                         "gameStartTimestamp": int(NOW * 1000) - (n + 1) * DAY_MS,
+                         "participants": [{"puuid": f"puuid-{rid.split('#')[0].lower()}", "championId": 100 + k,
+                                           "teamPosition": pos, "win": n % 2 == 0}
+                                          for k, (rid, pos) in enumerate(zip(TEAM, ["TOP", "JUNGLE", "MIDDLE",
+                                                                                    "BOTTOM", "UTILITY"]))]}}
+
+    def mastery_all(self, puuid):
+        self.calls.append(("mastery_all", puuid))
+        return [{"championId": 200 + n, "championPoints": 1000 * (5 - n), "lastPlayTime": int(NOW * 1000) - n * DAY_MS}
+                for n in range(3)]
+
+    def ranks(self, puuid):
+        self.calls.append(("ranks", puuid))
+        return [{"queueType": "RANKED_FLEX_SR", "tier": "GOLD", "rank": "II", "leaguePoints": 40, "wins": 10, "losses": 8}]
+
+
+def test_a_premades_shared_games_are_read_once(engine):
+    riot = PremadeRiot(games=10)
+    statuses = scout(engine, riot, TEAM, now=NOW)
+    assert set(statuses.values()) == {"done"}
+    assert len([c for c in riot.calls if c[0] == "match"]) == 10  # not 50
+    pools = load_pools(engine, TEAM, now=NOW, current_patch="16.21")
+    assert all(p.games_read == 10 for p in pools.values())
+    assert pools["Bravo#EUW"].games == {"jungle": {101: (10, 5)}}
+
+
+def test_this_patch_counts_most(engine):
+    scout(engine, PremadeRiot(games=10), TEAM[:1], now=NOW)  # games 0-4 on 16.21, 5-9 on 16.20
+    pool = load_pools(engine, TEAM[:1], now=NOW, current_patch="16.21")["Alpha#EUW"]
+    assert pool.this_patch == {"top": {100: 5}}
+    assert pool.weighted["top"][100] == pytest.approx(5 * 1.0 + 5 * 0.5)
+
+
+def test_full_mastery_and_rank_are_stored(engine):
+    from draftassist.data.scout import rank_label
+
+    riot = PremadeRiot(games=1)
+    scout(engine, riot, TEAM[:1], now=NOW)
+    assert ("mastery_all", "puuid-alpha") in riot.calls and ("mastery", "puuid-alpha") not in riot.calls
+    pool = load_pools(engine, TEAM[:1], now=NOW)["Alpha#EUW"]
+    assert rank_label(pool.ranks) == "Gold II" and pool.mastery[0] == (200, 5000)
+    assert rank_label([{"queueType": "RANKED_SOLO_5x5", "tier": "MASTER", "rank": "I"}]) == "Master"
+
+
+def test_patch_weights():
+    from draftassist.data.scout import PATCH_FLOOR, patch_weight
+
+    assert patch_weight("16.21", "16.21") == 1.0 and patch_weight("16.20", "16.21") == 0.5
+    assert patch_weight("15.24", "16.21") == PATCH_FLOOR and patch_weight(None, "16.21") == 0.25
+    assert patch_weight("16.21", None) == 1.0
 
 
 def test_at_most_max_games_are_read(engine):

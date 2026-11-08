@@ -163,6 +163,20 @@ def _plans(games: list[Draft], acts: dict[int, list[DraftAction]]) -> list[dict]
     return [{"name": labels[k], **rate(sum(map(_won, groups[k])), len(groups[k]))} for k in labels if groups.get(k)]
 
 
+def _scouting(games: list[Draft]) -> dict | None:
+    """How scouting went over the Ranked 5s games that had it (docs/scouting-research.md)."""
+    recs = [json.loads(d.scout_json) for d in games if d.scout_json]
+    if not recs:
+        return None
+    found = sorted(r["all_found_s"] for r in recs if r.get("all_found_s") is not None)
+    done = sorted(r["all_done_s"] for r in recs if r.get("all_done_s") is not None)
+    median = lambda xs: xs[len(xs) // 2] if xs else None  # noqa: E731
+    return {"games": len(recs), "all_found": sum(r.get("found") == r.get("players") for r in recs),
+            "all_done": sum(r.get("done") == r.get("players") for r in recs),
+            "missing": sum(r.get("missing", 0) for r in recs), "errors": sum(r.get("errors", 0) for r in recs),
+            "median_found_s": median(found), "median_done_s": median(done)}
+
+
 def history_stats(db: Engine, engine: DraftEngine, catalog: ChampionCatalog, queue: str | None = None,
                   side: str | None = None, patch: str | None = None) -> dict:
     """Everything the overview band draws. Remakes and games without a result are left out."""
@@ -182,4 +196,5 @@ def history_stats(db: Engine, engine: DraftEngine, catalog: ChampionCatalog, que
         "sides": _split(games, lambda d: d.side), "queues": _split(games, queue_label),
         "players": players, "bans": _bans(catalog, games, acts),
         "followed": _followed(games, acts), "plans": _plans(games, acts),
+        "scouting": _scouting(games),
     }

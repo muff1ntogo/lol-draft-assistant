@@ -119,10 +119,11 @@
           <span class="meta">
             <span>{g.imported ? 'imported' : `${pct(g.pred_win_prob)} predicted`}</span>
             <span class="muted">{g.queue} · <span class="side {g.side}">{g.side}</span> · {patchLabel(g.patch) ?? '—'} · {day(g.played_at)}</span>
-            {#if g.plan || g.verdict}
+            {#if g.plan || g.verdict || g.scouting}
               <span class="tags">
                 {#if g.plan}<span class="plan {g.plan.followed}" title="Plan picks made: {g.plan.picked} of {g.plan.total}">plan {g.plan.followed === 'yes' ? 'followed' : g.plan.followed === 'partly' ? 'partly followed' : 'not followed'}</span>{/if}
                 {#if g.verdict}<span class="vchip">{g.verdict}</span>{/if}
+                {#if g.scouting}<span class="vchip" title="Scouting: {g.scouting.found} of {g.scouting.players} players found{g.scouting.all_done_s != null ? `, all read in ${Math.round(g.scouting.all_done_s)} s` : ''}">scouted {g.scouting.done}/{g.scouting.players}</span>{/if}
               </span>
             {/if}
           </span>

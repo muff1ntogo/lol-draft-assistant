@@ -41,6 +41,33 @@ class _Pending:
     players: dict[str, str] = field(default_factory=dict)  # our role -> in-game name
     pick_roles: dict[int, str] = field(default_factory=dict)  # our locked champion -> role
     plan: str | None = None  # JSON of the plan pinned when this champ select started
+    scouting: dict | None = None  # how scouting went (scout_record)
+
+
+DONE = ("done",)
+FOUND = ("mastery", "games", "done")
+
+
+def scout_record(prev: dict | None, info: dict | None, now: float, step: int) -> dict | None:
+    """How scouting went in this champ select, for History: where the names came from, how many players were found and
+    fully read, and when (seconds from the first sight of their names, and the draft step) all five had data and all
+    five were done."""
+    if not info or not info.get("players"):
+        return prev
+    players = info["players"]
+    found = sum(1 for p in players if p.get("status") in FOUND)
+    done = sum(1 for p in players if p.get("status") in DONE)
+    rec = dict(prev or {"source": info.get("source"), "first_at": now})
+    start = rec["first_at"]
+    rec.update(players=len(players), found=max(found, rec.get("found", 0)), done=max(done, rec.get("done", 0)),
+               games=max(sum(p.get("games_read", 0) for p in players), rec.get("games", 0)),
+               missing=sum(1 for p in players if p.get("status") == "missing"),
+               errors=sum(1 for p in players if p.get("status") == "error"))
+    if found == len(players) and "all_found_s" not in rec:
+        rec["all_found_s"], rec["all_found_step"] = round(now - start, 1), step
+    if done == len(players) and "all_done_s" not in rec:
+        rec["all_done_s"], rec["all_done_step"] = round(now - start, 1), step
+    return rec
 
 
 def _snapshot(center: dict) -> dict | None:
@@ -130,6 +157,7 @@ class DraftLogger:
                 p.players[slot.role] = slot.riot_id.split("#")[0]
             if slot.role and slot.champ_id:
                 p.pick_roles[slot.champ_id] = slot.role
+        p.scouting = scout_record(p.scouting, payload.get("scouting"), self._clock().timestamp(), len(st.actions))
         p.actions = st.actions
         if p.draft_id is not None:
             self._write(p)
@@ -198,6 +226,8 @@ class DraftLogger:
                 draft.players_json = json.dumps(p.players)
             if p.plan:
                 draft.plan_json = p.plan
+            if p.scouting:
+                draft.scout_json = json.dumps(p.scouting)
             win_probs: list[float | None] = [None] * len(p.actions)
             if self.context is not None:
                 engine, catalog = self.context()

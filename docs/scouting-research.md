@@ -80,3 +80,30 @@ It cannot help the draft itself: it only answers once the game exists.
 - [Overwolf: League of Legends game compliance](https://dev.overwolf.com/ow-electron/guides/game-compliance/league-of-legends/)
 - [Overwolf: League launcher game events (champ select session fields)](https://dev.overwolf.com/ow-native/live-game-data-gep/supported-games/league-of-legends-launcher)
 - [Riot Developer Portal: API list](https://developer.riotgames.com/apis)
+
+## Decision and build (8 Nov 2026)
+
+**Scouting is for Ranked 5s only**, made as reliable and accurate as the API allows: patch-specific, their last 30
+games. Built:
+
+- **Ranked 5s only.** Live scouts only in a tournament draft (Ranked 5s, Clash): never in Flex or Solo/Duo, even with
+  pasted names (`Services.scout_info`). Loading-screen scouting (section 3) isn't built: it only helps the other queues.
+- **Their last 30 ranked games** (`MAX_GAMES` = 30, any ranked queue, up to a year back), instead of up to 20 in 60 days.
+- **Patch-weighted.** Each game stores its patch; in the pool a game counts 1 on the current patch, half one patch
+  back, a quarter two back (floor 1/8; `patch_weight`). The plain record stays for reasons and labels; Live's tooltips
+  say how many of the 30 were this patch, and their top champions are ordered by the weighted count.
+- **Each match read once for the team** (`scout`): match lists for all five first, then round by round, each match
+  read once and filed under every scouted player in it. A premade playing together costs ~30 match reads, not 150.
+- **All their mastery** (`mastery_all`, one request) and **their rank** (`league/v4/entries/by-puuid`, shown next to
+  the name on Live).
+- **The crawl makes way.** While a Ranked 5s champ select scouts, the app refreshes `cache/jobs/yield.json`; a running
+  crawl (or timeline fetch) pauses after its current player or match until the request is 90 s old (at most 10
+  minutes), so scouting has the key's whole rate limit. The Crawl page shows "paused for scouting".
+- **One more try** on a failed call (`_call`), on top of `RiotClient`'s own retries for network errors, 5xx and 429s.
+- **Measured.** Each logged draft stores how scouting went (`drafts.scout_json`: source, players, found, fully read,
+  names not found, errors, seconds and draft step until all five had data and until all five were read). History shows
+  "scouted 5/5" per game and a Scouting line in the Overview (games fully scouted, median seconds).
+
+Still open: whether Ranked 5s shows the enemy's names at all (record one champ select, run `draftassist
+scout-check`). If it doesn't, the Scout opponents box (paste the names you can see, e.g. in the lobby) is the only
+source, and it still works in Ranked 5s.

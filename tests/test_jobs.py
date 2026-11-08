@@ -217,3 +217,28 @@ def test_the_summary_follows_a_patch_and_lists_patches(make_services, engine, tm
         assert body["crawl"]["patches"][:2] == ["16.22", "16.21"] and body["database"] == "main"
         assert body["master_exists"] is False
         assert client.get("/api/jobs", params={"database": "master"}).json()["crawl"]["total"] == 3  # falls back to main
+
+
+def test_the_crawl_pauses_while_a_ranked_5s_champ_select_scouts(tmp_path):
+    from draftassist.data.progress import YIELD_FRESH_S, request_yield, wait_while_yielding, yield_requested
+
+    t = [1000.0]
+    clock = lambda: t[0]  # noqa: E731
+    f = tmp_path / "yield.json"
+    assert not yield_requested(f, clock) and wait_while_yielding(f, clock=clock) == 0
+    request_yield(f, clock)
+    assert yield_requested(f, clock)
+    paused = []
+
+    def sleep(s):
+        t[0] += s
+
+    waited = wait_while_yielding(f, sleep=sleep, clock=clock, on_pause=lambda: paused.append(1))
+    assert waited >= YIELD_FRESH_S - 2 and paused == [1]  # until the request went stale
+    r, _ = runner(tmp_path / "jobs", script="import time; time.sleep(1)")
+    r.make_way()  # nothing running: nothing written
+    assert not r.yield_file.exists()
+    r.start("crawl", 1)
+    r.make_way()
+    assert r.yield_file.exists()
+    wait_until(lambda: r.running() is None)

@@ -198,6 +198,14 @@
         {/each}
       </div>
 
+      {#if stats.scouting}
+        <h3>Scouting <span class="muted">Ranked 5s games where the enemy was scouted</span></h3>
+        <p class="scoutline">{stats.scouting.all_done} of {stats.scouting.games} games with all five fully read
+          ({stats.scouting.all_found} with all five found){#if stats.scouting.median_found_s != null} · all five had data
+          after {Math.round(stats.scouting.median_found_s)} s{/if}{#if stats.scouting.median_done_s != null}, fully read after
+          {Math.round(stats.scouting.median_done_s)} s (median){/if}{#if stats.scouting.missing} · {stats.scouting.missing} names not found{/if}{#if stats.scouting.errors} · {stats.scouting.errors} fetch errors{/if}</p>
+      {/if}
+
       {#if stats.bans.length}
         <h3>Our bans <span class="muted">most banned: games and our win rate in them (overall {pct(stats.overall.wr)})</span></h3>
         <div class="bans">
@@ -237,6 +245,7 @@
   td.gv { width: 3.5em; color: var(--muted); }
   .gbar { position: absolute; top: 6px; bottom: 6px; left: 50%; width: var(--w); background: #1baf7a; border-radius: 0 3px 3px 0; }
   .gbar.neg { left: auto; right: 50%; background: #c98500; border-radius: 3px 0 0 3px; }
+  .scoutline { font-size: 14px; margin: 0; }
   .bans { display: flex; flex-wrap: wrap; gap: 10px 16px; }
   .ban { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 </style>

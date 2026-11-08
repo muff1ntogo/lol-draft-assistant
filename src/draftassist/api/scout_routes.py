@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Body, HTTPException, Query, Request
 
 from draftassist.api.deps import db_of
-from draftassist.data.scout import assign_roles, load_pools, parse_riot_ids, scout_summary
+from draftassist.data.scout import guess_roles, load_pools, parse_riot_ids, scout_summary
 
 if TYPE_CHECKING:
     from draftassist.api.main import Services
@@ -17,10 +17,10 @@ router = APIRouter()
 def _payload(svc: Services, riot_ids: list[str], source: str | None, given: dict | None = None) -> dict:
     """The same summary Live shows (data/scout.scout_summary), for any list of Riot IDs."""
     runner = svc.scouting()
-    pools = load_pools(db_of(svc), riot_ids)
+    pools = load_pools(db_of(svc), riot_ids, current_patch=svc.current_patch())
     shares = svc.engine.role_share_map
-    roles = assign_roles(pools, given or dict.fromkeys(riot_ids), shares)
-    players = scout_summary(riot_ids, pools, roles, svc.catalog.card)
+    roles, sure = guess_roles(pools, given or dict.fromkeys(riot_ids), shares)
+    players = scout_summary(riot_ids, pools, roles, svc.catalog.card, sure=sure)
     return {"source": source, "available": runner.available, "running": runner.running, "error": runner.last_error,
             "players": players}
 
