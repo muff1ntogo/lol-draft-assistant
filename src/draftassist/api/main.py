@@ -569,7 +569,7 @@ def start_live_feed(svc: Services) -> asyncio.Task | None:
         from draftassist.lcu.connector import LcuConnector
 
         live = svc.live
-        LcuConnector(live.handle_session, live.handle_phase, live.handle_status, live.handle_end_of_game).start()
+        LcuConnector(live.submit, live.handle_phase, live.handle_status, live.handle_end_of_game).start()
     elif svc.lcu_mode == "demo":
         return asyncio.create_task(run_demo(svc.live))
     elif svc.lcu_mode == "replay" and svc.settings is not None:

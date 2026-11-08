@@ -45,8 +45,22 @@
     {#if view.comp}<CompPanel comp={view.comp.ours} title="Our comp" />{/if}
   </section>
 
-  <section class="center">
-    {#if center.mode === 'our_ban_group'}
+  <section class="center" class:stale={view.center_stale && !view.center_stale.updating}>
+    {#if view.center_stale}
+      <div class="stalestrip" class:updating={view.center_stale.updating}>
+        {#if view.center_stale.updating}Updating…{:else}Suggestions couldn't update: showing the last good ones{#if !view.center_stale.same_step} (from {view.center_stale.phase}){/if}{/if}
+      </div>
+    {/if}
+    {#if view.panel_errors?.filter((e) => e !== 'suggestions').length}
+      <div class="panelnote">Not shown: {view.panel_errors.filter((e) => e !== 'suggestions').join(', ')} (see the log)</div>
+    {/if}
+    {#if center.mode === 'updating'}
+      <h2>{center.title}</h2>
+      <p class="muted">Working out suggestions…</p>
+    {:else if center.mode === 'unavailable'}
+      <h2>{center.title}</h2>
+      <p class="muted">Suggestions are unavailable for this step (see cache/launcher.log). The board stays live.</p>
+    {:else if center.mode === 'our_ban_group'}
       <div class="grouphead"><h2>{center.title}</h2><ComponentLegend /></div>
       <div class="group">
         {#each center.cards as card}
@@ -205,6 +219,10 @@
 </main>
 
 <style>
+  .stalestrip { margin: 0 0 10px; padding: 6px 10px; border-radius: 6px; font-size: 14px; background: #3d3214; color: var(--gold); }
+  .stalestrip.updating { background: transparent; color: var(--muted); padding: 0; }
+  .center.stale :global(article) { opacity: 0.6; }
+  .panelnote { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
   .checkstrip { display: flex; gap: 14px; margin: 0 0 8px; font-size: 14px; color: var(--muted); }
   .checkstrip .no { color: #e0a640; font-weight: 600; }
   .plantag { font-size: 13px; font-weight: 600; color: #8ec5ff; border: 1px solid #2f6fb7; border-radius: 4px;
