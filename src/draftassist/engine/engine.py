@@ -126,6 +126,10 @@ class PickPair:
     low_data: bool
 
 
+LANE_BAN_CAP = 2  # simultaneous (Flex) group bans: at most this many at one enemy lane
+LANE_CLUSTER_PENALTY = 1.0  # past the cap a ban's value flips sign: a penalty, never chosen
+
+
 @dataclass(frozen=True)
 class BanCandidate:
     champ_id: int
@@ -814,17 +818,31 @@ class DraftEngine:
         """Simultaneous bans (Flex): one coordinated ban per owner (docs/flex-simultaneous-bans.md).
 
         Chosen greedily with recomputation: take the best, treat it as banned, re-score (the enemy
-        pick distribution and lane ban scores shift), take the next. Then each ban goes to the role
-        whose lane ban score it helps most, by a one-to-one assignment maximising the total (bans
-        with no lane owner fill whoever is left). Owners without a useful ban get None."""
+        pick distribution and lane ban scores shift), take the next. At most LANE_BAN_CAP bans go at
+        one enemy lane (the ban's most likely role): past that, a ban's value turns into a penalty
+        (decision, 8 Nov 2026), so the set mixes lanes but can still take two from a lane we're weak in.
+        Then each ban goes to the role whose lane ban score it helps most, by a one-to-one assignment
+        maximising the total (bans with no lane owner fill whoever is left). Owners without a useful
+        ban get None."""
         declared = self._declared_intents(state) | exclude
         chosen: list[tuple[Suggestion, dict[str, float]]] = []
+        per_lane: dict[str, int] = {}
         current = state
+
+        def capped(b: BanCandidate) -> float:
+            if b.likely_role and per_lane.get(b.likely_role, 0) >= LANE_BAN_CAP:
+                return -LANE_CLUSTER_PENALTY * abs(b.value)
+            return b.value
+
         for _ in range(len(owners)):
-            best = next((b for b in self._with_bonus(self._ban_candidates(current, plan, extra), bonus)
-                         if b.value > 0 and b.champ_id not in declared), None)
-            if best is None:
+            cands = [b for b in self._with_bonus(self._ban_candidates(current, plan, extra), bonus)
+                     if b.champ_id not in declared]
+            # the first in the engine's own order among the best capped values (ties keep its order)
+            best = max(enumerate(cands), key=lambda ib: (capped(ib[1]), -ib[0]), default=(0, None))[1]
+            if best is None or capped(best) <= 0:
                 break
+            if best.likely_role:
+                per_lane[best.likely_role] = per_lane.get(best.likely_role, 0) + 1
             chosen.append((self._ban_suggestion(current, best, self._last_tables,
                                                 plan=best.champ_id in (bonus or {})), best.lanes))
             current = current.with_provisional([best.champ_id])
