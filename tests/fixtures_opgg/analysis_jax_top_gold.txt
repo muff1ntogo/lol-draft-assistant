@@ -1,0 +1,8 @@
+class LolGetChampionAnalysis: data
+class Data: core_items,boots,starter_items,fourth_items,summoner_spells,runes,skills,skill_masteries
+class CoreItems: ids,ids_names,play,win,pick_rate
+class Runes: id,primary_page_name,primary_rune_names,secondary_page_name,secondary_rune_names,stat_mod_names,play,win,pick_rate
+class Skills: order,play,win,pick_rate
+class SkillMasteries: ids,play,win,pick_rate
+
+LolGetChampionAnalysis(Data(CoreItems([3078,6610,3157],["Trinity Force","Sundered Sky","Zhonya's Hourglass"],2277,1284,0.14),CoreItems([3047],["Plated Steelcaps"],15828,7901,0.6),CoreItems([1055,2003],["Doran's Blade","Health Potion"],17623,8736,0.62),[CoreItems([6333],["Death's Dance"],1782,1001,0.24),CoreItems([3157],["Zhonya's Hourglass"],1306,712,0.18),CoreItems([3091],["Wit's End"],871,483,0.12)],CoreItems([4,14],[4,14],22814,11238,0.77),Runes(8008,"Precision",["Lethal Tempo","Triumph","Legend: Alacrity","Last Stand"],"Resolve",["Unflinching","Bone Plating"],[5005,5008,5001],14709,7240,0.49),Skills(["E","Q","W","W","W","R","W","E","W","E","R","E","E","Q","Q"],10275,5553,0.47),SkillMasteries(["W","E","Q"],19028,10065,0.86)))

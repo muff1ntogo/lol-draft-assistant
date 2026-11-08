@@ -257,6 +257,19 @@ class MatchBuild(SQLModel, table=True):
     spells_json: str | None = None  # JSON: the two summoner spell ids, sorted
 
 
+class MatchBuildEvents(SQLModel, table=True):
+    """A crawled player's build in order, from the timeline the crawl already fetches (docs/top-lane-power.md, Stage 2):
+    purchases with their second (undone ones removed), skill order, and when each level was reached. A few hundred bytes
+    a player; only matches whose timeline was fetched after this table existed have rows."""
+    __tablename__ = "match_build_events"
+
+    match_id: str = Field(primary_key=True)
+    champ_id: int = Field(primary_key=True, index=True)
+    purchases_json: str  # JSON: [[item_id, second], ...]
+    skills: str  # "QEWQQRQ...", one letter per skill point
+    levels_json: str  # JSON: {"2": second, "3": second, ...}
+
+
 class MatchTeamState(SQLModel, table=True):
     """One team's game state, for crawled matches and our own games alike (no foreign key: ours aren't in crawled_matches).
     Nothing aggregates it. None = unknown, or gold_25 in a game that ended first."""

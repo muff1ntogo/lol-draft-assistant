@@ -205,3 +205,38 @@ def sanitize_for_fixture(timeline: Mapping, match: Mapping) -> tuple[dict, dict]
         frames.append(clean)
     players = [{k: p[k] for k in _MATCH_FIELDS if k in p} for p in match["info"]["participants"]]
     return {"info": {"frames": frames}}, {"info": {"gameDuration": match["info"].get("gameDuration"), "participants": players}}
+
+
+# ---------- builds in order (docs/top-lane-power.md, Stage 2) ----------
+SKILL_KEYS = {1: "Q", 2: "W", 3: "E", 4: "R"}
+
+
+def parse_build_events(timeline: Mapping | None, match: Mapping) -> dict[int, dict]:
+    """Per champion: purchases in order ([[item, second], ...], undone purchases removed), skill order ("QWEQ..."), and
+    the second each level was reached ({level: second}). Checked on a real 16.22 timeline: ITEM_UNDO's `beforeId` is the
+    item whose purchase was undone (with `afterId` 0); a sale undone (`beforeId` 0) changes no purchase; SKILL_LEVEL_UP
+    slots 1-4 are Q, W, E, R (EVOLVE level-ups are left out)."""
+    frames = (timeline or {}).get("info", {}).get("frames") or []
+    events = sorted((e for f in frames for e in f.get("events", [])), key=lambda e: e.get("timestamp", 0))
+    players = match["info"]["participants"]
+    champ_of = {p.get("participantId", i + 1): p["championId"] for i, p in enumerate(players)}
+    out = {c: {"purchases": [], "skills": "", "levels": {}} for c in champ_of.values()}
+    for e in events:
+        champ = champ_of.get(e.get("participantId"))
+        if champ is None:
+            continue
+        row, t = out[champ], int(e.get("timestamp", 0) // 1000)
+        kind = e.get("type")
+        if kind == "ITEM_PURCHASED" and e.get("itemId"):
+            row["purchases"].append([int(e["itemId"]), t])
+        elif kind == "ITEM_UNDO" and e.get("beforeId"):
+            undone = int(e["beforeId"])
+            for i in range(len(row["purchases"]) - 1, -1, -1):
+                if row["purchases"][i][0] == undone:
+                    del row["purchases"][i]
+                    break
+        elif kind == "SKILL_LEVEL_UP" and e.get("levelUpType", "NORMAL") == "NORMAL":
+            row["skills"] += SKILL_KEYS.get(e.get("skillSlot"), "")
+        elif kind == "LEVEL_UP" and e.get("level"):
+            row["levels"].setdefault(int(e["level"]), t)
+    return out

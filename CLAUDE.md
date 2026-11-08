@@ -92,6 +92,11 @@ crawl pauses while a 5s champ select scouts (`cache/jobs/yield.json`), and each 
 options (patch, tiers, ids, timelines), a tier table that follows the running crawl (`crawl-page.md`). Strategy's
 damage-heavy thresholds come from the crawl (`data/builds.damage_thresholds`).
 
+`top-lane-power.md` (v0.1.11, from the user's research in `top-lane-power-research.md`): Stages 1–3 built. Strategy tab:
+OP.GG's champion analysis for the player's tier and the lane matchup guide (`data/opgg_builds.py`, background fetch,
+day cache in `cache/opgg/builds/`), and our own builds in order (`match_build_events`, kept from the timelines the
+crawl already fetches; `data/builds.summarize_order`). Stages 4–5 (duel power by milestone) wait on decisions in the doc.
+
 `player-roster.md` (built 7 Nov 2026): one active player per role (`players.active`) and a bench that keeps a swapped-out
 player's pool; "Swap in a sub" on the Pools page (`POST /api/players/swap`), Forget for benched players. A new Riot ID for
 a linked player benches them; an unlinked one is renamed. Players and pools are mirrored to `data/roster.json` in the

@@ -207,6 +207,131 @@ def summarize(main: Engine, master: Engine | None, patch: str, champ: int, role:
     return summary
 
 
+# ---------- builds in order, from timelines (docs/top-lane-power.md, Stage 3) ----------
+ORDER_MIN_GAMES = 50  # an option is shown with at least this many (weighted) reference games ...
+ORDER_MIN_SHARE = 0.05  # ... and this share of them
+STARTER_S = 60  # purchases in the first minute are the starting items
+
+_ORDER_SQL = """
+WITH w(patch, weight) AS (VALUES {values})
+SELECT e.purchases_json, e.skills, e.levels_json, p.win, w.weight, m.bracket
+FROM match_build_events e
+JOIN match_participants p ON p.match_id = e.match_id AND p.champ_id = e.champ_id
+JOIN crawled_matches m ON m.match_id = e.match_id
+JOIN w ON w.patch = m.patch
+WHERE e.champ_id = :champ AND p.role = :role
+"""
+
+
+def _order_rows(db: Engine | None, champ: int, role: str, patch: str) -> list[tuple]:
+    if db is None:
+        return []
+    weights = _weights(db, patch)
+    if not weights:
+        return []
+    values = ", ".join(f"(:p{i}, :w{i})" for i in range(len(weights)))
+    params: dict = {"champ": champ, "role": role}
+    for i, (pt, w) in enumerate(weights.items()):
+        params |= {f"p{i}": pt, f"w{i}": w}
+    with db.connect() as conn:
+        try:
+            return list(conn.execute(text(_ORDER_SQL.format(values=values)), params))
+        except Exception:  # a database from before match_build_events existed
+            return []
+
+
+def skill_max(skills: str) -> str | None:
+    """"QWE" = Q maxed first, then W, then E: by when each basic ability got its 5th point (else by points at the end)."""
+    if not skills:
+        return None
+    reached, counts = {}, {k: 0 for k in "QWE"}
+    for i, k in enumerate(skills):
+        if k in counts:
+            counts[k] += 1
+            if counts[k] == 5 and k not in reached:
+                reached[k] = i
+    return "".join(sorted("QWE", key=lambda k: (reached.get(k, 99), -counts[k], "QWE".index(k))))
+
+
+def _features(row: tuple, static: GameStatic) -> dict:
+    purchases = json.loads(row[0] or "[]")
+    finished, boots, seen = [], None, set()
+    for item, t in purchases:
+        it = static.items.get(item)
+        if it is None or item in seen:
+            continue
+        seen.add(item)
+        if it.boots and boots is None:
+            boots = item
+        elif it.finished:
+            finished.append((item, t))
+    levels = {int(k): v for k, v in json.loads(row[2] or "{}").items()}
+    return {"core": tuple(i for i, _ in finished[:2]) if len(finished) >= 2 else None,
+            "first_item_s": finished[0][1] if finished else None, "boots": boots,
+            "starter": tuple(sorted(i for i, t in purchases if t <= STARTER_S)) or None,
+            "first3": row[1][:3] if len(row[1] or "") >= 3 else None, "max": skill_max(row[1] or ""),
+            "level6_s": levels.get(6)}
+
+
+def _median(xs: list[float]) -> float | None:
+    xs = sorted(x for x in xs if x is not None)
+    return xs[len(xs) // 2] if xs else None
+
+
+def summarize_order(main: Engine, master: Engine | None, patch: str, champ: int, role: str, bracket: str,
+                    static: GameStatic) -> dict | None:
+    """Item order (the first two finished items, as an ordered pair and how often that order holds within the pair),
+    starting items, skill max and first three skill points, with the median second of the first finished item and of
+    level 6: what Master+ does (else the player's bracket), and how it wins in the player's bracket. Gated: an option
+    needs ORDER_MIN_GAMES reference games and ORDER_MIN_SHARE of them. None without item names or games."""
+    if not static.items:
+        return None
+    main_rows = _order_rows(main, champ, role, patch)
+    ref_rows = _order_rows(master, champ, role, patch) if master is not None else []
+    in_bracket = [r for r in main_rows if r[5] == bracket]
+    if sum(r[4] for r in in_bracket) < MIN_BRACKET_GAMES:
+        in_bracket = main_rows
+    ref_label = "Master+"
+    if not ref_rows:
+        ref_rows, ref_label = in_bracket, "your bracket"
+    total = sum(r[4] for r in ref_rows)
+    if total <= 0:
+        return None
+    ref = [(_features(r, static), r[4]) for r in ref_rows]
+    mine = [(_features(r, static), r[4], bool(r[3])) for r in in_bracket]
+
+    def best(key: str) -> dict | None:
+        counts: dict = defaultdict(float)
+        for f, w in ref:
+            if f[key] is not None:
+                counts[f[key]] += w
+        if not counts:
+            return None
+        value, n = max(counts.items(), key=lambda kv: kv[1])
+        if n < ORDER_MIN_GAMES or n / total < ORDER_MIN_SHARE:
+            return None
+        g = sum(w for f, w, _ in mine if f[key] == value)
+        wins = sum(w for f, w, won in mine if f[key] == value and won)
+        return {"value": value, "share": round(n / total, 3), "ref_games": round(n), "games": round(g),
+                "wr": round(wins / g, 3) if g else None}
+
+    core = best("core")
+    if core is not None:  # the pair in either order: how often this order holds
+        pair = set(core["value"])
+        both = sum(w for f, w in ref if f["core"] is not None and set(f["core"]) == pair)
+        core["order_share"] = round(core["ref_games"] / both, 3) if both else None
+        core["names"] = [static.item_name(i) for i in core["value"]]
+    boots, starter = best("boots"), best("starter")
+    if boots is not None:
+        boots["names"] = [static.item_name(boots["value"])]
+    if starter is not None:
+        starter["names"] = [static.item_name(i) for i in starter["value"]]
+    return {"ref_label": ref_label, "ref_games": round(total), "core": core, "boots": boots, "starter": starter,
+            "skill_max": best("max"), "first3": best("first3"),
+            "first_item_s": _median([f["first_item_s"] for f, _ in ref]),
+            "level6_s": _median([f["level6_s"] for f, _ in ref])}
+
+
 def most_common(values: Iterable) -> object | None:
     c = Counter(v for v in values if v is not None)
     return c.most_common(1)[0][0] if c else None
