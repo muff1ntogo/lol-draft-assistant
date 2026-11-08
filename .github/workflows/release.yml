@@ -1,6 +1,6 @@
 # Every push to main builds the installer and publishes it as a GitHub release, which installed apps offer as an
-# update (src/draftassist/updates.py). The version is pyproject.toml's major.minor plus this workflow's run number,
-# so every release is newer than the one before. The installer is attached twice: under a fixed name, which the
+# update (src/draftassist/updates.py). The version is pyproject.toml's major.minor plus this workflow's run number
+# minus pyproject's release_run_base (reset whenever major.minor changes), so every release is newer than the one before. The installer is attached twice: under a fixed name, which the
 # README's download link and the app's updater use, and with its version in the name.
 name: Release
 
@@ -40,7 +40,12 @@ jobs:
         id: version
         run: |
           $base = (Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"(\d+)\.(\d+)').Matches[0]
-          $version = "$($base.Groups[1].Value).$($base.Groups[2].Value).${{ github.run_number }}"
+          # the patch number restarts at 1 for each major.minor: run number minus pyproject's release_run_base
+          $offset = (Select-String -Path pyproject.toml -Pattern '^release_run_base\s*=\s*(\d+)').Matches
+          $runBase = if ($offset) { [int]$offset[0].Groups[1].Value } else { 0 }
+          $patch = ${{ github.run_number }} - $runBase
+          if ($patch -lt 1) { throw "release_run_base ($runBase) is not below this run number (${{ github.run_number }})" }
+          $version = "$($base.Groups[1].Value).$($base.Groups[2].Value).$patch"
           "version=$version" >> $env:GITHUB_OUTPUT
           Write-Host "Version $version"
       - name: Build

@@ -26,7 +26,7 @@ moves the tracked files, but the local ones stay in the old subfolder: `.env`, `
 - Windows (the League client only runs there). Python 3.12 managed with `uv`; web UI is Vite + Svelte 5 in `web/` (FastAPI serves `web/dist`).
 - Run tests: `uv run pytest` (~1,250 tests, ~180 s; the fuzz test and the planted-data fits are the slow part). Tests run with `DRAFTASSIST_STRICT=1`, so suggestion guard violations raise.
 - Run the app: double-click **Draft Assistant** on the Desktop. `.venv\Scripts\draftassist-app.exe` starts the server and opens the app in its own window (pywebview on Edge WebView2), with no console; closing the window stops it, and output goes to `cache/launcher.log`. `draftassist.exe` is the same with a console; `--browser` opens the default browser instead (also the automatic fallback without WebView2). Dev: `uv run uvicorn draftassist.api.main:app --reload`.
-- Installer and updates (`packaging/README.md`): every push to `main` (except docs-only) publishes a release with the installer (`.github/workflows/release.yml`, version `major.minor.<run number>`); installed apps offer it as a one-click Update (`updates.py`, never from champ select to the end of the game). The installer asks for the Riot key and offers `import-data` from a checkout; the app fetches champions and OP.GG stats itself on first start (`first_run.py`). By hand: `packaging\build-installer.ps1`. The repo must be public for apps to see releases. `DRAFTASSIST_BUILD_TEST=1 uv run pytest tests/test_packaging.py` builds the bundle and runs it.
+- Installer and updates (`packaging/README.md`): every push to `main` (except docs-only) publishes a release with the installer (`.github/workflows/release.yml`, version `major.minor.<run number − release_run_base>`: 0.1.x ended at v0.1.10; 0.2.x starts at v0.2.1, the power-spike work); installed apps offer it as a one-click Update (`updates.py`, never from champ select to the end of the game). The installer asks for the Riot key and offers `import-data` from a checkout; the app fetches champions and OP.GG stats itself on first start (`first_run.py`). By hand: `packaging\build-installer.ps1`. The repo must be public for apps to see releases. `DRAFTASSIST_BUILD_TEST=1 uv run pytest tests/test_packaging.py` builds the bundle and runs it.
 - After changing the UI: `cd web; npm run build`. After changing Python: restart the app (stats refresh live, code doesn't).
 
 ### Commands
@@ -92,7 +92,7 @@ crawl pauses while a 5s champ select scouts (`cache/jobs/yield.json`), and each 
 options (patch, tiers, ids, timelines), a tier table that follows the running crawl (`crawl-page.md`). Strategy's
 damage-heavy thresholds come from the crawl (`data/builds.damage_thresholds`).
 
-`top-lane-power.md` (v0.1.11, from the user's research in `top-lane-power-research.md`): Stages 1–3 built. Strategy tab:
+`top-lane-power.md` (v0.2.x, from the user's research in `top-lane-power-research.md`): Stages 1–3 built. Strategy tab:
 OP.GG's champion analysis for the player's tier and the lane matchup guide (`data/opgg_builds.py`, background fetch,
 day cache in `cache/opgg/builds/`), and our own builds in order (`match_build_events`, kept from the timelines the
 crawl already fetches; `data/builds.summarize_order`). Stages 4–5 (duel power by milestone) wait on decisions in the doc.

@@ -6,7 +6,9 @@ installer. Nobody needs Python, uv or Node to run it.
 ## How a change reaches an installed app
 
 1. A push to `main` runs `.github/workflows/release.yml` on a Windows runner: it builds the installer with version
-   `<major.minor from pyproject.toml>.<run number>` and publishes it as a GitHub release, attached as
+   `<major.minor from pyproject.toml>.<run number - release_run_base>` (when major.minor changes, set
+   `[tool.draftassist] release_run_base` in pyproject.toml to the last release's run number, so the new line starts at .1)
+   and publishes it as a GitHub release, attached as
    `DraftAssistant-Setup.exe` (and again with the version in the name). Pushes that only touch docs or `*.md` don't
    release.
 2. The app checks the latest release at startup and every 6 hours (`src/draftassist/updates.py`). When it's newer than

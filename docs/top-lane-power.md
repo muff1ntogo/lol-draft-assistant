@@ -1,4 +1,4 @@
-# Builds in order and lane power by milestone (v0.1.11)
+# Builds in order and lane power by milestone (v0.2.x)
 
 Task doc for the research in `top-lane-power-research.md` (the user's research, 8 Nov 2026). Its five stages, adjusted
 for what was already built in v0.1.10 (`strategy.md`: runes, spells and final items from `match_builds`) and for what
