@@ -142,12 +142,17 @@ class Services:
             return list(self.scout_manual), dict.fromkeys(self.scout_manual), "manual"
         return [], {}, None
 
+    def current_patch(self) -> str | None:
+        """Riot's major.minor of the champion data in use, for weighting scouted games by patch."""
+        patch = self.catalog.patch if self.catalog is not None else None
+        return ".".join(patch.split(".")[:2]) if patch else None
+
     def scout_info(self, live=None):
         """(EnemyScouting | None, what Live shows): asks for any opponent not fetched yet. Off in Settings: nothing."""
         from draftassist.data.scout import (
             ERROR_RETRY_S,
-            assign_roles,
             build_scouting,
+            guess_roles,
             load_pools,
             scout_summary,
         )
@@ -155,16 +160,23 @@ class Services:
 
         if self.lcu_mode == "demo":  # the demo's enemy names are made up: they could be someone real's
             return None, None
+        if live is not None and live.state.format.name != "tournament":
+            return None, None  # Ranked 5s only (decision 8 Nov 2026): Flex and Solo/Duo don't show who we face
         ids, given, source = self.opponents(live)
         settings = get_engine_settings(self.db)
         if not ids or not settings["scout_enabled"]:
             return None, None
         runner = self.scouting()
+        if live is not None and runner.available:  # a running crawl pauses so scouting gets the key's rate limit
+            try:
+                self.jobs().make_way()
+            except Exception:
+                log.exception("could not ask the crawl to make way")
         new = [rid for rid in ids if rid.lower() not in self.scout_asked]
         if new and runner.available:  # once per player per game: a refresh never sets off another fetch
             self.scout_asked.update(rid.lower() for rid in new)
             runner.enqueue(new)
-        pools = load_pools(self.db, ids)
+        pools = load_pools(self.db, ids, current_patch=self.current_patch())
         if runner.available and runner.last_error is None:  # a fetch that failed (not a bad key): once more, later
             retry = [rid for rid, p in pools.items() if p.status == "error" and rid.lower() not in self.scout_retried
                      and time.time() - p.fetched_at >= ERROR_RETRY_S]
@@ -172,10 +184,10 @@ class Services:
                 self.scout_retried.update(rid.lower() for rid in retry)
                 runner.enqueue(retry)
         shares = self.engine.role_share_map
-        roles = assign_roles(pools, given, shares)
+        roles, sure = guess_roles(pools, given, shares)
         scouting = build_scouting(pools, given, settings["scout_weight"], shares)
         info = {"source": source, "available": runner.available, "running": runner.running, "error": runner.last_error,
-                "players": scout_summary(ids, pools, roles, self.catalog.card)}
+                "players": scout_summary(ids, pools, roles, self.catalog.card, sure=sure)}
         return scouting, info
 
     # ---------- first run and updates (src/draftassist/first_run.py, updates.py) ----------
@@ -332,6 +344,7 @@ class Services:
         live.engine, live.catalog = DraftEngine(data, inputs.team, engine_config(self.db)), inputs.catalog
         live.data_source, live.note = inputs.data_source, inputs.note
         live.draft_scale = load_draft_scale(self.db)
+        live.strategy_builds = strategy_builds(self.db, self.settings.cache_dir if self.settings else None, inputs)
         self._synergy_v2 = None
         if self.players is not None:
             self.players.invalidate()
@@ -455,6 +468,7 @@ def build_services(settings: Settings) -> Services:
     live = LiveService(engine, inputs.catalog, hub, inputs.data_source, inputs.note, settings.draft_format,
                        recorder, logger, players, verify_later)
     live.draft_scale = load_draft_scale(db)
+    live.strategy_builds = strategy_builds(db, settings.cache_dir, inputs)
     if logger is not None:
         logger.context = lambda: (live.engine, live.catalog)
     svc = Services(hub, live, db, players, settings.lcu_mode, settings, stats_version(db))
@@ -489,6 +503,18 @@ async def run_demo(live: LiveService, interval: float = 1.5, seed: int = 0) -> N
         await asyncio.sleep(interval)
         live.handle_phase("Lobby", None)  # back in the lobby: screen clears
         await asyncio.sleep(interval * 2)
+
+
+def strategy_builds(db: Engine, cache_dir: Path | None, inputs):
+    """The Strategy view's build reader (docs/strategy.md) for the current patch and our players' brackets."""
+    from draftassist.api.strategy import StrategyBuilds
+    from draftassist.data.crawler import current_patch
+
+    try:
+        patch = current_patch(db)
+    except RuntimeError:  # no champions yet
+        return None
+    return StrategyBuilds(db, cache_dir or Path("cache"), patch, dict(inputs.team.brackets), inputs.catalog.patch)
 
 
 def load_draft_scale(db: Engine) -> float | None:
@@ -569,7 +595,7 @@ def start_live_feed(svc: Services) -> asyncio.Task | None:
         from draftassist.lcu.connector import LcuConnector
 
         live = svc.live
-        LcuConnector(live.handle_session, live.handle_phase, live.handle_status, live.handle_end_of_game).start()
+        LcuConnector(live.submit, live.handle_phase, live.handle_status, live.handle_end_of_game).start()
     elif svc.lcu_mode == "demo":
         return asyncio.create_task(run_demo(svc.live))
     elif svc.lcu_mode == "replay" and svc.settings is not None:

@@ -126,6 +126,10 @@ class PickPair:
     low_data: bool
 
 
+LANE_BAN_CAP = 2  # simultaneous (Flex) group bans: at most this many at one enemy lane
+LANE_CLUSTER_PENALTY = 1.0  # past the cap a ban's value flips sign: a penalty, never chosen
+
+
 @dataclass(frozen=True)
 class BanCandidate:
     champ_id: int
@@ -509,11 +513,9 @@ class DraftEngine:
                 for c in self._champs if c not in unavailable}
 
     # ---------- enemy model ----------
-    def _enemy_role_probs(self, state: DraftState, their_roles: dict[int, str]) -> dict[int, dict[str, float]]:
-        """P(enemy picks c in role r) for their next pick: uniform over their open roles, softmax over
-        log(pick rate) + w * logit(win rate) within each role."""
-        if state.picks_left(state.their_side, after=len(state.actions) - 1) == 0:
-            return {}
+    def _enemy_per_role(self, state: DraftState, their_roles: dict[int, str]) -> dict[str, dict[int, float]]:
+        """Per open enemy role: P(their player there picks c), a softmax over log(pick rate) + w * logit(win rate),
+        blended with what their scouted player plays."""
         enemy, w = self._enemy(), self.cfg.enemy_strength_weight
         filled = set(their_roles.values())
         unavailable = state.unavailable()
@@ -534,10 +536,53 @@ class DraftEngine:
                 if state.scouting is not None:  # blended with what their player in r plays
                     allowed = [c for c in self._champs if c not in unavailable]
                     per_role[r] = state.scouting.blend(r, per_role[r], self._role_shares, allowed)
+        return per_role
+
+    def _enemy_role_probs(self, state: DraftState, their_roles: dict[int, str]) -> dict[int, dict[str, float]]:
+        """P(enemy picks c in role r) for their next pick: uniform over their open roles, softmax over
+        log(pick rate) + w * logit(win rate) within each role."""
+        if state.picks_left(state.their_side, after=len(state.actions) - 1) == 0:
+            return {}
+        per_role = self._enemy_per_role(state, their_roles)
         out: dict[int, dict[str, float]] = {}
         for r, probs in per_role.items():
             for c, p in probs.items():
                 out.setdefault(c, {})[r] = p / len(per_role)
+        return out
+
+    def likely_by_role(self, state: DraftState, k: int = 3) -> dict[str, list[tuple[int, float]]]:
+        """Per enemy role still open: the k champions their player there most likely picks, with P (within the role).
+        Empty once they have no picks left."""
+        if state.picks_left(state.their_side, after=len(state.actions) - 1) == 0:
+            return {}
+        self._assign_cache.clear()
+        ev = self._evaluate(state)
+        out = {}
+        for r, probs in self._enemy_per_role(state, ev.their_roles).items():
+            out[r] = sorted(probs.items(), key=lambda cp: (-cp[1], cp[0]))[:k]
+        return out
+
+    def their_role_probs(self, state: DraftState) -> dict[int, dict[str, float]]:
+        """P(their locked champion c plays role r): the client's positions are certain; the rest is the softmax
+        marginal over every assignment of the free roles, scored by sum of log P(champion played in role), the
+        same model that picks their most likely assignment."""
+        fixed = self._their_positions(state)
+        out: dict[int, dict[str, float]] = {c: {r: 1.0} for c, r in fixed.items()}
+        theirs = [c for c in state.their_picks if c not in fixed]
+        if not theirs:
+            return out
+        floor = self.cfg.role_share_floor
+        scored = []
+        for perm in permutations([r for r in ROLES if r not in fixed.values()], len(theirs)):
+            s = sum(math.log(max(self._role_shares.get(c, {}).get(r, 0.0), floor)) for c, r in zip(theirs, perm))
+            scored.append((s, perm))
+        top = max(s for s, _ in scored)
+        z = sum(math.exp(s - top) for s, _ in scored)
+        for s, perm in scored:
+            w = math.exp(s - top) / z
+            for c, r in zip(theirs, perm):
+                out.setdefault(c, {})
+                out[c][r] = out[c].get(r, 0.0) + w
         return out
 
     def enemy_pick_probs(self, state: DraftState) -> dict[int, float]:
@@ -773,17 +818,31 @@ class DraftEngine:
         """Simultaneous bans (Flex): one coordinated ban per owner (docs/flex-simultaneous-bans.md).
 
         Chosen greedily with recomputation: take the best, treat it as banned, re-score (the enemy
-        pick distribution and lane ban scores shift), take the next. Then each ban goes to the role
-        whose lane ban score it helps most, by a one-to-one assignment maximising the total (bans
-        with no lane owner fill whoever is left). Owners without a useful ban get None."""
+        pick distribution and lane ban scores shift), take the next. At most LANE_BAN_CAP bans go at
+        one enemy lane (the ban's most likely role): past that, a ban's value turns into a penalty
+        (decision, 8 Nov 2026), so the set mixes lanes but can still take two from a lane we're weak in.
+        Then each ban goes to the role whose lane ban score it helps most, by a one-to-one assignment
+        maximising the total (bans with no lane owner fill whoever is left). Owners without a useful
+        ban get None."""
         declared = self._declared_intents(state) | exclude
         chosen: list[tuple[Suggestion, dict[str, float]]] = []
+        per_lane: dict[str, int] = {}
         current = state
+
+        def capped(b: BanCandidate) -> float:
+            if b.likely_role and per_lane.get(b.likely_role, 0) >= LANE_BAN_CAP:
+                return -LANE_CLUSTER_PENALTY * abs(b.value)
+            return b.value
+
         for _ in range(len(owners)):
-            best = next((b for b in self._with_bonus(self._ban_candidates(current, plan, extra), bonus)
-                         if b.value > 0 and b.champ_id not in declared), None)
-            if best is None:
+            cands = [b for b in self._with_bonus(self._ban_candidates(current, plan, extra), bonus)
+                     if b.champ_id not in declared]
+            # the first in the engine's own order among the best capped values (ties keep its order)
+            best = max(enumerate(cands), key=lambda ib: (capped(ib[1]), -ib[0]), default=(0, None))[1]
+            if best is None or capped(best) <= 0:
                 break
+            if best.likely_role:
+                per_lane[best.likely_role] = per_lane.get(best.likely_role, 0) + 1
             chosen.append((self._ban_suggestion(current, best, self._last_tables,
                                                 plan=best.champ_id in (bonus or {})), best.lanes))
             current = current.with_provisional([best.champ_id])

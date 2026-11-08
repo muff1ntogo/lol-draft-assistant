@@ -1,12 +1,17 @@
 """Live screen: champ select session -> view payload -> WebSocket push to every open screen.
 
 Every session event is parsed and scored from scratch; nothing is cached across events, so a
-champion locked a moment ago is gone from the next push.
+champion locked a moment ago is gone from the next push. The client's events go through
+`LiveService.submit`: one worker builds the newest session and drops the ones a burst of hovers
+made stale meanwhile. Each panel fails on its own; the suggestions fall back to the last good ones,
+marked stale (docs/live-speed.md).
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any, Protocol
@@ -328,17 +333,49 @@ def _our_slots(v: _View, finished: bool) -> list[dict]:
     return out
 
 
+ROLE_SURE = 0.85  # a locked enemy champion's role at least this likely is shown as plain fact
+LIKELY_SHOWN = 3  # champions shown per open enemy role
+
+
 def _their_slots(v: _View) -> list[dict]:
+    """Their slots: a locked champion with the role we assume (and the other likely ones when it's a flex pick); an
+    open slot with the role it's most likely for and the champions their player there most likely picks. Scouted
+    players beside the role they're taken to play."""
     roles = v.ev.their_roles
+    st = v.st
     scouted = {p["riot_id"].lower(): p for p in (v.scout_info or {}).get("players", [])}
     by_role = {p["role"]: p for p in scouted.values() if p["role"]}
+    role_probs = v.engine.their_role_probs(st)
+    likely = v.engine.likely_by_role(st, LIKELY_SHOWN) if st.step is not None else {}
+    # open slots take the open roles: the client's position first, then in role order
+    taken = set(roles.values())
+    open_roles = [r for r in ROLES if r not in taken]
+    for s in v.live.their_slots:
+        if not s.champ_id and s.role in open_roles:
+            open_roles.remove(s.role)
     out = []
     for s in v.live.their_slots:
-        role = roles.get(s.champ_id) or s.role
+        role = roles.get(s.champ_id) if s.champ_id else (s.role if s.role and s.role not in taken else
+                                                         (open_roles.pop(0) if open_roles else None))
+        if not s.champ_id and role:
+            taken.add(role)
         player = scouted.get((s.riot_id or "").lower()) or (by_role.get(role) if not s.riot_id else None)
-        out.append({"champ": v.card(s.champ_id), "role": roles.get(s.champ_id),
-                    "role_label": ROLE_LABELS.get(roles.get(s.champ_id, ""), ""),
-                    "badge": v.badge_of(s.champ_id, roles.get(s.champ_id)), "scout": player})
+        slot = {"champ": v.card(s.champ_id), "role": role if s.champ_id else None,
+                "role_label": ROLE_LABELS.get(role or "", "") if s.champ_id else "",
+                "open_role": None if s.champ_id else role,
+                "open_role_label": "" if s.champ_id else ROLE_LABELS.get(role or "", ""),
+                "badge": v.badge_of(s.champ_id, roles.get(s.champ_id)) if s.champ_id else None, "scout": player,
+                "role_probs": None, "likely": None,
+                # a name the client showed without its tag: scouting needs Name#TAG (paste it in Scout opponents)
+                "name_only": s.game_name if s.game_name and not s.riot_id and player is None else None}
+        if s.champ_id:
+            probs = sorted(role_probs.get(s.champ_id, {}).items(), key=lambda rp: -rp[1])
+            if probs and probs[0][1] < ROLE_SURE:
+                slot["role_probs"] = [{"role": r, "role_label": ROLE_LABELS[r], "p": round(p, 3)}
+                                      for r, p in probs[:2] if p >= 0.05]
+        elif role in likely:
+            slot["likely"] = [{"champ": v.card(c), "p": round(p, 3)} for c, p in likely[role]]
+        out.append(slot)
     return out
 
 
@@ -361,6 +398,24 @@ def _center_locked(v: _View) -> dict:
             "threats": [{"champ": v.card(t.champ_id), "reason": t.reason} for t in v.engine.threats(v.st, k=2)]}
 
 
+def _ban_target(st: DraftState, s: Suggestion) -> dict | None:
+    """Whose champion a ban takes, when we scouted them: their games on it in the role (share of their games there),
+    or its rank in their mastery."""
+    if st.scouting is None or not s.role:
+        return None
+    player = next((p for p in st.scouting.players if p.role == s.role), None)
+    if player is None:
+        return None
+    games, wins = player.record(s.champ_id)
+    if games:
+        return {"player": player.name, "role_label": ROLE_LABELS[s.role], "games": games, "wins": wins,
+                "share": round(games / player.n, 3) if player.n else None}
+    rank = player.mastery_rank(s.champ_id)
+    if rank is not None and rank <= 5 and not player.stale(s.champ_id):
+        return {"player": player.name, "role_label": ROLE_LABELS[s.role], "mastery_rank": rank}
+    return None
+
+
 SCOUTED_BAN_CARDS = {1: (5, 2), 2: (3, 1)}  # ban phase -> (from their pools, from the rest) (docs/enemy-scouting.md)
 
 
@@ -370,7 +425,8 @@ def _center_our_ban(v: _View, n_cards: int) -> dict:
     st, about_to_ban = v.st, v.live.ally_ban_hovers
 
     def card(s: Suggestion, **extra) -> dict:
-        return {**_ban_card(v.catalog, s, v.hovered, v.engine.cfg.ban_weights, v.profiles), **extra}
+        return {**_ban_card(v.catalog, s, v.hovered, v.engine.cfg.ban_weights, v.profiles),
+                "target": _ban_target(st, s), **extra}
 
     if st.scouting is not None and not st.format.simultaneous_bans:
         n_pool, n_off = SCOUTED_BAN_CARDS.get(st.step.phase, SCOUTED_BAN_CARDS[2])
@@ -396,6 +452,20 @@ def _next_two(v: _View) -> list[dict]:
         for pair in eng.suggest_pick_pairs(v.st, k=3)]
 
 
+CONTESTED = 0.03  # their next pick takes it at least this often: the card says so
+RARE_PICK_RATE = 0.005  # picked in under 0.5% of the bracket's games: its numbers rest on few games
+
+
+def _low_data(eng: DraftEngine, champ: int, role: str | None) -> str | None:
+    """Why a card's numbers are thin, if they are: a rare pick in the bracket, or no games on it from our player."""
+    if not role:
+        return None
+    stat = eng.our_stats(role).role_stat(champ, role)
+    if stat is None or stat.pick_rate < RARE_PICK_RATE:
+        return "rare pick: few games behind these numbers"
+    return None
+
+
 def _center_our_pick(v: _View, n_cards: int) -> dict:
     st, live, eng = v.st, v.live, v.engine
     role = live.actor_role if live.actor_role in v.open_roles else None
@@ -404,9 +474,13 @@ def _center_our_pick(v: _View, n_cards: int) -> dict:
               "cards": [_pick_card(v.catalog, s, v.hovered, v.profiles, v.ours) for s in picks], "hover_card": None}
     check = _check_strip(eng, st)
     center["check"] = check
+    enemy_next = eng.enemy_pick_probs(st) if st.picks_left(st.their_side, after=len(st.actions) - 1) else {}
     for card, s in zip(center["cards"], picks):
         _note_fixes(card, s, eng, check)
         card["archetype"] = _archetype_of(eng, s.champ_id, s.role)
+        p = enemy_next.get(s.champ_id, 0.0)
+        card["contested"] = round(p, 3) if p >= CONTESTED else None  # their next pick might take it
+        card["low_data"] = _low_data(eng, s.champ_id, s.role)
     if eng.back_to_back(st):
         center["next_two"] = _next_two(v)
     actor_hover = next((sl.hover_id for sl in live.our_slots if sl.cell_id == live.actor_cell_id), 0)
@@ -414,6 +488,9 @@ def _center_our_pick(v: _View, n_cards: int) -> dict:
         scored = _score_hover(eng, st, v.open_roles, actor_hover, live.actor_role)
         if scored is not None:
             center["hover_card"] = _pick_card(v.catalog, scored, v.hovered, v.profiles, v.ours)
+            if picks and scored.win_prob is not None and picks[0].win_prob is not None:
+                center["hover_card"]["delta_pp"] = round(100 * (scored.win_prob - picks[0].win_prob), 1)
+                center["hover_card"]["vs_name"] = v.catalog.card(picks[0].champ_id)["name"]
     return center
 
 
@@ -434,18 +511,52 @@ def _center_enemy_turn(v: _View) -> dict:
     return {"mode": "enemy_turn", "title": f"THEIR {'BAN' if st.step.kind == 'ban' else 'PICK'}", "cards": cards}
 
 
+PANEL_ERROR = "unavailable (see server log)"
+
+
+def _panel(errors: list[str], name: str, fn: Callable[[], Any], default: Any = None) -> Any:
+    """One part of the Live screen. A failure hides that part (named in `errors`) instead of the whole
+    screen; strict mode (tests) still raises."""
+    try:
+        return fn()
+    except Exception:
+        if strict_mode():
+            raise
+        log.exception("live view: %s failed", name)
+        errors.append(name)
+        return default
+
+
+def _center(v: _View, live: LiveDraft, finished: bool, n_cards: int) -> dict:
+    st, step = v.st, v.st.step
+    if finished:
+        return _center_locked(v)
+    if st.format.simultaneous_bans and any(b.status in ("pending", "hovering") for b in live.ally_bans):
+        return _ban_group(v.engine, v.catalog, live, v.hovered, v.ban_bonus)
+    if live.ally_action == "ban" or (st.is_our_turn and step.kind == "ban"):
+        return _center_our_ban(v, n_cards)
+    if st.is_our_turn:
+        return _center_our_pick(v, n_cards)
+    return _center_enemy_turn(v)
+
+
 def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDraft,
                     data_source: str, note: str | None, pin: dict | None = None, draft_scale: float | None = None,
-                    scouting=None, scout_info: dict | None = None) -> dict:
+                    scouting=None, scout_info: dict | None = None, board_only: bool = False,
+                    strategy_builds=None) -> dict:
+    """The Live payload. The board (slots, bans, phase) must build; each panel on top of it (centre, comps,
+    plan bar, hover scores) fails on its own and is listed in `panel_errors`. `board_only` skips the
+    suggestions (centre None, `pending` True): sent first when a full build is slow."""
     if scouting is not None:  # their players' own pools, for bans and their likely picks
         live = replace(live, state=replace(live.state, scouting=scouting))
     st = live.state
     ev = engine.evaluate(st)
+    errors: list[str] = []
     effects = None
-    if pin:
+    if pin and not board_only:
         from draftassist.engine.plan import pin_effects
 
-        effects = pin_effects(pin, st, live.enemy_hovers, frozenset(ev.our_roles.values()))
+        effects = _panel(errors, "plan", lambda: pin_effects(pin, st, live.enemy_hovers, frozenset(ev.our_roles.values())))
     v = _View(engine, catalog, live, ev, effects.ban_bonus if effects else None,
               effects.pick_bonus if effects else None, draft_scale, scout_info)
     step = st.step
@@ -454,38 +565,55 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
     theirs = [(c, ev.their_roles.get(c)) for c in st.their_picks]
     n_cards = card_count(step.kind if step else None, step.phase if step else None, len(ours))
 
-    center: dict[str, Any]
-    if finished:
-        center = _center_locked(v)
-    elif st.format.simultaneous_bans and any(b.status in ("pending", "hovering") for b in live.ally_bans):
-        center = _ban_group(engine, catalog, live, v.hovered, v.ban_bonus)
-    elif live.ally_action == "ban" or (st.is_our_turn and step.kind == "ban"):
-        center = _center_our_ban(v, n_cards)
-    elif st.is_our_turn:
-        center = _center_our_pick(v, n_cards)
-    else:
-        center = _center_enemy_turn(v)
+    center = None if board_only else _panel(errors, "suggestions", lambda: _center(v, live, finished, n_cards))
+    # hover scores are suggestions too: the board-only pass leaves them out
+    our_slots = None if board_only else _panel(errors, "hover scores", lambda: _our_slots(v, finished))
+    if our_slots is None:
+        our_slots = _our_slots(v, True)  # finished=True: the slots without hover scores
 
     card = catalog.card
+    comp = None if board_only else _panel(errors, "comp panels", lambda: {
+        "ours": {**team_comp(v.profiles, ours).as_dict(), "target": _target(engine, ours)},
+        "theirs": team_comp(v.profiles, theirs).as_dict()})
+    strategy = None
+    if not board_only and st.our_picks:
+        from draftassist.engine.strategy import strategy_view
+
+        strategy = _panel(errors, "strategy", lambda: strategy_view(
+            engine, st, ev.our_roles, ev.their_roles, strategy_builds, catalog.card,
+            (scout_info or {}).get("players")))
+    plan = None
+    if effects:
+        plan = _panel(errors, "plan bar", lambda: _plan_bar(engine, catalog, pin, effects.banner, st, ev.our_roles))
     return {
         "status": "champ_select", "data_source": data_source, "note": note,
         "format": st.format.name, "side": st.our_side, "phase": _phase_label(live, finished),
         "turn": None if finished else ("us" if st.is_our_turn else "them"),
         "action": None if finished else step.kind, "seconds_left": live.seconds_left, "game_id": live.game_id,
-        "our_slots": _our_slots(v, finished), "their_slots": _their_slots(v),
+        "step_index": len(st.actions),
+        "our_slots": our_slots, "their_slots": _panel(errors, "enemy slots", lambda: _their_slots(v)) or [
+            {"champ": card(s.champ_id), "role": None, "role_label": "", "badge": None, "scout": None}
+            for s in live.their_slots],
         "our_bans": [card(c) for c in st.bans(st.our_side)],
         "their_bans": [card(c) for c in st.bans(st.their_side)],
-        "comp": {"ours": {**team_comp(v.profiles, ours).as_dict(), "target": _target(engine, ours)},
-                 "theirs": team_comp(v.profiles, theirs).as_dict()},
+        "comp": comp,
         "center": center,
-        "plan": _plan_bar(engine, catalog, pin, effects.banner, st, ev.our_roles) if effects else None,
+        "pending": board_only,
+        "plan": plan,
+        "strategy": strategy,
         "scouting": scout_info,
+        "panel_errors": errors,
     }
+
+
+SLOW_BUILD_MS = 250.0  # a build slower than this is logged
+BOARD_FIRST_MS = 150.0  # after a build slower than this, the next event sends the board first, then the rest
+_NOTHING = object()  # the submit queue is empty
 
 
 class LiveService:
     """Turns client events into Live screen payloads and draft logs. Safe to call from the
-    connector thread."""
+    connector thread; `submit` is the non-blocking way in (newest session wins)."""
 
     def __init__(self, engine: DraftEngine, catalog: ChampionCatalog, hub: LiveHub, data_source: str,
                  note: str | None, draft_format: str = "auto", recorder: SessionRecorder | None = None,
@@ -505,16 +633,72 @@ class LiveService:
         # (EnemyScouting | None, what Live shows of it) for a parsed champ select (docs/enemy-scouting.md)
         self.scout_provider: Callable[[LiveDraft], tuple[object, dict | None]] | None = None
         self.on_game_end: Callable[[], None] | None = None
+        # (champ, role, opponent) -> engine.strategy.BuildView | None, for the Strategy view (docs/strategy.md)
+        self.strategy_builds: Callable[[int, str, int | None], object] | None = None
+        # One build at a time, in the order events arrive; `submit` keeps only the newest waiting session
+        self._lock = threading.RLock()
+        self._cv = threading.Condition()
+        self._next: object = _NOTHING
+        self._busy = False
+        self._worker: threading.Thread | None = None
+        self.last_build_ms: float | None = None
+        self.dropped = 0  # sessions a newer one replaced before they were built
+        self._last_good: dict | None = None  # {"game_id", "step_index", "phase", "center"}: the stale fallback
+
+    # ---------- the connector's way in: coalesced, off the connector thread ----------
+    def submit(self, session: dict | None) -> None:
+        """Queue a session for the worker and return at once. A session still waiting when a newer one
+        arrives is dropped: hovers fire several events a second and only the newest screen matters."""
+        with self._cv:
+            if self._next is not _NOTHING:
+                self.dropped += 1
+            self._next = session
+            if self._worker is None or not self._worker.is_alive():
+                self._worker = threading.Thread(target=self._work, name="live-builder", daemon=True)
+                self._worker.start()
+            self._cv.notify()
+
+    def _work(self) -> None:
+        while True:
+            with self._cv:
+                while self._next is _NOTHING:
+                    self._cv.wait()
+                session, self._next = self._next, _NOTHING
+                self._busy = True
+            try:
+                self.handle_session(session)
+            except Exception:
+                log.exception("live update failed")
+            finally:
+                with self._cv:
+                    self._busy = False
+                    self._cv.notify_all()
+
+    def drain(self, timeout: float = 10.0) -> bool:
+        """Wait until every submitted session is built (tests, shutdown). False on timeout."""
+        end = time.monotonic() + timeout
+        with self._cv:
+            while self._next is not _NOTHING or self._busy:
+                left = end - time.monotonic()
+                if left <= 0:
+                    return False
+                self._cv.wait(left)
+        return True
+
+    def _clear_queue(self) -> None:
+        with self._cv:
+            self._next = _NOTHING
 
     def refresh(self) -> None:
         """Re-publish the current screen (after a pin or unpin) without waiting for the next client event.
         Doesn't log: the draft record keeps the plan pinned when the champ select started."""
-        latest = self.hub.latest
-        if latest.get("status") == "champ_select":
-            if self._session is not None:
-                self.hub.publish_threadsafe(self._build(self._session)[0])
-        else:
-            self.hub.publish_threadsafe(self._waiting())
+        with self._lock:
+            latest = self.hub.latest
+            if latest.get("status") == "champ_select":
+                if self._session is not None:
+                    self.hub.publish_threadsafe(self._build(self._session)[0])
+            else:
+                self.hub.publish_threadsafe(self._waiting())
 
     def _waiting(self) -> dict:
         pin = self.pin_provider() if self.pin_provider else None
@@ -522,18 +706,25 @@ class LiveService:
                 "gameflow_phase": self.gameflow_phase, "data_source": self.data_source, "note": self.note,
                 "plan": _plan_bar(self.engine, self.catalog, pin) if pin else None}
 
-    def _build(self, session: dict | None) -> tuple[dict, LiveDraft | None]:
+    def _parse(self, session: dict) -> tuple[LiveDraft, dict | None, object, dict | None]:
+        roles = self.players.roles_by_puuid() if self.players else None
+        live = parse_session(session, self.draft_format, roles)
+        pin = self.pin_provider() if self.pin_provider else None
+        scouting, scout_info = self.scout_provider(live) if self.scout_provider else (None, None)
+        return live, pin, scouting, scout_info
+
+    def _build(self, session: dict | None, board_only: bool = False) -> tuple[dict, LiveDraft | None]:
         if session is None:
             self.current = None
+            self._last_good = None
             return self._waiting(), None
+        started = time.perf_counter()
         try:
-            roles = self.players.roles_by_puuid() if self.players else None
-            live = parse_session(session, self.draft_format, roles)
+            live, pin, scouting, scout_info = self._parse(session)
             self.current = live
-            pin = self.pin_provider() if self.pin_provider else None
-            scouting, scout_info = self.scout_provider(live) if self.scout_provider else (None, None)
-            return build_live_view(self.engine, self.catalog, live, self.data_source, self.note, pin, self.draft_scale,
-                                   scouting, scout_info), live
+            payload = build_live_view(self.engine, self.catalog, live, self.data_source, self.note, pin,
+                                      self.draft_scale, scouting, scout_info, board_only=board_only,
+                                      strategy_builds=self.strategy_builds)
         except SessionParseError as e:
             log.error("could not parse champ select session: %s", e)
             return {"status": "error", "message": str(e)}, None
@@ -541,30 +732,72 @@ class LiveService:
             if strict_mode():
                 raise
             log.exception("live view failed")
-            return {"status": "error", "message": "Suggestion error (see server log)"}, None
+            return self._failed(), None
+        ms = (time.perf_counter() - started) * 1000
+        payload["build_ms"] = round(ms, 1)
+        if not board_only:
+            self.last_build_ms = ms
+            if ms > SLOW_BUILD_MS:
+                log.warning("live view took %.0f ms (phase %s)", ms, payload.get("phase"))
+        self._fill_center(payload, board_only)
+        return payload, live
+
+    def _fill_center(self, payload: dict, board_only: bool) -> None:
+        """Remember a good centre; when this one is missing (board-only pass, or its panel failed), show the
+        last good one of the same draft, marked stale."""
+        if payload.get("center") is not None:
+            self._last_good = {"game_id": payload.get("game_id"), "step_index": payload.get("step_index"),
+                               "phase": payload.get("phase"), "center": payload["center"]}
+            payload["center_stale"] = None
+            return
+        last = self._last_good
+        same_draft = (last is not None and last["game_id"] == payload.get("game_id")
+                      and (last["step_index"] or 0) <= (payload.get("step_index") or 0))
+        if same_draft:
+            payload["center"] = last["center"]
+            payload["center_stale"] = {"phase": last["phase"], "updating": board_only,
+                                       "same_step": last["step_index"] == payload.get("step_index")}
+        else:
+            payload["center"] = {"mode": "updating" if board_only else "unavailable", "title": payload.get("phase", "")}
+            payload["center_stale"] = None
+
+    def _failed(self) -> dict:
+        """The whole build failed: keep the last screen up (if it was this champ select), flagged."""
+        latest = self.hub.latest
+        if latest.get("status") == "champ_select":
+            return {**latest, "panel_errors": sorted({*latest.get("panel_errors", []), "update"}),
+                    "center_stale": {"phase": latest.get("phase"), "updating": False, "same_step": False}}
+        return {"status": "error", "message": "Suggestion error (see server log)"}
 
     def view(self, session: dict | None) -> dict:
-        return self._build(session)[0]
+        with self._lock:
+            return self._build(session)[0]
 
     def handle_session(self, session: dict | None) -> dict:
-        if self.recorder is not None:
-            if session is None:
-                self.recorder.end()
-            else:
-                self.recorder.record("session", session)
-        latest = self.hub.latest
-        if session is None and latest.get("status") == "champ_select" and latest.get("phase") == "Locked in":
-            return latest  # game is loading: keep win % and threats up until the client goes idle
-        self._session = session
-        payload, live = self._build(session)
-        self.hub.publish_threadsafe(payload)
-        if live is not None:
-            if self.players is not None and self._resolved_for != (live.game_id or -1):
-                self._resolved_for = live.game_id or -1
-                self.players.resolve_from_session(session.get("myTeam") or [])
-            if self.logger is not None:
-                self.logger.observe(live, payload)
-        return payload
+        with self._lock:
+            if self.recorder is not None:
+                if session is None:
+                    self.recorder.end()
+                else:
+                    self.recorder.record("session", session)
+            latest = self.hub.latest
+            if session is None and latest.get("status") == "champ_select" and latest.get("phase") == "Locked in":
+                return latest  # game is loading: keep win % and threats up until the client goes idle
+            self._session = session
+            if session is not None and (self.last_build_ms or 0) > BOARD_FIRST_MS:
+                board, _ = self._build(session, board_only=True)  # picks and bans at once; suggestions follow
+                if board.get("status") == "champ_select":
+                    self.hub.publish_threadsafe(board)
+            payload, live = self._build(session)
+            self.hub.publish_threadsafe(payload)
+            if live is not None:
+                if self.players is not None and self._resolved_for != (live.game_id or -1):
+                    self._resolved_for = live.game_id or -1
+                    self.players.resolve_from_session(session.get("myTeam") or [])
+                if self.logger is not None:
+                    # a stale centre was shown for an earlier step: it isn't what this step suggested
+                    self.logger.observe(live, {**payload, "center": None} if payload.get("center_stale") else payload)
+            return payload
 
     def handle_phase(self, phase: str, gameflow_session: dict | None) -> None:
         if phase == "EndOfGame" and self.gameflow_phase != "EndOfGame" and self.on_game_end is not None:
@@ -578,7 +811,11 @@ class LiveService:
             self.logger.set_queue(self.queue_id)
             self.logger.on_phase(phase)
         if phase in IDLE_PHASES:
-            self.hub.publish_threadsafe(self._waiting())
+            self._clear_queue()  # champ select is over: a session still waiting is out of date
+            with self._lock:
+                self._session = None
+                self._last_good = None
+                self.hub.publish_threadsafe(self._waiting())
 
     def handle_end_of_game(self, eog: dict | None) -> int | None:
         if self.recorder is not None and eog:
@@ -592,5 +829,6 @@ class LiveService:
 
     def handle_status(self, status: str) -> None:
         self.client_status = status
-        if self.hub.latest.get("status") != "champ_select":
-            self.hub.publish_threadsafe(self._waiting())
+        with self._lock:
+            if self.hub.latest.get("status") != "champ_select":
+                self.hub.publish_threadsafe(self._waiting())

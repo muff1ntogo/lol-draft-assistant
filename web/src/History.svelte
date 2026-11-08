@@ -7,6 +7,8 @@
   // Favourability colours: teal = we're favoured, amber = they are, grey = within ±1pp. Validated
   // (colour-blind safe, distinct from the side blue/red) on the panel surface; the signed number is
   // always shown as well.
+  // the charts (ECharts) load on their own, after the list: the rest of the app doesn't wait for them
+  const chartsModule = import('./HistoryCharts.svelte');
   let games = $state(null);
   let filters = $state({ queue: [], patch: [], side: [], result: [] });
   let chosen = $state({ queue: '', side: '', result: '', patch: '' });
@@ -75,6 +77,7 @@
 </script>
 
 <main class="history">
+  <div class="band">{#await chartsModule then m}<m.default filters={{ ...chosen }} />{/await}</div>
   <aside class="list">
     {#if check}
       <div class="check" title="Brier score: mean squared error of our win predictions. A 50% coin flip scores 0.25; lower is better.">
@@ -83,12 +86,7 @@
           <div class="brier"><strong>{check.brier.toFixed(3)}</strong> Brier <span class="muted">vs 0.250 coin flip</span></div>
         {/if}
         <div class="muted small">{check.verdict}</div>
-        {#if check.calibration}
-          <table class="calib">
-            <thead><tr><th>Predicted</th><th>Games</th><th>Won</th></tr></thead>
-            <tbody>{#each check.calibration as b}<tr><td>{b.bin}</td><td>{b.games}</td><td>{Math.round(b.actual * 100)}%</td></tr>{/each}</tbody>
-          </table>
-        {/if}
+        {#if check.calibration}<div class="muted small">Calibration: see the Overview chart.</div>{/if}
       </div>
     {/if}
     <div class="import">
@@ -121,10 +119,11 @@
           <span class="meta">
             <span>{g.imported ? 'imported' : `${pct(g.pred_win_prob)} predicted`}</span>
             <span class="muted">{g.queue} · <span class="side {g.side}">{g.side}</span> · {patchLabel(g.patch) ?? '—'} · {day(g.played_at)}</span>
-            {#if g.plan || g.verdict}
+            {#if g.plan || g.verdict || g.scouting}
               <span class="tags">
                 {#if g.plan}<span class="plan {g.plan.followed}" title="Plan picks made: {g.plan.picked} of {g.plan.total}">plan {g.plan.followed === 'yes' ? 'followed' : g.plan.followed === 'partly' ? 'partly followed' : 'not followed'}</span>{/if}
                 {#if g.verdict}<span class="vchip">{g.verdict}</span>{/if}
+                {#if g.scouting}<span class="vchip" title="Scouting: {g.scouting.found} of {g.scouting.players} players found{g.scouting.all_done_s != null ? `, all read in ${Math.round(g.scouting.all_done_s)} s` : ''}">scouted {g.scouting.done}/{g.scouting.players}</span>{/if}
               </span>
             {/if}
           </span>
@@ -326,6 +325,7 @@
   .side.red { color: #e5737d; }
   /* recap */
   .recap { min-width: 0; }
+  .band { grid-column: 1 / -1; min-width: 0; }
   .head { border-left: 6px solid #4a5361; background: var(--panel); border-radius: 8px; padding: 14px 20px;
           display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 20px; }
   .head.win { border-left-color: #1baf7a; }

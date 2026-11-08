@@ -227,6 +227,15 @@ class RiotClient:
         path = f"/lol/champion-mastery/v4/champion-masteries/by-puuid/{puuid}/top"
         return self.get(PLATFORM, path, {"count": count}, ttl=DAY) or []
 
+    def mastery_all(self, puuid: str) -> list[dict]:
+        """Every champion's mastery (points, last played), one request (champion-mastery-v4), refreshed daily."""
+        path = f"/lol/champion-mastery/v4/champion-masteries/by-puuid/{puuid}"
+        return self.get(PLATFORM, path, ttl=DAY) or []
+
+    def ranks(self, puuid: str) -> list[dict]:
+        """A player's ranked entries (league-v4 by PUUID): queue, tier, division, LP, wins, losses. Refreshed hourly."""
+        return self.get(PLATFORM, f"/lol/league/v4/entries/by-puuid/{puuid}", ttl=3600) or []
+
     def account_puuid(self, riot_id: str) -> str | None:
         """'Name#TAG' -> PUUID (account-v1), None if no such account."""
         from urllib.parse import quote

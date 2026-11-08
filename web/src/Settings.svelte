@@ -180,6 +180,19 @@
   </section>
 
   <section>
+    <h2>Champion data</h2>
+    <p class="row links">
+      <a class="pagelink" href="#/tags">Champion tags →</a>
+      <a class="pagelink" href="#/rules">Synergy rules →</a>
+    </p>
+    <p class="muted">
+      Tags: each champion's fight identity, archetype, kit tags and timing per role, which feed badges, comp coherence,
+      matchup smoothing and the style rules. Rules: the style and team rules, their written priors and what the crawl
+      made of them.
+    </p>
+  </section>
+
+  <section>
     <h2>Ban suggestions</h2>
     <label class="slider">
       <span>Meta threat</span>
@@ -353,6 +366,10 @@
   button { background: var(--blue); color: white; border: 0; padding: 8px 18px; height: 36px; }
   .muted { color: var(--muted); font-size: 14px; line-height: 1.55; max-width: 76ch; margin: 8px 0 4px; }
   .msg { color: var(--good); }
+  .row.links { margin-top: 0; }
+  .pagelink { display: inline-block; padding: 7px 14px; border: 1px solid var(--line); border-radius: 6px;
+              background: var(--panel-2); color: var(--text); text-decoration: none; }
+  .pagelink:hover { border-color: var(--gold); }
   /* a title, then a small labelled number per role / factor, in an even grid */
   .row.roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); align-items: end; gap: 10px 16px; }
   .row.roles .rtitle { grid-column: 1 / -1; }

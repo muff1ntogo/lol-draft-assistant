@@ -127,6 +127,7 @@ def history_rows(db: Engine, catalog: ChampionCatalog, queue: str | None = None,
             "match_verified": d.match_verified, "result_source": d.result_source, "imported": d.imported,
             "plan": plan_adherence(d, acts[d.draft_id]),
             "verdict": verdicts.get(d.draft_id),
+            "scouting": json.loads(d.scout_json) if d.scout_json else None,
         })
     return rows
 

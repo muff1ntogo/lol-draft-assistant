@@ -56,6 +56,9 @@ class LcuConnector:
         asyncio.set_event_loop(loop)
         connector = Connector(loop=loop)
         self.on_status("waiting for League client")
+        from draftassist.lcu.identity import TagFiller
+
+        tags = TagFiller()  # Ranked 5s: enemy tags the session leaves out, from the client's own summoner data
 
         @connector.ready
         async def ready(connection):
@@ -64,13 +67,16 @@ class LcuConnector:
             phase = await lcu.get(GAMEFLOW_PHASE)
             self.on_phase(phase or "None", await lcu.get(GAMEFLOW_SESSION))
             if phase == "ChampSelect":
-                self.on_session(await lcu.get(SESSION))
+                self.on_session(await tags.fill(lcu, await lcu.get(SESSION)))
             elif phase == "EndOfGame" and self.on_end_of_game is not None:
                 self.on_end_of_game(await lcu.get(END_OF_GAME))
 
         @connector.ws.register(SESSION, event_types=("CREATE", "UPDATE", "DELETE"))
         async def champ_select(connection, event):
-            self.on_session(None if event.type.upper() == "DELETE" else event.data)
+            if event.type.upper() == "DELETE":
+                self.on_session(None)
+            else:
+                self.on_session(await tags.fill(ReadOnlyLcu(connection), event.data))
 
         @connector.ws.register(GAMEFLOW_PHASE, event_types=("UPDATE",))
         async def gameflow(connection, event):

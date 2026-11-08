@@ -131,7 +131,7 @@
 </script>
 
 <main class="page">
-  <h1>Pools</h1>
+  <h1>Roster <small class="h1sub">players, subs and champion pools</small></h1>
   {#if message}<p class="ok">{message}</p>{/if}
 
   <section>
@@ -271,6 +271,7 @@
 </main>
 
 <style>
+  .h1sub { font-size: 15px; font-weight: 400; color: var(--muted); margin-left: 8px; }
   .small { font-size: 12px; margin: 6px 0 0; }
   .subhead { margin: 20px 0 8px; }
   .swap { display: flex; gap: 8px; align-items: center; max-width: 560px; }

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -57,16 +58,47 @@ JOBS: dict[str, JobSpec] = {
                         needs_key=False),
 }
 HOURS = (0.5, 24.0)
+CRAWL_OPTIONS = ("crawl", "timelines")  # the jobs that take the crawl options below (Master+ always crawls all of its own)
+_PATCH = re.compile(r"^\d{1,2}\.\d{1,2}$")
 
 
-def job_argv(job: str, hours: float | None = None) -> list[str]:
+def crawl_options(options: dict | None) -> list[str]:
+    """The Crawl page's options as `data.crawl` arguments: patch, tiers, ids per queue, timelines off. Validated: the
+    page is a form, not a shell."""
+    from draftassist.data.crawler import LEAGUE_TIERS
+
+    o = options or {}
+    out: list[str] = []
+    if o.get("patch"):
+        if not _PATCH.match(str(o["patch"])):
+            raise ValueError("patch looks like 16.21")
+        out += ["--patch", str(o["patch"])]
+    if o.get("brackets"):
+        tiers = [str(t).lower() for t in o["brackets"]]
+        if not set(tiers) <= set(LEAGUE_TIERS):
+            raise ValueError(f"tiers are {', '.join(LEAGUE_TIERS)}")
+        out += ["--brackets", *tiers]
+    if o.get("ids_per_queue") is not None:
+        n = int(o["ids_per_queue"])
+        if not 1 <= n <= 100:
+            raise ValueError("ids per queue must be 1 to 100")
+        out += ["--ids-per-queue", str(n)]
+    if o.get("no_timelines"):
+        out.append("--no-timelines")
+    return out
+
+
+def job_argv(job: str, hours: float | None = None, options: dict | None = None) -> list[str]:
     spec = JOBS[job]
+    argv = list(spec.argv)
     if "{hours}" in spec.argv:
         h = 8.0 if hours is None else float(hours)
         if not HOURS[0] <= h <= HOURS[1]:
             raise ValueError(f"hours must be between {HOURS[0]:g} and {HOURS[1]:g}")
-        return [a.replace("{hours}", f"{h:g}") for a in spec.argv]
-    return list(spec.argv)
+        argv = [a.replace("{hours}", f"{h:g}") for a in spec.argv]
+    if options and job in CRAWL_OPTIONS:
+        argv += crawl_options(options)
+    return argv
 
 
 def command(argv: list[str], frozen: bool | None = None) -> list[str]:
@@ -143,19 +175,36 @@ class JobRunner:
             self._finish(info, None)  # it ended while the app was closed
             return None
 
-    def start(self, job: str, hours: float | None = None) -> dict:
+    @property
+    def progress_file(self) -> Path:
+        return self.folder / "progress.json"
+
+    @property
+    def yield_file(self) -> Path:
+        """Refreshed by the app while a Ranked 5s champ select scouts: a running crawl pauses (data/progress.py)."""
+        return self.folder / "yield.json"
+
+    def make_way(self) -> None:
+        if self.running() is not None:
+            from draftassist.data.progress import request_yield
+
+            request_yield(self.yield_file, self._clock)
+
+    def start(self, job: str, hours: float | None = None, options: dict | None = None) -> dict:
         if job not in JOBS:
             raise ValueError(f"unknown job {job!r}")
         if JOBS[job].needs_key and not self._has_key():
             raise ValueError("this job needs your Riot API key (Settings)")
-        argv = job_argv(job, hours)
+        argv = job_argv(job, hours, options)
         with self._lock:
             if (current := self.running()) is not None:
                 raise RuntimeError(f"{JOBS[current['job']].label} is running: stop it first (one job at a time)")
             self.folder.mkdir(parents=True, exist_ok=True)
             started = self._clock()
             logfile = self.folder / f"{job}-{time.strftime('%Y%m%d-%H%M%S', time.localtime(started))}.log"
-            env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"}
+            self.progress_file.unlink(missing_ok=True)
+            env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8",
+                   "DRAFTASSIST_PROGRESS": str(self.progress_file), "DRAFTASSIST_YIELD": str(self.yield_file)}
             flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0  # no console window
             with open(logfile, "ab") as out:
                 proc = self._popen(command(argv, self._frozen), stdout=out, stderr=subprocess.STDOUT,
@@ -203,7 +252,10 @@ class JobRunner:
         current = self.running()
         last = self.history[0] if self.history else None
         shown = current or last
+        from draftassist.data.progress import read_progress
+
         return {"running": current, "last": last, "history": self.history,
                 "log": tail(Path(shown["log"])) if shown else [],
+                "progress": read_progress(self.progress_file) if shown else None,
                 "jobs": [{"id": k, "label": s.label, "about": s.about, "hours": "{hours}" in s.argv,
                           "needs_key": s.needs_key} for k, s in JOBS.items()]}

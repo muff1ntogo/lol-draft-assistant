@@ -164,3 +164,81 @@ def test_no_update_while_a_job_runs(make_services, tmp_path):
         assert res.status_code == 409 and "Crawl page" in res.json()["detail"]
         svc.job_runner_override.stop()
     assert launched == []
+
+
+# ---------- crawl options and live progress (docs/crawl-page.md) ----------
+def test_crawl_options_become_arguments():
+    argv = job_argv("crawl", 2, {"patch": "16.20", "brackets": ["Gold", "iron"], "ids_per_queue": 50,
+                                 "no_timelines": True})
+    assert argv == ["crawl", "--hours", "2", "--patch", "16.20", "--brackets", "gold", "iron", "--ids-per-queue", "50",
+                    "--no-timelines"]
+    assert job_argv("master", 2, {"patch": "16.20"}) == job_argv("master", 2)  # Master+ takes no options
+    assert job_argv("crawl", 2, {"patch": None, "brackets": None}) == ["crawl", "--hours", "2"]
+    for bad in ({"patch": "16.20; rm -rf"}, {"brackets": ["challenger"]}, {"ids_per_queue": 500}):
+        with pytest.raises(ValueError):
+            job_argv("crawl", 2, bad)
+
+
+def test_a_running_job_reports_its_progress(tmp_path):
+    script = ("import json, os, time; p = os.environ['DRAFTASSIST_PROGRESS']; "
+              "open(p, 'w').write(json.dumps({'phase': 'crawling', 'stored': {'gold': 7}})); time.sleep(1.5)")
+    r, _ = runner(tmp_path, script=script)
+    r.start("crawl", 1, {"patch": "16.21"})
+    wait_until(lambda: (r.status()["progress"] or {}).get("stored") == {"gold": 7})
+    assert r._popen.calls[0][-2:] == ["--patch", "16.21"]
+    wait_until(lambda: r.running() is None)
+    assert r.status()["progress"]["phase"] == "crawling"  # the last run's numbers stay readable
+
+
+def test_progress_file_is_throttled_and_optional(tmp_path):
+    from draftassist.data.progress import Progress, read_progress
+
+    t = [100.0]
+    p = Progress(tmp_path / "progress.json", clock=lambda: t[0])
+    p.update(force=True, phase="crawling", stored={"gold": 1})
+    p.update(stored={"gold": 2})  # within 2 s: not written yet
+    assert read_progress(tmp_path / "progress.json")["stored"] == {"gold": 1}
+    t[0] += 3
+    p.update(stored={"gold": 3})
+    assert read_progress(tmp_path / "progress.json")["stored"] == {"gold": 3}
+    Progress(None).update(force=True, phase="x")  # no path (run by hand): nothing written, no error
+
+
+def test_the_summary_follows_a_patch_and_lists_patches(make_services, engine, tmp_path):
+    with Session(engine) as s:
+        for i, p in enumerate(["16.22", "16.21", "16.21"]):
+            s.add(CrawledMatch(match_id=f"EUW1_{i}", patch=p, bracket="gold", queue_id=420, game_start_ms=0))
+        s.commit()
+    svc = make_services(db=engine)
+    svc.job_runner_override, _ = runner(tmp_path)
+    with TestClient(create_app(svc, stats_refresh_s=0)) as client:
+        body = client.get("/api/jobs", params={"patch": "16.21"}).json()
+        assert body["crawl"]["patch"] == "16.21" and body["crawl"]["brackets"][0]["patch"] == 2
+        assert body["crawl"]["patches"][:2] == ["16.22", "16.21"] and body["database"] == "main"
+        assert body["master_exists"] is False
+        assert client.get("/api/jobs", params={"database": "master"}).json()["crawl"]["total"] == 3  # falls back to main
+
+
+def test_the_crawl_pauses_while_a_ranked_5s_champ_select_scouts(tmp_path):
+    from draftassist.data.progress import YIELD_FRESH_S, request_yield, wait_while_yielding, yield_requested
+
+    t = [1000.0]
+    clock = lambda: t[0]  # noqa: E731
+    f = tmp_path / "yield.json"
+    assert not yield_requested(f, clock) and wait_while_yielding(f, clock=clock) == 0
+    request_yield(f, clock)
+    assert yield_requested(f, clock)
+    paused = []
+
+    def sleep(s):
+        t[0] += s
+
+    waited = wait_while_yielding(f, sleep=sleep, clock=clock, on_pause=lambda: paused.append(1))
+    assert waited >= YIELD_FRESH_S - 2 and paused == [1]  # until the request went stale
+    r, _ = runner(tmp_path / "jobs", script="import time; time.sleep(1)")
+    r.make_way()  # nothing running: nothing written
+    assert not r.yield_file.exists()
+    r.start("crawl", 1)
+    r.make_way()
+    assert r.yield_file.exists()
+    wait_until(lambda: r.running() is None)

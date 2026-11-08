@@ -52,3 +52,11 @@ Keep the 3-card layout for single-action turns.
 - `uv run pytest` passes.
 - Replaying the Flex fixture shows 5 cards on the Live screen during the ban phase, updating as teammates lock bans.
 - A suggestion set for a group turn returns in under 300 ms.
+
+
+## Decision (8 Nov 2026): a mix, at most two per lane
+
+Test 2's open point is settled: greedy recomputation keeps concentrating where we're weakest, but at most
+`LANE_BAN_CAP` = 2 group bans go at one enemy lane (the ban's most likely role). Past that, a ban's value flips to a
+penalty (`LANE_CLUSTER_PENALTY`), so it's never chosen and the next ban moves to another lane. Test:
+`test_at_most_two_bans_per_enemy_lane`.

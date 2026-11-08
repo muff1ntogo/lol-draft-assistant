@@ -23,6 +23,7 @@ from sqlalchemy import Engine, true
 from sqlmodel import Session, col, func, select
 
 from draftassist.data.riot import RiotClient
+from draftassist.data.builds import parse_builds, store_build
 from draftassist.data.traits_map import parse_match_traits
 from draftassist.db.models import (
     Champion,
@@ -94,6 +95,7 @@ class ParsedMatch:
     damage: tuple[tuple[int | None, int | None, int | None], ...] = ()  # physical, magic, true; same order
     duration_s: int | None = None
     traits: tuple[dict, ...] = ()  # trait source values per participant (data/traits_map.py); same order
+    builds: tuple[dict, ...] = ()  # runes, items, spells per participant (data/builds.py); same order
 
 
 DAMAGE_FIELDS = ("physicalDamageDealtToChampions", "magicDamageDealtToChampions", "trueDamageDealtToChampions")
@@ -121,7 +123,8 @@ def parse_match(match: dict) -> ParsedMatch | None:
     bans = tuple((t["teamId"], b["pickTurn"], b["championId"]) for t in info["teams"] for b in t.get("bans", []))
     return ParsedMatch(match["metadata"]["matchId"], patch_of(info["gameVersion"]), info["queueId"],
                        info.get("gameStartTimestamp", 0), tuple(participants), bans, tuple(damage),
-                       info.get("gameDuration"), parse_match_traits(info["participants"]))
+                       info.get("gameDuration"), parse_match_traits(info["participants"]),
+                       parse_builds(info["participants"]))
 
 
 @dataclass
@@ -183,7 +186,8 @@ class Crawler:
             return list(s.exec(q).all())
 
     def run(self, max_matches: int | None = None, deadline: float | None = None,
-            ids_per_queue: int = 20, checkpoint=None, checkpoint_every_s: float = 900.0) -> CrawlStats:
+            ids_per_queue: int = 20, checkpoint=None, checkpoint_every_s: float = 900.0,
+            on_progress=None) -> CrawlStats:
         """Crawl until max_matches are stored, the deadline (epoch seconds) passes, or seeds run out.
         `checkpoint(stats)` is called every `checkpoint_every_s` seconds (e.g. to aggregate)."""
         stats = CrawlStats(stored=dict.fromkeys(self.brackets, 0))
@@ -206,6 +210,8 @@ class Crawler:
                 break
             bracket = min(open_brackets, key=lambda b: (have[b] + stats.stored[b], self.brackets.index(b)))
             self._crawl_player(queues[bracket].pop(0), bracket, start_time, ids_per_queue, stats, done, end_time)
+            if on_progress is not None:  # after every player: the Crawl page's live progress
+                on_progress(stats)
             if checkpoint is not None and self._clock() - last_checkpoint >= checkpoint_every_s:
                 checkpoint(stats)
                 last_checkpoint = self._clock()
@@ -290,4 +296,7 @@ class Crawler:
                                        dmg_phys=phys, dmg_magic=magic, dmg_true=true, **t))
             for team, turn, champ in m.bans:
                 s.add(MatchBan(match_id=m.match_id, team_id=team, pick_turn=turn, champ_id=champ))
+            s.flush()
+            for (champ, _, _, _), b in zip(m.participants, m.builds):
+                store_build(s.connection(), m.match_id, champ, b)
             s.commit()

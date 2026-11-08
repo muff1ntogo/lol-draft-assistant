@@ -152,3 +152,23 @@ def test_group_speed():
     chosen = engine.ban_group(DraftState(STANDARD_RANKED, "blue"), list(ROLES))
     assert time.perf_counter() - t0 < 0.300
     assert sum(1 for _, s in chosen if s) == 5
+
+
+# Decision 8 Nov 2026: at most two group bans at one enemy lane; a third turns into a penalty
+def test_at_most_two_bans_per_enemy_lane():
+    """Our top loses to A, B and D (all top); our mid loses less badly to C. Uncapped, the greedy set would take all
+    three top threats first; capped, the third ban goes to mid."""
+    from draftassist.engine.engine import LANE_BAN_CAP
+
+    A, B, D, T3, C, M3, P, M = 1, 2, 9, 3, 4, 5, 7, 8
+    meta = {A: {"top": RoleStat(0.5, 0.2)}, B: {"top": RoleStat(0.5, 0.19)}, D: {"top": RoleStat(0.5, 0.18)},
+            T3: {"top": RoleStat(0.5, 0.43)}, C: {"mid": RoleStat(0.5, 0.15)}, M3: {"mid": RoleStat(0.5, 0.85)},
+            P: {"top": RoleStat(0.5, 0.0)}, M: {"mid": RoleStat(0.5, 0.0)}}
+    matchups = {("top", P, A): 0.40, ("top", P, B): 0.40, ("top", P, D): 0.40, ("top", P, T3): 0.5,
+                ("mid", M, C): 0.45, ("mid", M, M3): 0.5}
+    data = EngineData({"gold": BracketStats(meta, matchups)}, {c: f"C{c}" for c in meta})
+    team = OurTeam.from_tiers({"top": {P: "main"}, "mid": {M: "main"}}, {r: "gold" for r in ROLES})
+    engine = DraftEngine(data, team)
+    chosen = [s for _, s in engine.ban_group(DraftState(STANDARD_RANKED, "blue"), ["top", "mid", "jungle"]) if s]
+    roles = [s.role for s in chosen]
+    assert roles.count("top") == LANE_BAN_CAP and C in {s.champ_id for s in chosen}

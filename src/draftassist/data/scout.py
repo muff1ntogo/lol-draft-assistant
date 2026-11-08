@@ -38,8 +38,12 @@ from draftassist.engine.scouting import (
 
 log = logging.getLogger(__name__)
 
-WINDOW_DAYS = 60
-MAX_GAMES = 20  # per player: about 2 minutes for a whole team at the key's 100 requests / 2 minutes
+WINDOW_DAYS = 365  # how far back "their last MAX_GAMES ranked games" may reach (docs/scouting-research.md)
+MAX_GAMES = 30  # per player: their last 30 ranked games (decision 8 Nov 2026). A premade's games overlap, so the team
+# usually costs far fewer than 5 x 30 match reads: each match is read once and filed under every scouted player in it
+FIRST_ROUND = 5  # games per player read before the rest, so all five have something by the bans
+PATCH_DECAY = 0.5  # a game one patch older counts half as much in their pool, two patches a quarter (floor below)
+PATCH_FLOOR = 0.125
 MASTERY_COUNT = 20
 REFRESH_S = 6 * 3600  # a player scouted this recently isn't fetched again
 ERROR_RETRY_S = 30  # a player whose fetch failed is asked for once more in the game, this long after (Stage E)
@@ -70,7 +74,8 @@ def parse_riot_ids(text: str) -> list[str]:
 # ---------- reading a player's pool ----------
 @dataclass(frozen=True)
 class PlayerPool:
-    """A scouted player: games and wins per role and champion, and mastery points."""
+    """A scouted player: games and wins per role and champion (their last MAX_GAMES ranked games), the same weighted by
+    patch, and mastery points."""
     riot_id: str
     status: str
     games: dict[str, dict[int, tuple[int, int]]] = field(default_factory=dict)  # role -> champ -> (games, wins)
@@ -78,6 +83,9 @@ class PlayerPool:
     games_wanted: int = 0
     mastery_last: dict[int, int] = field(default_factory=dict)  # champ -> when they last played it (epoch ms)
     fetched_at: float = 0.0
+    weighted: dict[str, dict[int, float]] = field(default_factory=dict)  # role -> champ -> games x patch weight
+    this_patch: dict[str, dict[int, int]] = field(default_factory=dict)  # role -> champ -> games on the current patch
+    ranks: tuple[dict, ...] = ()  # league-v4 entries
 
     @property
     def games_read(self) -> int:
@@ -88,8 +96,32 @@ def _find(s: Session, riot_id: str) -> ScoutPlayer | None:
     return s.exec(select(ScoutPlayer).where(func.lower(ScoutPlayer.riot_id) == riot_id.lower())).first()
 
 
-def load_pools(db: Engine, riot_ids: Iterable[str], now: float | None = None) -> dict[str, PlayerPool]:
-    """Riot ID (as asked) -> what's known, for those scouted at all. Games older than the window don't count."""
+def _patch_key(patch: str | None) -> tuple[int, int] | None:
+    try:
+        major, minor = (int(x) for x in str(patch).split(".")[:2])
+        return major, minor
+    except (TypeError, ValueError):
+        return None
+
+
+def patch_weight(patch: str | None, current: str | None) -> float:
+    """PATCH_DECAY per patch behind the current one (down to PATCH_FLOOR); unknown patches count as two behind."""
+    a, b = _patch_key(patch), _patch_key(current)
+    if b is None:
+        return 1.0
+    if a is None:
+        behind = 2
+    elif a[0] == b[0]:
+        behind = max(b[1] - a[1], 0)
+    else:
+        behind = 3 if a < b else 0
+    return max(PATCH_DECAY ** behind, PATCH_FLOOR)
+
+
+def load_pools(db: Engine, riot_ids: Iterable[str], now: float | None = None,
+               current_patch: str | None = None) -> dict[str, PlayerPool]:
+    """Riot ID (as asked) -> what's known, for those scouted at all: their last MAX_GAMES ranked games within
+    WINDOW_DAYS, counted, and weighted by how far behind `current_patch` each game's patch is."""
     since_ms = int(((now if now is not None else time.time()) - WINDOW_DAYS * 86_400) * 1000)
     out = {}
     with Session(db) as s:
@@ -98,16 +130,28 @@ def load_pools(db: Engine, riot_ids: Iterable[str], now: float | None = None) ->
             if p is None:
                 continue
             games: dict[str, dict[int, tuple[int, int]]] = {}
+            weighted: dict[str, dict[int, float]] = {}
+            this_patch: dict[str, dict[int, int]] = {}
             if p.api_puuid:
-                for g in s.exec(select(ScoutGame).where(ScoutGame.api_puuid == p.api_puuid,
-                                                        ScoutGame.game_start_ms >= since_ms)).all():
-                    if g.role:
-                        n, w = games.setdefault(g.role, {}).get(g.champ_id, (0, 0))
-                        games[g.role][g.champ_id] = (n + 1, w + int(g.win))
-            rows = json.loads(p.mastery_json or "[]")  # [champ, points] or, since Stage E, [champ, points, last ms]
-            mastery = tuple((int(r[0]), int(r[1])) for r in rows)
-            last = {int(r[0]): int(r[2]) for r in rows if len(r) > 2 and r[2]}
-            out[rid] = PlayerPool(p.riot_id, p.status, games, mastery, p.games_wanted, last, p.fetched_at)
+                rows = s.exec(select(ScoutGame).where(ScoutGame.api_puuid == p.api_puuid,
+                                                      ScoutGame.game_start_ms >= since_ms)
+                              .order_by(ScoutGame.game_start_ms.desc()).limit(MAX_GAMES)).all()
+                for g in rows:
+                    if not g.role:
+                        continue
+                    n, w = games.setdefault(g.role, {}).get(g.champ_id, (0, 0))
+                    games[g.role][g.champ_id] = (n + 1, w + int(g.win))
+                    wr = weighted.setdefault(g.role, {})
+                    wr[g.champ_id] = wr.get(g.champ_id, 0.0) + patch_weight(g.patch, current_patch)
+                    if current_patch and g.patch == current_patch:
+                        tp = this_patch.setdefault(g.role, {})
+                        tp[g.champ_id] = tp.get(g.champ_id, 0) + 1
+            rows_m = json.loads(p.mastery_json or "[]")  # [champ, points] or, since Stage E, [champ, points, last ms]
+            mastery = tuple((int(r[0]), int(r[1])) for r in rows_m)
+            last = {int(r[0]): int(r[2]) for r in rows_m if len(r) > 2 and r[2]}
+            ranks = tuple(json.loads(p.rank_json or "[]"))
+            out[rid] = PlayerPool(p.riot_id, p.status, games, mastery, p.games_wanted, last, p.fetched_at,
+                                  weighted, this_patch, ranks)
     return out
 
 
@@ -189,6 +233,13 @@ def _role_guess(pools: Mapping[str, PlayerPool], given: Mapping[str, str | None]
     return roles, sure
 
 
+def guess_roles(pools: Mapping[str, PlayerPool], given: Mapping[str, str | None],
+                role_shares: Mapping[int, Mapping[str, float]] | None = None,
+                now: float | None = None) -> tuple[dict[str, str], dict[str, float]]:
+    """(Riot ID -> role, Riot ID -> how sure we are of it): `assign_roles` with its certainty."""
+    return _role_guess(pools, given, role_shares, now)
+
+
 def assign_roles(pools: Mapping[str, PlayerPool], given: Mapping[str, str | None],
                  role_shares: Mapping[int, Mapping[str, float]] | None = None,
                  now: float | None = None) -> dict[str, str]:
@@ -213,28 +264,43 @@ def build_scouting(pools: Mapping[str, PlayerPool], given_roles: Mapping[str, st
             for c, (g, _) in champs.items():
                 any_role[c] = any_role.get(c, 0) + g
         games = tuple(sorted(((c, g, w) for c, (g, w) in pool.games.get(role, {}).items()), key=lambda t: (-t[1], t[0])))
+        weighted = tuple(sorted(pool.weighted.get(role, {}).items()))
         players.append(ScoutedPlayer(rid.split("#")[0], role, games, tuple(sorted(any_role.items())), pool.mastery,
-                                     mastery_age(pool, now), sure.get(rid, 1.0)))
+                                     mastery_age(pool, now), sure.get(rid, 1.0), weighted))
     return EnemyScouting(tuple(players), weight) if players else None
 
 
 TOP_SHOWN = 3
+ONE_TRICK_SHARE = 0.6  # one champion is this share of their games in the role...
+ONE_TRICK_GAMES = 8  # ...over at least this many games
 
 
 def scout_summary(riot_ids: Iterable[str], pools: Mapping[str, PlayerPool], roles: Mapping[str, str],
-                  card: Callable[[int], dict | None], now: float | None = None) -> list[dict]:
-    """Per player, what Live shows: their name, the role we take them to play, how far the fetch is, and their top
-    champions in that role (games and win rate), or by mastery until games are in (those played lately first; ones
-    untouched for months only if there's nothing else)."""
+                  card: Callable[[int], dict | None], now: float | None = None,
+                  sure: Mapping[str, float] | None = None) -> list[dict]:
+    """Per player, what Live shows: their name, the role we take them to play (and how sure, from `sure`), how far
+    the fetch is, and their top champions in that role (games and win rate), or by mastery until games are in (those
+    played lately first; ones untouched for months only if there's nothing else). Labels: `one_trick` (one champion
+    is ONE_TRICK_SHARE of ONE_TRICK_GAMES+ games in the role) and `mastery_only` (fetched, but no recent games)."""
     out = []
     for rid in riot_ids:
         pool, role = pools.get(rid), roles.get(rid)
         top: list[dict] = []
+        games_in_role, one_trick = 0, None
         if pool is not None:
             played = pool.games.get(role, {}) if role else {}
+            games_in_role = sum(g for g, _ in played.values())
+            if played and games_in_role >= ONE_TRICK_GAMES:
+                c, (g, _) = max(played.items(), key=lambda kv: (kv[1][0], -kv[0]))
+                if g / games_in_role >= ONE_TRICK_SHARE:
+                    one_trick = card(c)
             if played:
-                for c, (g, w) in sorted(played.items(), key=lambda kv: (-kv[1][0], kv[0]))[:TOP_SHOWN]:
-                    top.append({"champ": card(c), "games": g, "wins": w})
+                weighted = pool.weighted.get(role, {})
+                this = pool.this_patch.get(role, {})
+                # ordered by this patch's weight first, so a champion they moved to lately leads
+                for c, (g, w) in sorted(played.items(), key=lambda kv: (-weighted.get(kv[0], kv[1][0]), -kv[1][0],
+                                                                        kv[0]))[:TOP_SHOWN]:
+                    top.append({"champ": card(c), "games": g, "wins": w, "this_patch": this.get(c, 0)})
             else:
                 ages = dict(mastery_age(pool, now))
                 ranked = sorted(pool.mastery, key=lambda cp: -math.sqrt(max(cp[1], 0)) * recency(ages.get(cp[0])))
@@ -242,8 +308,27 @@ def scout_summary(riot_ids: Iterable[str], pools: Mapping[str, PlayerPool], role
                 top = [{"champ": card(c), "points": p} for c, p in fresh[:TOP_SHOWN]]
         out.append({"riot_id": rid, "name": rid.split("#")[0], "role": role, "status": pool.status if pool else "new",
                     "games_read": pool.games_read if pool else 0, "games_wanted": pool.games_wanted if pool else 0,
-                    "top": top})
+                    "top": top, "games_in_role": games_in_role, "one_trick": one_trick,
+                    "mastery_only": bool(pool is not None and pool.status == "done" and not pool.games),
+                    "role_sure": None if role is None or sure is None else round(sure.get(rid, 1.0), 3),
+                    "rank": rank_label(pool.ranks) if pool else None,
+                    "games_this_patch": sum(sum(c.values()) for c in pool.this_patch.values()) if pool else 0})
     return out
+
+
+RANK_QUEUES = ("RANKED_FLEX_SR", "RANKED_SOLO_5x5")  # shown in this order: Ranked 5s plays out of Flex's ladder or its own
+
+
+def rank_label(entries: Iterable[dict]) -> str | None:
+    """"Gold II" from league-v4 entries: Flex first, else Solo/Duo, else whatever queue there is."""
+    entries = list(entries)
+    if not entries:
+        return None
+    order = {q: i for i, q in enumerate(RANK_QUEUES)}
+    e = min(entries, key=lambda e: order.get(e.get("queueType"), 9))
+    tier = str(e.get("tier", "")).title()
+    division = "" if tier in ("Master", "Grandmaster", "Challenger") else f" {e.get('rank', '')}"
+    return f"{tier}{division}".strip() or None
 
 
 # ---------- fetching ----------
@@ -256,20 +341,36 @@ def _save(db: Engine, riot_id: str, **values) -> None:
         s.commit()
 
 
+def _call(fn, *args):
+    """A Riot call for scouting: RiotClient already retries network errors, 5xx and 429s; this adds one more try after a
+    short pause for anything else transient, so one hiccup doesn't cost a player's pool."""
+    try:
+        return fn(*args)
+    except RiotAuthError:
+        raise
+    except Exception:
+        time.sleep(1.0)
+        return fn(*args)
+
+
 def scout(db: Engine, riot, riot_ids: Iterable[str], now: float | None = None, force: bool = False,
           progress: Callable[[], None] | None = None) -> dict[str, str]:
-    """Fetch the players' mastery, then their recent ranked games, interleaved. Returns each Riot ID's final status.
-    A player scouted within REFRESH_S is skipped unless forced. A bad key stops everything (RiotAuthError); any other
-    trouble with one player marks that player "error" and goes on. `progress` is called once mastery is in and after
-    each round of matches, so Live can update as the pools fill."""
+    """Fetch the players' mastery (every champion) and rank, then their last MAX_GAMES ranked games. Returns each Riot
+    ID's final status. A player scouted within REFRESH_S is skipped unless forced. A bad key stops everything
+    (RiotAuthError); any other trouble with one player marks that player "error" and goes on.
+
+    Matches are read once for the whole team: a premade's games overlap, so each match read is filed under every
+    scouted player in it, and reading goes round by round (each player's next unread game), FIRST_ROUND rounds first
+    so all five have games by the bans. `progress` is called once mastery is in and after each round."""
     tell = progress or (lambda: None)
     now = now if now is not None else time.time()
     since = int(now - WINDOW_DAYS * 86_400)
     ids = list(dict.fromkeys(riot_ids))
     statuses: dict[str, str] = {}
-    match_ids: dict[str, tuple[str, list[str]]] = {}  # riot id -> (puuid, its match ids still to read)
+    queue: dict[str, list[str]] = {}  # riot id -> its match ids still to read, newest first
+    puuids: dict[str, str] = {}  # riot id -> API PUUID
 
-    for rid in ids:  # 1. who they are and what they've mastered: before the bans
+    for rid in ids:  # 1. who they are, what they've mastered, their rank: two or three quick requests each
         with Session(db) as s:
             known = _find(s, rid)
             fresh = known is not None and known.status in ("done", "missing") and now - known.fetched_at < REFRESH_S
@@ -277,15 +378,28 @@ def scout(db: Engine, riot, riot_ids: Iterable[str], now: float | None = None, f
             statuses[rid] = known.status
             continue
         try:
-            puuid = riot.account_puuid(rid)
+            puuid = _call(riot.account_puuid, rid)
             if not puuid:
                 _save(db, rid, api_puuid=None, status="missing", fetched_at=now)
                 statuses[rid] = "missing"
                 continue
-            mastery = [[m["championId"], m["championPoints"], m.get("lastPlayTime") or 0]
-                       for m in riot.mastery_top(puuid, MASTERY_COUNT)]
-            _save(db, rid, api_puuid=puuid, mastery_json=json.dumps(mastery), status="mastery", fetched_at=now)
-            statuses[rid] = "mastery"
+            fetch_all = getattr(riot, "mastery_all", None)
+            rows = _call(fetch_all, puuid) if fetch_all else _call(riot.mastery_top, puuid, MASTERY_COUNT)
+            rows = sorted(rows or [], key=lambda m: -m.get("championPoints", 0))
+            mastery = [[m["championId"], m["championPoints"], m.get("lastPlayTime") or 0] for m in rows]
+            ranks = None
+            if (fetch_ranks := getattr(riot, "ranks", None)) is not None:
+                try:
+                    ranks = [{"queueType": e.get("queueType"), "tier": e.get("tier"), "rank": e.get("rank"),
+                              "lp": e.get("leaguePoints"), "wins": e.get("wins"), "losses": e.get("losses")}
+                             for e in fetch_ranks(puuid) or []]
+                except RiotAuthError:
+                    raise
+                except Exception:
+                    log.warning("rank for %s unavailable", rid)
+            _save(db, rid, api_puuid=puuid, mastery_json=json.dumps(mastery), status="mastery", fetched_at=now,
+                  **({"rank_json": json.dumps(ranks)} if ranks is not None else {}))
+            statuses[rid], puuids[rid] = "mastery", puuid
         except RiotAuthError:
             raise
         except Exception:
@@ -294,15 +408,11 @@ def scout(db: Engine, riot, riot_ids: Iterable[str], now: float | None = None, f
             statuses[rid] = "error"
 
     tell()
-    for rid, status in list(statuses.items()):  # 2. which games to read
-        if status != "mastery":
-            continue
+    for rid in list(puuids):  # 2. which games: their last MAX_GAMES ranked games
         try:
-            with Session(db) as s:
-                puuid = _find(s, rid).api_puuid
-            found = riot.match_ids(puuid, None, since, count=MAX_GAMES)[:MAX_GAMES]
+            found = list(_call(riot.match_ids, puuids[rid], None, since, MAX_GAMES) or [])[:MAX_GAMES]
             _save(db, rid, status="games", games_wanted=len(found))
-            match_ids[rid] = (puuid, list(found))
+            queue[rid] = found
             statuses[rid] = "games"
         except RiotAuthError:
             raise
@@ -310,21 +420,31 @@ def scout(db: Engine, riot, riot_ids: Iterable[str], now: float | None = None, f
             log.exception("scouting %s's match ids failed", rid)
             _save(db, rid, status="error")
             statuses[rid] = "error"
+            puuids.pop(rid)
 
-    for i in range(MAX_GAMES):  # 3. one match per player in turn, so all five fill in evenly
-        read = False
-        for rid, (puuid, found) in match_ids.items():
+    scouted = set(puuids.values())
+    with Session(db) as s:  # already stored for someone in this team: nothing to read
+        have = {(g.api_puuid, g.match_id) for g in s.exec(select(ScoutGame).where(
+            ScoutGame.api_puuid.in_(scouted))).all()} if scouted else set()
+    read: set[str] = set()
+    for i in range(MAX_GAMES):  # 3. round by round, each match once for the whole team
+        changed = False
+        for rid, found in queue.items():
             if i >= len(found) or statuses[rid] == "error":
                 continue
+            match_id = found[i]
+            if match_id in read or (puuids[rid], match_id) in have:
+                continue
+            read.add(match_id)
             try:
-                read = _read_match(db, riot, puuid, found[i]) or read
+                changed = bool(_read_match(db, riot, scouted, match_id)) or changed
             except RiotAuthError:
                 raise
             except Exception:
-                log.exception("scouting %s's match %s failed", rid, found[i])
-        if read:
+                log.exception("scouting %s's match %s failed", rid, match_id)
+        if changed and (i + 1 >= FIRST_ROUND or i + 1 == min(FIRST_ROUND, max((len(f) for f in queue.values()), default=0))):
             tell()
-    for rid in match_ids:
+    for rid in queue:
         if statuses[rid] == "games":
             _save(db, rid, status="done", fetched_at=now)
             statuses[rid] = "done"
@@ -332,27 +452,35 @@ def scout(db: Engine, riot, riot_ids: Iterable[str], now: float | None = None, f
     return statuses
 
 
-def _read_match(db: Engine, riot, puuid: str, match_id: str) -> bool:
-    """Store one of their games; True if a new one was stored."""
-    with Session(db) as s:
-        if s.get(ScoutGame, (puuid, match_id)) is not None:
-            return False
-    match = riot.match(match_id)
+def _read_match(db: Engine, riot, puuids: set[str] | str, match_id: str) -> set[str]:
+    """Store one match for every scouted player in it; the PUUIDs it was stored for (empty: nothing new)."""
+    puuids = {puuids} if isinstance(puuids, str) else set(puuids)
+    match = _call(riot.match, match_id)
     if not match:
-        return False
+        return set()
     info = match["info"]
     if info.get("gameDuration", 0) < MIN_DURATION_S:
-        return False
-    me = next((x for x in info["participants"] if x.get("puuid") == puuid), None)
-    if me is None:
-        return False
+        return set()
+    from draftassist.data.crawler import patch_of
+
+    try:
+        patch = patch_of(info.get("gameVersion", ""))
+    except Exception:
+        patch = None
+    stored = set()
     with Session(db) as s:
-        s.add(ScoutGame(api_puuid=puuid, match_id=match_id, champ_id=me["championId"],
-                        role=POSITIONS.get(me.get("teamPosition") or "") or POSITIONS.get(me.get("individualPosition") or ""),
-                        win=bool(me["win"]),
-                        queue_id=info.get("queueId"), game_start_ms=info.get("gameStartTimestamp", 0)))
+        for me in info["participants"]:
+            puuid = me.get("puuid")
+            if puuid not in puuids or s.get(ScoutGame, (puuid, match_id)) is not None:
+                continue
+            s.add(ScoutGame(api_puuid=puuid, match_id=match_id, champ_id=me["championId"],
+                            role=POSITIONS.get(me.get("teamPosition") or "")
+                            or POSITIONS.get(me.get("individualPosition") or ""),
+                            win=bool(me["win"]), queue_id=info.get("queueId"),
+                            game_start_ms=info.get("gameStartTimestamp", 0), patch=patch))
+            stored.add(puuid)
         s.commit()
-    return True
+    return stored
 
 
 class ScoutRunner:

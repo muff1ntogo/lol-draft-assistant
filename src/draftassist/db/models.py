@@ -147,6 +147,7 @@ class Draft(SQLModel, table=True):
     plan_json: str | None = None  # JSON: the plan pinned for this game (docs/synergy-v2.md, Stage 6)
     timeline_version: int = 0  # data/timelines.TIMELINE_VERSION: own_game_participants filled, or the game has none
     imported: bool = False  # from match-v5 afterwards, not watched live: no suggestions, pick order approximate
+    scout_json: str | None = None  # JSON: how scouting went in this champ select (docs/scouting-research.md)
 
 
 class DraftAction(SQLModel, table=True):
@@ -237,6 +238,23 @@ class OwnGameParticipant(ParticipantTimeline, table=True):
     match_id: str = Field(index=True)
     team_id: int
     role: str | None = None  # from the match; None if Riot didn't give a position
+
+
+class MatchBuild(SQLModel, table=True):
+    """What a crawled player ran (docs/strategy.md): runes, summoner spells and the items held at the end. Filled by the
+    crawl, and from the Riot cache for matches stored before (data/builds.backfill_builds). No foreign key: the Master+
+    database has its own matches."""
+    __tablename__ = "match_builds"
+
+    match_id: str = Field(primary_key=True)
+    champ_id: int = Field(primary_key=True, index=True)
+    keystone: int | None = Field(default=None, index=True)
+    primary_style: int | None = None
+    sub_style: int | None = None
+    perks_json: str | None = None  # JSON: the six rune ids (four primary, two secondary) in order
+    shards_json: str | None = None  # JSON: [offense, flex, defense] stat shards
+    items_json: str | None = None  # JSON: item ids in slots 0-5 at the end (no trinket, no empties)
+    spells_json: str | None = None  # JSON: the two summoner spell ids, sorted
 
 
 class MatchTeamState(SQLModel, table=True):
@@ -372,6 +390,7 @@ class ScoutPlayer(SQLModel, table=True):
     status: str = "new"  # new | mastery (pool from mastery only) | games (history being read) | done | missing | error
     games_wanted: int = 0  # match ids found for the window
     fetched_at: float = 0.0  # epoch seconds, when the last fetch finished or started
+    rank_json: str | None = None  # JSON: league-v4 entries by PUUID, [{queue, tier, rank, lp, wins, losses}]
 
 
 class ScoutGame(SQLModel, table=True):
@@ -385,6 +404,7 @@ class ScoutGame(SQLModel, table=True):
     win: bool
     queue_id: int | None = None
     game_start_ms: int
+    patch: str | None = None  # major.minor, for weighting by patch (docs/scouting-research.md)
 
 
 class ChampionTraitRow(SQLModel, table=True):

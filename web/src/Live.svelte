@@ -4,21 +4,45 @@
   import ComponentLegend from './ComponentLegend.svelte';
   import CompPanel from './CompPanel.svelte';
   import ScoutBox from './ScoutBox.svelte';
+  import StrategyView from './StrategyView.svelte';
 
   let { view, secondsLeft } = $props();
   const center = $derived(view.center);
   const pct = (p) => (p < 0.005 ? '<1%' : `${Math.round(p * 100)}%`);
+  // Draft (suggestions) or Strategy (runes, builds, game plan; docs/strategy.md); remembered per browser
+  let tab = $state('draft');
+  try { tab = localStorage.getItem('live.tab') === 'strategy' ? 'strategy' : 'draft'; } catch {}
+  function show(t) {
+    tab = t;
+    try { localStorage.setItem('live.tab', t); } catch {}
+  }
+  // D / S switch views; ignored while typing (the Scout box)
+  function onKey(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName ?? '')) return;
+    if (e.key === 'd' || e.key === 'D') show('draft');
+    else if (e.key === 's' || e.key === 'S') show('strategy');
+  }
   const pp = (x) => `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(x).toFixed(1)}pp`;
 </script>
 
+<svelte:window onkeydown={onKey} />
 <header class="top {view.side}">
   <span class="side">{view.side.toUpperCase()} SIDE</span>
   <span class="phase">{view.phase}</span>
   <span class="turn">
     {#if view.turn === 'us'}OUR {view.action?.toUpperCase()}{:else if view.turn === 'them'}THEIR {view.action?.toUpperCase()}{/if}
   </span>
-  <span class="timer">{secondsLeft == null ? '' : Math.ceil(secondsLeft)}</span>
+  <span class="timer" class:soon={secondsLeft != null && secondsLeft < 10} class:urgent={secondsLeft != null && secondsLeft < 5}>{secondsLeft == null ? '' : Math.ceil(secondsLeft)}</span>
 </header>
+<div class="tabs" role="tablist">
+  <button role="tab" aria-selected={tab === 'draft'} class:on={tab === 'draft'} onclick={() => show('draft')} title="Draft (D)">Draft</button>
+  <button role="tab" aria-selected={tab === 'strategy'} class:on={tab === 'strategy'} onclick={() => show('strategy')} title="Strategy (S)">
+    Strategy{#if view.strategy?.players?.length} <span class="count">{view.strategy.players.length}</span>{/if}</button>
+</div>
+
+{#if tab === 'strategy'}
+<StrategyView strategy={view.strategy} />
+{:else}
 
 <main class="board">
   <section class="team ours">
@@ -45,8 +69,22 @@
     {#if view.comp}<CompPanel comp={view.comp.ours} title="Our comp" />{/if}
   </section>
 
-  <section class="center">
-    {#if center.mode === 'our_ban_group'}
+  <section class="center" class:stale={view.center_stale && !view.center_stale.updating}>
+    {#if view.center_stale}
+      <div class="stalestrip" class:updating={view.center_stale.updating}>
+        {#if view.center_stale.updating}Updating…{:else}Suggestions couldn't update: showing the last good ones{#if !view.center_stale.same_step} (from {view.center_stale.phase}){/if}{/if}
+      </div>
+    {/if}
+    {#if view.panel_errors?.filter((e) => e !== 'suggestions').length}
+      <div class="panelnote">Not shown: {view.panel_errors.filter((e) => e !== 'suggestions').join(', ')} (see the log)</div>
+    {/if}
+    {#if center.mode === 'updating'}
+      <h2>{center.title}</h2>
+      <p class="muted">Working out suggestions…</p>
+    {:else if center.mode === 'unavailable'}
+      <h2>{center.title}</h2>
+      <p class="muted">Suggestions are unavailable for this step (see cache/launcher.log). The board stays live.</p>
+    {:else if center.mode === 'our_ban_group'}
       <div class="grouphead"><h2>{center.title}</h2><ComponentLegend /></div>
       <div class="group">
         {#each center.cards as card}
@@ -95,8 +133,11 @@
               {#if card.plan}<span class="plantag">plan</span>{/if}
               {#if card.badge?.text}<span class="badge">{card.badge.text}</span>{/if}
               {#if card.archetype}<span class="badge">{card.archetype.replaceAll('_', ' ')}</span>{/if}</div>
+            {#if card.target}<div class="target">{card.target.role_label} {card.target.player}: {#if card.target.games}{card.target.games} games{#if card.target.share != null} ({Math.round(card.target.share * 100)}% of theirs){/if}, {Math.round((100 * card.target.wins) / card.target.games)}% won{:else}#{card.target.mastery_rank} by mastery{/if}</div>{/if}
             <div class="reason">{card.reason}{#if card.effect?.length}<span class="effect">{` → ${card.effect.join(', ')}`}</span>{/if}</div>
             {#if card.components}<ComponentBar components={card.components} />{/if}
+            {#if card.contested}<div class="contested" title="How likely their next pick takes it">contested: {pct(card.contested)} they pick it next</div>{/if}
+            {#if card.low_data}<div class="lowdata">{card.low_data}</div>{/if}
             {#each card.warnings as w}<div class="warn">{w}</div>{/each}
           </div>
         </article>
@@ -108,7 +149,7 @@
           <span class="rank">H</span>
           <Champ champ={center.hover_card.champ} size={64} />
           <div>
-            <div class="title">Hover: {center.hover_card.champ.name}</div>
+            <div class="title">Hover: {center.hover_card.champ.name}{#if center.hover_card.delta_pp != null} <small class="delta" class:neg={center.hover_card.delta_pp < 0}>{pp(center.hover_card.delta_pp)} vs {center.hover_card.vs_name}</small>{/if}</div>
             <div class="reason">{center.hover_card.reason}</div>
             {#each center.hover_card.warnings as w}<div class="warn">{w}</div>{/each}
           </div>
@@ -174,23 +215,36 @@
 
   <section class="team theirs">
     {#each view.their_slots as slot}
-      <div class="slot">
+      <div class="slot" class:open={!slot.champ}>
         {#if slot.champ}
           <Champ champ={slot.champ} size={56} />
-          <span class="name">{slot.champ.name}{#if slot.badge?.text}<small class="badge">{slot.badge.text}</small>{/if}</span>
+          <span class="name">{slot.champ.name}{#if slot.badge?.text}<small class="badge">{slot.badge.text}</small>{/if}
+            {#if slot.role_probs}<small class="roleprobs" title="Their roles are guessed from how often each champion is played in each role; suggestions assume the first">{slot.role_probs.map((r) => `${r.role_label} ${Math.round(r.p * 100)}%`).join(' / ')}</small>{/if}</span>
+        {:else if slot.likely?.length}
+          <span class="likely" title="Most likely picks for their {slot.open_role_label}: meta in the enemy bracket{slot.scout ? ', blended with the player\'s pool' : ''}">
+            {#each slot.likely as l}
+              <span class="lk"><Champ champ={l.champ} size={30} faded /><small>{Math.round(l.p * 100)}%</small></span>
+            {/each}
+          </span>
         {:else}
           <span class="empty"></span>
         {/if}
         <span class="role" class:scouted={slot.scout}>
-          {slot.role_label || (slot.scout?.role ?? '')}
+          {slot.role_label || slot.open_role_label || (slot.scout?.role ?? '')}
+          {#if slot.name_only}
+            <span class="player" title="The client gave this name without its tag: paste {slot.name_only}#TAG in Scout opponents to scout them">{slot.name_only} <small class="rk">no tag</small></span>
+          {/if}
           {#if slot.scout}
-            <span class="player" title={slot.scout.riot_id}>{slot.scout.name}</span>
+            <span class="player" title={slot.scout.riot_id}>{slot.scout.name}{#if slot.scout.rank} <small class="rk">{slot.scout.rank}</small>{/if}</span>
             <span class="pool">
               {#each slot.scout.top as t}
-                <span title={t.games ? `${t.champ?.name}: ${t.games} games, ${Math.round((100 * t.wins) / t.games)}%` : `${t.champ?.name}: mastery`}>
+                <span title={t.games ? `${t.champ?.name}: ${t.games} of their last 30 games, ${Math.round((100 * t.wins) / t.games)}% won${t.this_patch ? `, ${t.this_patch} this patch` : ''}` : `${t.champ?.name}: mastery`}>
                   <Champ champ={t.champ} size={22} /></span>
               {/each}
             </span>
+            {#if slot.scout.one_trick}<span class="label otp" title="{slot.scout.one_trick.name} is most of their {slot.scout.games_in_role} recent games in this role">one-trick</span>{/if}
+            {#if slot.scout.mastery_only}<span class="label" title="No recent ranked games: their pool is from mastery">mastery only</span>{/if}
+            {#if slot.scout.role_sure != null && slot.scout.role_sure < 0.85}<span class="label" title="The role is guessed from their games and mastery">role? {Math.round(slot.scout.role_sure * 100)}%</span>{/if}
             {#if !['done', 'missing', 'error'].includes(slot.scout.status)}<span class="scouting">scouting…</span>{/if}
           {/if}
         </span>
@@ -203,8 +257,39 @@
     <ScoutBox compact />
   </section>
 </main>
+{/if}
 
 <style>
+  .timer.soon { color: var(--gold); }
+  .timer.urgent { color: var(--red); }
+  .contested { font-size: 14px; color: #e0a640; margin-top: 2px; }
+  .lowdata { font-size: 13px; color: var(--muted); font-style: italic; }
+  .delta { font-size: 14px; color: #1baf7a; font-weight: 600; }
+  .delta.neg { color: #c98500; }
+  /* compact: the app beside the client on one screen */
+  @media (max-width: 1100px) {
+    .board { grid-template-columns: 200px 1fr 200px !important; gap: 14px !important; padding: 12px 14px !important; }
+    .top { padding: 10px 14px !important; font-size: 20px !important; }
+  }
+  @media (max-width: 760px) {
+    .board { grid-template-columns: 1fr !important; }
+  }
+  .tabs { display: flex; gap: 4px; padding: 8px 28px 0; border-bottom: 1px solid var(--line); }
+  .tabs button { background: none; border: 0; color: var(--muted); font: inherit; font-size: 15px; padding: 6px 14px 8px;
+                 cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -1px; }
+  .tabs button.on { color: var(--text); font-weight: 600; border-bottom-color: var(--gold); }
+  .tabs .count { font-size: 12px; background: var(--panel-2); border-radius: 8px; padding: 0 6px; margin-left: 4px; }
+  .rk { font-size: 11px; color: var(--muted); }
+  .roleprobs { display: block; font-size: 12px; color: var(--gold); font-weight: 400; }
+  .likely { display: flex; gap: 6px; }
+  .lk { display: flex; flex-direction: column; align-items: center; font-size: 11px; color: var(--muted); }
+  .label { font-size: 11px; color: var(--gold); text-transform: none; border: 1px solid #5a4a1c; border-radius: 4px; padding: 0 4px; }
+  .label.otp { color: #e0a640; }
+  .target { font-size: 14px; color: #8ec5ff; margin: 2px 0; }
+  .stalestrip { margin: 0 0 10px; padding: 6px 10px; border-radius: 6px; font-size: 14px; background: #3d3214; color: var(--gold); }
+  .stalestrip.updating { background: transparent; color: var(--muted); padding: 0; }
+  .center.stale :global(article) { opacity: 0.6; }
+  .panelnote { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
   .checkstrip { display: flex; gap: 14px; margin: 0 0 8px; font-size: 14px; color: var(--muted); }
   .checkstrip .no { color: #e0a640; font-weight: 600; }
   .plantag { font-size: 13px; font-weight: 600; color: #8ec5ff; border: 1px solid #2f6fb7; border-radius: 4px;
