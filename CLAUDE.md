@@ -32,7 +32,7 @@ moves the tracked files, but the local ones stay in the old subfolder: `.env`, `
 ### Commands
 The **Crawl page** (`#/crawl`, `jobs.py`, `api/jobs_routes.py`) runs the crawl and the other jobs from the app: one at a time, each as its own process with no console (output in `cache/jobs/`), so a crawl keeps going if the app closes and is found again when it reopens (`cache/jobs/running.json`). It shows matches per tier for the current patch. Updates wait until a job ends.
 
-Each job is also a subcommand of the app (`draftassist crawl --hours 8`, or `draftassist-cli crawl --hours 8` when installed): crawl, fit, learn, split, postgame, import-games, ddragon, opgg, coverage, backfill, pools, scout-check (`src/draftassist/commands.py`). `scout-check` reports which enemy identity fields the recorded champ selects carry, per queue (`docs/enemy-scouting.md`).
+Each job is also a subcommand of the app (`draftassist crawl --hours 8`, or `draftassist-cli crawl --hours 8` when installed): crawl, fit, learn, split, postgame, import-games, ddragon, opgg, coverage, power, backfill, pools, scout-check (`src/draftassist/commands.py`). `scout-check` reports which enemy identity fields the recorded champ selects carry, per queue (`docs/enemy-scouting.md`).
 
 **Where files live.** A source checkout keeps everything in itself, as below. The installed app (PyInstaller, `config.is_frozen()`) reads its bundled files from the bundle (`config.RESOURCE_ROOT`: `web/dist`, `data/archetype_matchups.yaml`, sample fixtures) and writes to `%LOCALAPPDATA%\DraftAssistant` (`config.DATA_ROOT`: the databases, `cache/`, `.env`, recordings, `data/roster.json`, and the tags and rules YAML, seeded from the bundle on first run and never overwritten). `DRAFTASSIST_HOME` overrides the data folder. `draftassist import-data <checkout>` copies a checkout's databases, `.env` and edited YAML into it (`--with-cache` for `cache/`).
 
@@ -52,6 +52,7 @@ Each job is also a subcommand of the app (`draftassist crawl --hours 8`, or `dra
 | Import pools from a file | `uv run python -m draftassist.data.pools import pools.txt` |
 | Ban value breakdown (audit) | `uv run python scripts/ban_audit.py [--real]` |
 | Damage, game length, trait sources, runes and items for already-crawled matches (from the Riot cache, no API calls) | `uv run python -m draftassist.data.backfill` |
+| Lane power curves by milestone (Strategy tab; after a crawl; downloads Meraki's data weekly) | `uv run python -m draftassist.data.power` |
 | What the crawl says a damage-heavy team is (Strategy view), and how many matches have builds | `uv run python -m draftassist.data.builds` |
 | App without the client | `draftassist --demo` or `draftassist --replay fixtures/lcu/flex-ranked-sample` |
 
@@ -95,7 +96,10 @@ damage-heavy thresholds come from the crawl (`data/builds.damage_thresholds`).
 `top-lane-power.md` (v0.2.x, from the user's research in `top-lane-power-research.md`): Stages 1–3 built. Strategy tab:
 OP.GG's champion analysis for the player's tier and the lane matchup guide (`data/opgg_builds.py`, background fetch,
 day cache in `cache/opgg/builds/`), and our own builds in order (`match_build_events`, kept from the timelines the
-crawl already fetches; `data/builds.summarize_order`). Stages 4–5 (duel power by milestone) wait on decisions in the doc.
+crawl already fetches; `data/builds.summarize_order`). Stages 4–5 built: lane power by milestone (lvl 2, 3, 6, item 1, ...;
+19–20 for top), theory from Meraki's kits (`data/meraki.py`, `engine/power.py`) combined with gold leads measured from
+per-minute frames (`match_frames`, every lane) by the **Lane power** job (`data/power.py`, `power_curves`); drawn on the
+Strategy tab. Run it after a crawl.
 
 `player-roster.md` (built 7 Nov 2026): one active player per role (`players.active`) and a bench that keeps a swapped-out
 player's pool; "Swap in a sub" on the Pools page (`POST /api/players/swap`), Forget for benched players. A new Riot ID for

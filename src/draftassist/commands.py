@@ -25,6 +25,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "ddragon": ("draftassist.data.ddragon", "champion names and icons (each patch)"),
     "opgg": ("draftassist.data.opgg", "OP.GG bootstrap stats (each patch)"),
     "coverage": ("draftassist.data.coverage", "crawl coverage and the state model's calibration"),
+    "power": ("draftassist.data.power", "lane power curves by level and item milestone (after a crawl)"),
     "backfill": ("draftassist.data.backfill", "damage, game length and traits from the Riot cache"),
     "pools": ("draftassist.data.pools", "import pools from a file: pools import pools.txt"),
     "scout-check": ("draftassist.data.scout", "which enemy identity fields recorded champ selects carry, per queue"),

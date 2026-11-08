@@ -18,7 +18,13 @@ from sqlmodel import Session
 
 from draftassist.data.backfill import _cached_match
 from draftassist.data.riot import REGION, cache_path, match_path
-from draftassist.data.timeline_map import PARTICIPANT_COLUMNS, TimelineStats, parse_build_events, parse_timeline
+from draftassist.data.timeline_map import (
+    PARTICIPANT_COLUMNS,
+    TimelineStats,
+    parse_build_events,
+    parse_frames,
+    parse_timeline,
+)
 from draftassist.db.models import MatchTeamState
 
 TIMELINE_VERSION = 2  # 1 was gold and XP at 15 only, and was never written: those matches are at 0
@@ -40,6 +46,28 @@ def store_build_events(conn, match_id: str, rows: dict[int, dict]) -> None:
                       "l": json.dumps({str(k): v for k, v in r["levels"].items()})})
 
 
+FRAME_MINUTES = 30  # frames kept per player: lane phase and the mid game, where the milestones fall
+
+
+def store_frames(conn, match_id: str, rows: dict[int, dict]) -> None:
+    import json
+    import zlib
+
+    for champ, r in rows.items():
+        frames = json.dumps(r["frames"][:FRAME_MINUTES + 1], separators=(",", ":")).encode()
+        conn.execute(text("INSERT OR REPLACE INTO match_frames (match_id, champ_id, frames_z, kills_json) "
+                          "VALUES (:m, :c, :f, :k)"),
+                     {"m": match_id, "c": champ, "f": zlib.compress(frames, 9),
+                      "k": json.dumps(r["kills"], separators=(",", ":"))})
+
+
+def read_frames(blob: bytes) -> list[list]:
+    import json
+    import zlib
+
+    return json.loads(zlib.decompress(blob))
+
+
 def store_timeline(db: Engine, match_id: str, timeline: dict | None, match: dict | None) -> None:
     """One crawled match. A missing timeline is done, so a crawl moves on, but stays at version 0, so a refetch can try it."""
     stats = parse_timeline(timeline, match) if timeline and match else None
@@ -53,6 +81,7 @@ def store_timeline(db: Engine, match_id: str, timeline: dict | None, match: dict
             store_team_state(s, match_id, stats)
         if timeline and match:  # builds in order: kept for any length of game (docs/top-lane-power.md, Stage 2)
             store_build_events(conn, match_id, parse_build_events(timeline, match))
+            store_frames(conn, match_id, parse_frames(timeline, match))
         version = TIMELINE_VERSION if timeline and match else 0
         conn.execute(text("UPDATE crawled_matches SET timeline_done = 1, timeline_version = :v WHERE match_id = :m"),
                      {"v": version, "m": match_id})

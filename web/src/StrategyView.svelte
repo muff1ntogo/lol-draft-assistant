@@ -4,6 +4,11 @@
   import Champ from './Champ.svelte';
 
   let { strategy } = $props();
+  // the lane power chart brings ECharts: loaded only when a curve is there to draw
+  let powerChart = $state(null);
+  $effect(() => {
+    if (!powerChart && strategy?.players?.some((p) => p.power)) import('./PowerChart.svelte').then((m) => (powerChart = m.default));
+  });
   const pct = (x) => (x == null ? '—' : `${Math.round(x * 100)}%`);
   const signed = (x) => (x == null ? '' : `${x > 0 ? '+' : x < 0 ? '−' : '±'}${Math.abs(x)}`);
   const og = (o) => (o ? `${o.games?.toLocaleString() ?? '—'} g${o.wr != null ? ` · ${pct(o.wr)} win` : ''}` : '');
@@ -57,6 +62,11 @@
 
           <h4>Lane</h4>
           <p class="summary">{p.lane.summary}</p>
+          {#if p.power}
+            {#if powerChart}{@const Chart = powerChart}<Chart power={p.power} ourName={p.champ?.name} theirName={p.opponent?.name} />{/if}
+            {#each p.power.lines as l}<div class="powerline">{l}</div>{/each}
+            <div class="muted small">Lane power: gold per minute vs the role's average at each milestone{p.power.mostly_theory ? '; mostly the model so far (few measured games)' : ''}.</div>
+          {/if}
           {#if p.lane.lines.length}<ul>{#each p.lane.lines as l}<li>{l}</li>{/each}</ul>{/if}
           {#if p.lane.matchup_pp != null && p.opponent}
             <div class="muted small">Game matchup {signed(p.lane.matchup_pp)}pp{#if p.lane.archetypes?.[0] && p.lane.archetypes?.[1]} · {p.lane.archetypes[0].replaceAll('_', ' ')} vs {p.lane.archetypes[1].replaceAll('_', ' ')}{/if}</div>
@@ -173,5 +183,6 @@
   code { font-size: 12px; }
   .matchup { background: var(--panel-2); border-radius: 8px; padding: 8px 10px; margin: 4px 0 8px; font-size: 14px; display: grid; gap: 4px; }
   .tip { color: #8ec5ff; }
+  .powerline { font-size: 14px; margin: 2px 0; }
   .mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; letter-spacing: 0.5px; }
 </style>

@@ -240,3 +240,40 @@ def parse_build_events(timeline: Mapping | None, match: Mapping) -> dict[int, di
         elif kind == "LEVEL_UP" and e.get("level"):
             row["levels"].setdefault(int(e["level"]), t)
     return out
+
+
+# ---------- per-minute frames (docs/top-lane-power.md, Stage 5; every lane, user decision 8 Nov 2026) ----------
+FRAME_FIELDS = ("level", "totalGold", "xp", "x", "y", "health", "healthMax", "armor", "magicResist", "attackDamage",
+                "abilityPower")
+
+
+def parse_frames(timeline: Mapping | None, match: Mapping) -> dict[int, dict]:
+    """Per champion: one row per minute frame, [level, gold, xp, x, y, health, max health, armour, MR, AD, AP] (FRAME_FIELDS),
+    and their champion kills: [second, victim champion, solo (no assists), killer level, victim level]. Checked on a
+    real 16.22 timeline: participantFrames carry `position` and a `championStats` object with these names."""
+    frames = sorted((timeline or {}).get("info", {}).get("frames") or [], key=lambda f: f.get("timestamp", 0))
+    players = match["info"]["participants"]
+    champ_of = {p.get("participantId", i + 1): p["championId"] for i, p in enumerate(players)}
+    out = {c: {"frames": [], "kills": []} for c in champ_of.values()}
+    levels: dict[int, int] = {}
+    for f in frames:
+        # a frame's events happened before its snapshot: levels at a kill are the previous snapshot's
+        for e in f.get("events", []):
+            if e.get("type") != KILL:
+                continue
+            killer, victim = champ_of.get(e.get("killerId")), champ_of.get(e.get("victimId"))
+            if killer is None or victim is None:
+                continue
+            out[killer]["kills"].append([int(e.get("timestamp", 0) // 1000), victim,
+                                         not e.get("assistingParticipantIds"),
+                                         levels.get(e.get("killerId")), levels.get(e.get("victimId"))])
+        for pid_s, row in (f.get("participantFrames") or {}).items():
+            champ = champ_of.get(int(pid_s))
+            if champ is None:
+                continue
+            cs, pos = row.get("championStats") or {}, row.get("position") or {}
+            levels[int(pid_s)] = row.get("level") or levels.get(int(pid_s), 1)
+            out[champ]["frames"].append([row.get("level"), row.get("totalGold"), row.get("xp"), pos.get("x"), pos.get("y"),
+                                         cs.get("health"), cs.get("healthMax"), cs.get("armor"), cs.get("magicResist"),
+                                         cs.get("attackDamage"), cs.get("abilityPower")])
+    return out

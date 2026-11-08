@@ -426,6 +426,7 @@ class Item:
     boots: bool  # tier-2 boots
     finished: bool  # a legendary: builds into nothing, costs LEGENDARY_GOLD+
     anti_heal: bool  # applies Grievous Wounds
+    stats: tuple[tuple[str, float], ...] = ()  # Data Dragon's flat stats, e.g. ("FlatPhysicalDamageMod", 40.0)
 
 
 @dataclass
@@ -475,7 +476,8 @@ def load_static(cache_dir: Path, version: str | None = None, locale: str = "en_U
         boots = "Boots" in tags and int(it.get("depth") or 1) >= 2
         finished = not it.get("into") and gold >= LEGENDARY_GOLD and not boots and "Consumable" not in tags
         anti = "grievous wounds" in (it.get("description") or "").lower()
-        out.items[int(key)] = Item(int(key), it.get("name", key), gold, tags, boots, finished, anti)
+        stats = tuple(sorted((k, float(v)) for k, v in (it.get("stats") or {}).items() if isinstance(v, (int, float))))
+        out.items[int(key)] = Item(int(key), it.get("name", key), gold, tags, boots, finished, anti, stats)
     for tree in read("runesReforged.json") or []:
         out.runes[tree["id"]] = tree["name"]
         for slot in tree.get("slots") or []:

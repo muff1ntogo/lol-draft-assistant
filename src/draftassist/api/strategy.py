@@ -102,3 +102,33 @@ class StrategyBuilds:
                 runes["shards"] = [static.rune_name(x) if x in static.runes else str(x) for x in runes["shards"]]
         return {"tier": bracket if analysis is not None else None, "analysis": analysis, "matchup": matchup,
                 "loading": False, "order": order}
+
+    def power_for(self, champ: int, role: str, opponent: int | None) -> dict | None:
+        """Lane power by milestone for the champion and, once known, their lane opponent (data/power.py writes it)."""
+        if self.db is None:
+            return None
+        key = ("power", champ, role, opponent)
+        if key in self._cache:
+            return self._cache[key]
+        from sqlalchemy import text
+
+        def curve(c: int) -> list[dict] | None:
+            try:
+                with self.db.connect() as conn:
+                    rows = conn.execute(text(
+                        "SELECT idx, label, level, items, theory, measured, n, combined, spike FROM power_curves "
+                        "WHERE champ_id = :c AND role = :r ORDER BY idx"), {"c": c, "r": role}).all()
+            except Exception:  # a database from before power_curves
+                return None
+            return [{"label": r[1], "level": r[2], "items": r[3], "theory": r[4], "measured": r[5], "n": r[6],
+                     "combined": r[7], "spike": bool(r[8])} for r in rows] or None
+
+        ours = curve(champ)
+        theirs = curve(opponent) if opponent else None
+        out = None
+        if ours:
+            from draftassist.engine.power import power_summary
+
+            out = {"ours": ours, "theirs": theirs, **power_summary(ours, theirs)}
+        self._cache[key] = out
+        return out

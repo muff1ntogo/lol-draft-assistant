@@ -258,7 +258,8 @@ def win_conditions(engine, ours: Mapping[int, str], theirs: Mapping[int, str]) -
 def strategy_view(engine, state: DraftState, our_roles: Mapping[int, str], their_roles: Mapping[int, str],
                   builds: Callable[[int, str, int | None], BuildView | None] | None, card: Callable[[int], dict | None],
                   scout_players: list[dict] | None = None,
-                  opgg: Callable[[int, str, int | None], dict | None] | None = None) -> dict:
+                  opgg: Callable[[int, str, int | None], dict | None] | None = None,
+                  power: Callable[[int, str, int | None], dict | None] | None = None) -> dict:
     """The whole Strategy payload. A player appears as soon as their champion is locked; the team plan and threats
     once all ten are."""
     their_by_role = {r: c for c, r in their_roles.items()}
@@ -272,7 +273,9 @@ def strategy_view(engine, state: DraftState, our_roles: Mapping[int, str], their
                         "lane": lane_plan(engine, role, champ, opp),
                         "build": build_plan(engine, role, champ, view, their_roles, opp),
                         # OP.GG's builds for the player's tier and its matchup guide (docs/top-lane-power.md, Stage 1)
-                        "opgg": opgg(champ, role, opp) if opgg else None})
+                        "opgg": opgg(champ, role, opp) if opgg else None,
+                        # lane power by milestone (docs/top-lane-power.md, Stages 4-5)
+                        "power": power(champ, role, opp) if power else None})
     complete = len(our_roles) == len(ROLES) and len(their_roles) == len(ROLES)
     team = threats = None
     if complete:

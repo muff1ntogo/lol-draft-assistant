@@ -270,6 +270,36 @@ class MatchBuildEvents(SQLModel, table=True):
     levels_json: str  # JSON: {"2": second, "3": second, ...}
 
 
+class MatchFrames(SQLModel, table=True):
+    """A crawled player's minute-by-minute state and kills (docs/top-lane-power.md, Stage 5), every lane, the first
+    FRAME_MINUTES minutes: about 0.5 KB a player compressed. Only timelines fetched after this table existed have rows."""
+    __tablename__ = "match_frames"
+
+    match_id: str = Field(primary_key=True)
+    champ_id: int = Field(primary_key=True)
+    frames_z: bytes  # zlib of JSON: one [level, gold, xp, x, y, health, max health, armour, MR, AD, AP] per minute
+    kills_json: str  # JSON: [[second, victim champion, solo, killer level, victim level], ...]
+
+
+class PowerCurve(SQLModel, table=True):
+    """One champion's lane power at one milestone of its role's axis (data/power.py)."""
+    __tablename__ = "power_curves"
+
+    champ_id: int = Field(primary_key=True)
+    role: str = Field(primary_key=True)
+    idx: int = Field(primary_key=True)
+    label: str
+    level: int
+    items: int
+    theory: float | None = None  # relative duel power, 1.0 = the role's average
+    measured: float | None = None  # gold per minute gained vs the role's average in this state
+    n: float = 0.0  # minute-observations behind `measured` (patch-weighted)
+    combined: float | None = None  # gold per minute vs the role's average, measured shrunk towards theory
+    spike: bool = False  # a theory spike (engine/power.spikes)
+    window: str = ""  # the current patch when computed
+    games: int = 0
+
+
 class MatchTeamState(SQLModel, table=True):
     """One team's game state, for crawled matches and our own games alike (no foreign key: ours aren't in crawled_matches).
     Nothing aggregates it. None = unknown, or gold_25 in a game that ended first."""

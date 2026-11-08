@@ -3,11 +3,11 @@
   // carries those, not all of ECharts (docs/history-charts.md).
   import * as echarts from 'echarts/core';
   import { BarChart, LineChart, ScatterChart, CustomChart } from 'echarts/charts';
-  import { GridComponent, TooltipComponent, LegendComponent, MarkLineComponent } from 'echarts/components';
+  import { GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, MarkPointComponent } from 'echarts/components';
   import { SVGRenderer } from 'echarts/renderers';
 
   echarts.use([BarChart, LineChart, ScatterChart, CustomChart, GridComponent, TooltipComponent, LegendComponent,
-               MarkLineComponent, SVGRenderer]);
+               MarkLineComponent, MarkPointComponent, SVGRenderer]);
 
   let { option, height = 220, label = '' } = $props();
   let el = $state();

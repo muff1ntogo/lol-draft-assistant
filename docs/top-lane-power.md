@@ -45,22 +45,53 @@ the first finished item and level 6. What: Master+ when that database has data, 
 the player's bracket. Gates: an option needs 50 reference games and 5% of them, else it's hidden. Shown on the Strategy
 tab as **In order** next to OP.GG's block.
 
-## Stage 4: theoretical duel power by milestone (not started)
+## Decisions (8 Nov 2026)
 
-The research's simulator: Data Dragon base stats and growth, item stats, Meraki's `lolstaticdata` for ability values
-(MIT; needs downloading and caching per patch: a new data source), per-milestone duel score, plugins for kits a stat
-model can't see (Kayle, Ornn). Days of work. Needs decisions (end of this doc).
+1. **Ability values from Meraki's `lolstaticdata`** (`data/meraki.py`): one ~13 MB file, cached in `cache/meraki/`
+   and refreshed weekly; stale data is used if Meraki can't be reached; without it at all, curves are measured only.
+2. **Per-minute frames for every lane** (`match_frames`), the first 30 minutes, zlib-compressed: ~5 KB a match
+   (measured on a real 16.22 timeline; 14 KB uncompressed).
+3. **OP.GG stays on Solo/Duo.**
 
-## Stage 5: lane power measured from timelines (not started)
+## Stage 4: theoretical duel power by milestone (built)
 
-Per-minute lead change by state, a solo-kill model and a milestone event study, shrunk towards Stage 4, drawn on a
-milestone axis (lvl 2, 3, 6, item 1, 9, 11, item 2, 13, 16, item 3, quest, 19, 20). Needs the per-minute frames and
-kills of the two top laners stored (Stage 2 keeps levels and items, not frames yet) and about a patch of crawl.
+`engine/power.py` (pure). Axis: lvl 2, 3, 6, item 1, 9, 11, item 2, 13, 16, item 3, 18, and lvl 19, 20 for top
+(the role quest); item milestones sit at the level each finished item usually comes at in that role (measured from
+`match_build_events`, default 8 / 12 / 15). For each champion and milestone: stats from Meraki's base stats and
+growth plus their usual first three finished items (Data Dragon stats), ability ranks from their usual skill max, then
+`DP = sqrt(DPS x EHP)` against the role's average champion in the same state: DPS over a 6 s trade (autos, and each
+damaging ability at most twice; listed cooldowns under 2 s count once: ammo and traps), EHP for a 60 / 40 physical /
+magic mix. The curve is DP over the role's mean: 1.0 = average. A spike is a rise beating the role's mean rise at that
+milestone by one SD.
 
-## Decisions for you
+How abilities are read (`data/meraki._ability_damage`): the first effect with damage to champions (later effects are
+usually the empowered version); minimum and maximum lines averaged; a "Total" line preferred, but a total over a long
+effect (with a per-tick line) counts 40% in a trade; minion, monster, reduction, increase, empowered lines skipped;
+ratios on AD, bonus AD, AP, the target's max / missing health and own health. Anything else is dropped and the ability
+marked partly modelled.
 
-1. **Stage 4 data source.** Meraki's `lolstaticdata` (community, MIT, parsed from the wiki) for ability values, or a
-   simpler model on Data Dragon alone (base stats, growth, items; abilities ignored or hand-entered for your pools)?
-2. **Stage 5 storage.** Keep per-minute frames (level, gold, XP, position, health, armour, MR, AD, AP) for the two top
-   laners of every crawled match from now on (~2 KB a match)? Top only, or every lane?
-3. **Game mode for OP.GG.** Solo/Duo (`ranked`, biggest sample) is used now; `flex` exists. Switch for Ranked 5s?
+**Checked against reputations** (real Meraki data, OP.GG cores, 20 top laners, patch 16.22): Renekton spikes at 3 and 6
+and stays high; Pantheon peaks at 6 then falls behind after item 1; Nasus climbs to the top of the role by 18–20; Malphite
+is strong early and drops off after item 3. **Not captured:** Kayle reads flat and low (her power is her passive and
+form changes, not in the ability values), and passives, shields, healing, crowd control and item passives in general.
+That's what Stage 5 corrects where there are games.
+
+## Stage 5: lane power measured from timelines (built)
+
+`data/power.py`, a batch job (Crawl page **Lane power**, or `draftassist power`, after a crawl): for every lane pair in
+`match_frames` and every minute up to 25, the gold lead gained over the next minute, filed under the milestone each
+side had reached (level from the frame, items from `match_build_events`); per champion and milestone the mean against
+the role's mean there (gold per minute). Combined with the theory on one scale: a least-squares slope maps theory to
+gold per minute, then `combined = w x measured + (1 - w) x slope x (theory - 1)`, `w = n / (n + 400)` minute-observations.
+Patches pool with a 3-patch half-life. Champions need 30 games in a role. Stored in `power_curves`.
+
+**On Live**: the Strategy tab draws both laners' combined curves on the milestone axis (ECharts, loaded lazily; spikes
+pinned), with lines like "Your spikes: lvl 6, item 2." and "Stronger: you from lvl 2 to lvl 6; they from item 1 to
+lvl 18.", and says when a curve is mostly the model (little measured data yet).
+
+## Not done (the research's further ideas)
+
+- The solo-kill model and the milestone event study (kills are stored in `match_frames.kills_json` for it).
+- Leaving out minutes when a jungler is near (positions are stored).
+- Champion plugins (Kayle forms, Ornn's upgrades, stacking champions).
+- Frames and build events only exist for timelines fetched from now on; older matches need `crawl --timelines-refetch`.
