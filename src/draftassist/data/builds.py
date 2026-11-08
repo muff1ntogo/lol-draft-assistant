@@ -8,6 +8,7 @@ item.json / runesReforged.json / summoner.json (data/ddragon.fetch_static).
 from __future__ import annotations
 
 import json
+import math
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
@@ -209,6 +210,82 @@ def summarize(main: Engine, master: Engine | None, patch: str, champ: int, role:
 def most_common(values: Iterable) -> object | None:
     c = Counter(v for v in values if v is not None)
     return c.most_common(1)[0][0] if c else None
+
+
+# ---------- what counts as a damage-heavy team (decision 8 Nov 2026: from the data, not hand-picked) ----------
+HEAVY_PERCENTILE = 0.8  # a team more physical (or magic) than 80% of crawled teams is "heavy"
+MIN_TEAMS = 200  # fewer crawled teams with damage: keep engine/strategy's defaults
+RECENT_PATCHES = 3
+
+
+@dataclass(frozen=True)
+class DamageThresholds:
+    ad_heavy: float  # physical share of a team's damage at HEAVY_PERCENTILE
+    ap_heavy: float  # magic share at HEAVY_PERCENTILE
+    teams: int
+    median_ad: float
+    median_ap: float
+
+
+def _quantile(xs: list[float], q: float) -> float:
+    xs = sorted(xs)
+    i = q * (len(xs) - 1)
+    lo, hi = math.floor(i), math.ceil(i)
+    return xs[lo] + (xs[hi] - xs[lo]) * (i - lo)
+
+
+def damage_thresholds(db: Engine, limit_teams: int = 60_000) -> DamageThresholds | None:
+    """Physical and magic share of each crawled team's damage to champions (the mean of its five players' shares, as the
+    Strategy view reads a team), over the last RECENT_PATCHES patches; the HEAVY_PERCENTILE of each. None with too few."""
+    with db.connect() as conn:
+        try:
+            patches = [r[0] for r in conn.execute(text("SELECT DISTINCT patch FROM crawled_matches"))]
+        except Exception:
+            return None
+        recent = sorted(patches, key=_version_key, reverse=True)[:RECENT_PATCHES]
+        if not recent:
+            return None
+        marks = ", ".join(f":p{i}" for i in range(len(recent)))
+        rows = conn.execute(text(
+            f"SELECT p.match_id, p.team_id, p.dmg_phys, p.dmg_magic, p.dmg_true FROM match_participants p "
+            f"JOIN crawled_matches m ON m.match_id = p.match_id WHERE m.patch IN ({marks}) AND p.dmg_phys IS NOT NULL "
+            f"ORDER BY m.game_start_ms DESC LIMIT :n"), {**{f"p{i}": p for i, p in enumerate(recent)},
+                                                         "n": limit_teams * 5}).all()
+    teams: dict[tuple, list[tuple[float, float]]] = defaultdict(list)
+    for match_id, team, phys, magic, true in rows:
+        total = (phys or 0) + (magic or 0) + (true or 0)
+        if total > 0:
+            teams[(match_id, team)].append((phys / total, magic / total))
+    ad = [sum(x for x, _ in v) / len(v) for v in teams.values() if len(v) == 5]
+    ap = [sum(y for _, y in v) / len(v) for v in teams.values() if len(v) == 5]
+    if len(ad) < MIN_TEAMS:
+        return None
+    return DamageThresholds(round(_quantile(ad, HEAVY_PERCENTILE), 3), round(_quantile(ap, HEAVY_PERCENTILE), 3),
+                            len(ad), round(_quantile(ad, 0.5), 3), round(_quantile(ap, 0.5), 3))
+
+
+def main() -> int:
+    """`uv run python -m draftassist.data.builds`: what the crawl says a damage-heavy team is, and how many matches have
+    builds stored."""
+    from draftassist.config import load_settings
+    from draftassist.db.session import init_db
+
+    db = init_db(load_settings().db_path)
+    t = damage_thresholds(db)
+    if t is None:
+        print(f"Too few crawled teams with damage (need {MIN_TEAMS}): the Strategy view keeps its defaults.")
+    else:
+        print(f"{t.teams:,} crawled teams, last {RECENT_PATCHES} patches. Median team: {t.median_ad:.0%} physical, "
+              f"{t.median_ap:.0%} magic.")
+        print(f"Damage-heavy (top {1 - HEAVY_PERCENTILE:.0%}): {t.ad_heavy:.0%}+ physical, {t.ap_heavy:.0%}+ magic.")
+    with db.connect() as conn:
+        n = conn.execute(text("SELECT COUNT(DISTINCT match_id) FROM match_builds")).scalar()
+    print(f"Matches with runes and items stored: {n:,} (data.backfill fills older ones from the cache).")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 
 
 # ---------- names (Data Dragon) ----------

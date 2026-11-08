@@ -51,7 +51,8 @@ Each job is also a subcommand of the app (`draftassist crawl --hours 8`, or `dra
 | Import games History missed (3+ of us together, last 60 days) | `uv run python -m draftassist.data.import_games` |
 | Import pools from a file | `uv run python -m draftassist.data.pools import pools.txt` |
 | Ban value breakdown (audit) | `uv run python scripts/ban_audit.py [--real]` |
-| Damage, game length and trait sources for already-crawled matches (from the Riot cache, no API calls) | `uv run python -m draftassist.data.backfill` |
+| Damage, game length, trait sources, runes and items for already-crawled matches (from the Riot cache, no API calls) | `uv run python -m draftassist.data.backfill` |
+| What the crawl says a damage-heavy team is (Strategy view), and how many matches have builds | `uv run python -m draftassist.data.builds` |
 | App without the client | `draftassist --demo` or `draftassist --replay fixtures/lcu/flex-ranked-sample` |
 
 Env vars: `DRAFTASSIST_LCU` (client | demo | replay | off), `DRAFTASSIST_REPLAY`, `DRAFTASSIST_DB` (use a scratch copy for experiments), `DRAFTASSIST_RECORD`, `DRAFTASSIST_DEMO_LOG`, `DRAFTASSIST_STATS_REFRESH_S`, `DRAFT_FORMAT` (auto | tournament | ranked).

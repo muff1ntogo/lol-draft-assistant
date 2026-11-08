@@ -18,6 +18,7 @@ class StrategyBuilds:
         self._static = None
         self._master: object = False  # not looked up yet
         self._cache: dict[tuple, BuildView | None] = {}
+        self._thresholds: object = False  # not computed yet
 
     @property
     def static(self):
@@ -38,6 +39,18 @@ class StrategyBuilds:
                 self._master = None
         return self._master
 
+    def thresholds(self):
+        """What a damage-heavy team is, from the crawl (data/builds.damage_thresholds); None: the engine's defaults."""
+        if self._thresholds is False:
+            from draftassist.data.builds import damage_thresholds
+
+            try:
+                self._thresholds = damage_thresholds(self.db)
+            except Exception:
+                log.exception("damage thresholds unavailable; the Strategy view uses its defaults")
+                self._thresholds = None
+        return self._thresholds
+
     def clear(self) -> None:
         self._cache.clear()
         self._master = False
@@ -49,5 +62,5 @@ class StrategyBuilds:
             from draftassist.data.builds import summarize
 
             summary = summarize(self.db, self.master(), self.patch, champ, role, bracket, opponent)
-            self._cache[key] = BuildView(summary, self.static) if summary is not None else None
+            self._cache[key] = BuildView(summary, self.static, self.thresholds()) if summary is not None else None
         return self._cache[key]

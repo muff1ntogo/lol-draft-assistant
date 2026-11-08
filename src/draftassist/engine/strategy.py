@@ -43,6 +43,7 @@ class BuildView:
     """What `builds(champ, role, opponent)` returns for the Strategy view: data/builds.BuildSummary plus the names."""
     summary: object  # data/builds.BuildSummary
     static: object  # data/builds.GameStatic
+    thresholds: object | None = None  # data/builds.DamageThresholds: "heavy" from the crawl, else AP_HEAVY / AD_HEAVY
 
 
 def _pct(x: float | None) -> str:
@@ -172,15 +173,18 @@ def build_plan(engine, role: str, champ: int, view: BuildView | None, theirs: Ma
 
     damage = enemy_damage(engine, theirs) if theirs else None
     healers = _healers(engine, theirs) if theirs else []
+    t = view.thresholds
+    ap_heavy = t.ap_heavy if t is not None else AP_HEAVY
+    ad_heavy = t.ad_heavy if t is not None else AD_HEAVY
     situational = []
     for c in finished[3:]:
         it = st.items.get(c.key)
         if it is None:
             continue
         why = None
-        if damage and damage[1] >= AP_HEAVY and "SpellBlock" in it.tags:
+        if damage and damage[1] >= ap_heavy and "SpellBlock" in it.tags:
             why = f"their damage is {_pct(damage[1])} magic"
-        elif damage and damage[0] >= AD_HEAVY and "Armor" in it.tags:
+        elif damage and damage[0] >= ad_heavy and "Armor" in it.tags:
             why = f"their damage is {_pct(damage[0])} physical"
         elif len(healers) >= HEALERS and it.anti_heal:
             why = "anti-heal vs " + " and ".join(name(h) for h in healers[:3])
@@ -189,9 +193,9 @@ def build_plan(engine, role: str, champ: int, view: BuildView | None, theirs: Ma
     if boots is not None and damage:
         it = st.items[boots.key]
         boots_why = None
-        if damage[1] >= AP_HEAVY and "SpellBlock" in it.tags:
+        if damage[1] >= ap_heavy and "SpellBlock" in it.tags:
             boots_why = f"their damage is {_pct(damage[1])} magic"
-        elif damage[0] >= AD_HEAVY and "Armor" in it.tags:
+        elif damage[0] >= ad_heavy and "Armor" in it.tags:
             boots_why = f"their damage is {_pct(damage[0])} physical"
     else:
         boots_why = None
@@ -204,9 +208,9 @@ def build_plan(engine, role: str, champ: int, view: BuildView | None, theirs: Ma
         k = keystones[0]
         reasons.append(f"{k['name']}: {_pct(k['share'])} of {s.ref_label} games"
                        + (f", {_pct(k['wr'])} win rate in your bracket ({k['games']} games)" if k["wr"] is not None else ""))
-    if damage and damage[1] >= AP_HEAVY and not any(i["why"] for i in situational):
+    if damage and damage[1] >= ap_heavy and not any(i["why"] for i in situational):
         reasons.append(f"Their damage is {_pct(damage[1])} magic: consider magic resist early.")
-    elif damage and damage[0] >= AD_HEAVY and not any(i["why"] for i in situational):
+    elif damage and damage[0] >= ad_heavy and not any(i["why"] for i in situational):
         reasons.append(f"Their damage is {_pct(damage[0])} physical: armour pays off.")
     if len(healers) >= HEALERS:
         reasons.append("They heal a lot (" + ", ".join(name(h) for h in healers) + "): anti-heal is worth a slot.")

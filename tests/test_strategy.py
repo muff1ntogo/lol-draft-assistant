@@ -240,3 +240,41 @@ def test_build_reasons_follow_their_damage_and_healing(main_db, tmp_path):
     assert [i["name"] for i in plan["core"]][:2] == ["Luden's Companion", "Zhonya's Hourglass"]
     assert any("anti-heal" in r for r in plan["reasons"])
     assert plan["situational"] == [] or all(i["why"] for i in plan["situational"])
+
+
+# ---------- decision 8 Nov 2026: "damage-heavy" from the crawl ----------
+def test_damage_thresholds_from_crawled_teams(main_db):
+    from draftassist.data.builds import MIN_TEAMS, damage_thresholds
+
+    assert damage_thresholds(main_db) is None  # nothing crawled
+    with Session(main_db) as s:
+        for i in range(MIN_TEAMS):
+            mid = f"D{i}"
+            s.add(CrawledMatch(match_id=mid, patch="16.21", bracket="gold", queue_id=420, game_start_ms=i))
+            s.flush()
+            magic = i / MIN_TEAMS  # teams spread evenly from all-physical to all-magic
+            for team in (100, 200):
+                for k in range(5):
+                    s.add(MatchParticipant(match_id=mid, champ_id=team + k, team_id=team, role="top", win=team == 100,
+                                           dmg_phys=round(10_000 * (1 - magic)), dmg_magic=round(10_000 * magic), dmg_true=0))
+        s.commit()
+    t = damage_thresholds(main_db)
+    assert t.teams == 2 * MIN_TEAMS
+    assert t.ap_heavy == pytest.approx(0.8, abs=0.01) and t.ad_heavy == pytest.approx(0.8, abs=0.01)
+    assert t.median_ap == pytest.approx(0.5, abs=0.01)
+
+
+def test_build_reasons_use_the_crawled_thresholds(main_db, tmp_path):
+    from types import SimpleNamespace
+
+    from draftassist.engine.strategy import build_plan
+
+    write_static(tmp_path)
+    seed(main_db, 60, ELECTROCUTE, 2, items=(LUDENS, ZHONYAS, SORCS, MERC))
+    summary = summarize(main_db, None, "16.21", CHAMP, "mid", "gold")
+    eng = fake_engine(0)
+    eng.data.damage = {(11, "top"): (0.45, 0.55, 0.0)}
+    loose = BuildView(summary, load_static(tmp_path), SimpleNamespace(ap_heavy=0.5, ad_heavy=0.7))
+    strict = BuildView(summary, load_static(tmp_path), SimpleNamespace(ap_heavy=0.6, ad_heavy=0.7))
+    assert any("magic" in r for r in build_plan(eng, "mid", CHAMP, loose, {11: "top"}, None)["reasons"])
+    assert not any("magic" in r for r in build_plan(eng, "mid", CHAMP, strict, {11: "top"}, None)["reasons"])

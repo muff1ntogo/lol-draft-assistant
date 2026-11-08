@@ -35,8 +35,12 @@ Fourth task from `ui-engine-review.md` (decision 2): Live has two views, **Draft
   range, else archetype), their hard engage vs our escape, their sustain, who wins extended trades, auto-attack denial,
   kiting, and opposite power curves.
 - **Build**: top three keystones, the most common rune page and spell pair, the three most common finished items
-  (core) and boots; **This game**: further items that answer their damage (magic resist when 55%+ of their damage is
-  magic, armour at 62%+ physical) or 2+ high-sustain enemies (anti-heal), with the reason. Reasons below.
+  (core) and boots; **This game**: further items that answer their damage or 2+ high-sustain enemies (anti-heal), with
+  the reason. Reasons below.
+- **Damage-heavy, from the data** (decision 8 Nov 2026): a team is magic-heavy (or physical-heavy) when it's more so
+  than 80% of crawled teams over the last 3 patches (`data/builds.damage_thresholds`; each team read as the mean of its
+  five players' damage shares, the way the Strategy view reads the enemy). Under 200 crawled teams: the defaults, 55%
+  magic and 62% physical. See the numbers: `uv run python -m draftassist.data.builds`.
 - **Game plan**: power curves compared (early comp: take early objectives and end before 30; later comp: trade
   objectives, avoid coin flips), what our fight identity wants, what to watch for in theirs, no-frontline warning,
   their damage split.
