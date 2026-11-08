@@ -21,6 +21,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "learn": ("draftassist.learning.jobs", "the learning job: link players, history, comfort"),
     "split": ("draftassist.learning.execution", "work out every logged game's draft / early / conversion again"),
     "postgame": ("draftassist.data.postgame", "confirm logged games via match-v5 and store their timelines"),
+    "import-games": ("draftassist.data.import_games", "import games we played together that History missed"),
     "ddragon": ("draftassist.data.ddragon", "champion names and icons (each patch)"),
     "opgg": ("draftassist.data.opgg", "OP.GG bootstrap stats (each patch)"),
     "coverage": ("draftassist.data.coverage", "crawl coverage and the state model's calibration"),

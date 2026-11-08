@@ -146,6 +146,7 @@ class Draft(SQLModel, table=True):
     recap_cache: str | None = None  # JSON: lane matchups computed on first view
     plan_json: str | None = None  # JSON: the plan pinned for this game (docs/synergy-v2.md, Stage 6)
     timeline_version: int = 0  # data/timelines.TIMELINE_VERSION: own_game_participants filled, or the game has none
+    imported: bool = False  # from match-v5 afterwards, not watched live: no suggestions, pick order approximate
 
 
 class DraftAction(SQLModel, table=True):
@@ -159,7 +160,7 @@ class DraftAction(SQLModel, table=True):
     our_rank: int | None = None  # rank of the actual choice among our suggestions
     suggestions_json: str | None = None
     win_prob_after: float | None = None  # model P(win) after this step (backfilled for old games)
-    role: str | None = None  # our picks: the role the client gave the player
+    role: str | None = None  # our picks: the role the client gave the player; imported games: both teams' (match-v5)
 
 
 # ---------- crawl (Phase 3) ----------

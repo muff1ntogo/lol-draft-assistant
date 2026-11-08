@@ -33,6 +33,29 @@
 
   loadList();
 
+  // Import missed games (docs/import-games.md): the Crawl page's job, started from here
+  let importing = $state(false);
+  let importNote = $state('');
+
+  async function importMissed() {
+    importNote = '';
+    const res = await fetch('/api/jobs/start', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job: 'import' }),
+    });
+    const body = await res.json();
+    if (!res.ok) { importNote = String(body.detail); return; }
+    importing = true;
+    const poll = setInterval(async () => {
+      const jobs = await (await fetch('/api/jobs')).json();
+      if (jobs.running) return;
+      clearInterval(poll);
+      importing = false;
+      const lines = (jobs.log ?? []).filter((l) => l.trim());
+      importNote = lines.slice(-2).join(' ') || 'Done.';
+      await loadList();
+    }, 2000);
+  }
+
   const when = (iso) => new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
   const day = (iso) => new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short' });
   const pct = (p) => (p == null ? '—' : `${Math.round(p * 100)}%`);
@@ -68,6 +91,12 @@
         {/if}
       </div>
     {/if}
+    <div class="import">
+      <button onclick={importMissed} disabled={importing}
+              title="Games of the last 60 days with 3 or more of our players together that History doesn't have, from Riot's match history">
+        {importing ? 'Importing missed games…' : 'Import missed games'}</button>
+      {#if importNote}<div class="muted small">{importNote}</div>{/if}
+    </div>
     <div class="filters">
       {#each [['queue', 'Queue'], ['side', 'Side'], ['result', 'Result'], ['patch', 'Patch']] as [key, label]}
         <select bind:value={chosen[key]} onchange={loadList} aria-label={label}>
@@ -90,7 +119,7 @@
             <span class="five">{#each g.their_champs as c}<Champ champ={c} size={26} />{/each}</span>
           </span>
           <span class="meta">
-            <span>{pct(g.pred_win_prob)} predicted</span>
+            <span>{g.imported ? 'imported' : `${pct(g.pred_win_prob)} predicted`}</span>
             <span class="muted">{g.queue} · <span class="side {g.side}">{g.side}</span> · {patchLabel(g.patch) ?? '—'} · {day(g.played_at)}</span>
             {#if g.plan || g.verdict}
               <span class="tags">
@@ -114,8 +143,13 @@
           <span>{h.queue}</span><span>Patch {patchLabel(h.patch) ?? '—'}</span><span>{when(h.played_at)}</span>
           {#if h.game_length_s}<span>{length(h.game_length_s)}</span>{/if}
           <span class="side {ours}">{ours} side</span>
+          {#if h.imported}<span title="Imported from Riot's match history: the app didn't see this champ select, so nothing was suggested, and the pick order is the order players are listed in, which may differ from the order they locked in">imported</span>{/if}
         </div>
-        <div class="pred">Predicted {pct(h.pred_win_prob)} → {h.result === 'win' ? 'Won' : h.result === 'loss' ? 'Lost' : '—'}</div>
+        {#if h.imported}
+          <div class="pred">{h.result === 'win' ? 'Won' : h.result === 'loss' ? 'Lost' : '—'} · not watched live</div>
+        {:else}
+          <div class="pred">Predicted {pct(h.pred_win_prob)} → {h.result === 'win' ? 'Won' : h.result === 'loss' ? 'Lost' : '—'}</div>
+        {/if}
         {#if recap.plan}
           <div class="planline">Plan followed? <strong>{recap.plan.followed}</strong> ({recap.plan.picked} of {recap.plan.total}):
             {#each recap.plan.champs as c}<span class="pc" class:miss={!c.picked}><Champ champ={c} size={22} />{c.name}</span>{/each}</div>
@@ -255,6 +289,10 @@
 </main>
 
 <style>
+  .import { margin: 0 0 10px; display: flex; flex-direction: column; gap: 4px; }
+  .import button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+                   padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+  .import button:disabled { opacity: 0.6; cursor: default; }
   .plan { font-size: 11px; border-radius: 4px; padding: 0 5px; width: fit-content; }
   .plan.yes { background: #0f3d2e; color: #4fd1a1; }
   .plan.partly { background: #3d2e0a; color: #e0a640; }

@@ -104,6 +104,13 @@ def draft_report(db: Engine, engine: DraftEngine, draft_id: int) -> dict | None:
                            "delta_pp": round(100 * delta, 1)})
 
     played = d.played_at if isinstance(d.played_at, datetime) else datetime.fromisoformat(str(d.played_at))
+    if d.imported:  # docs/import-games.md: nothing was predicted at the time
+        rated = f"Today's model rates this draft {ev.win_prob:.0%}"
+        verdict = f"{rated}: {'won' if actual else 'lost'}." if actual is not None else f"{rated}."
+        return {"draft_id": draft_id, "played_at": played.isoformat(), "predicted": None, "result": d.result,
+                "brier": None, "verdict": verdict, "factors": factors[:3], "deviations": [],
+                "note": "Imported game: nothing was predicted or suggested at the time; the factors are today's "
+                        "model, stats and comfort."}
     if actual is None:
         verdict = "No result yet."
     elif (predicted >= 0.5) == (actual == 1.0):

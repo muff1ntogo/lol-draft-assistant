@@ -77,13 +77,14 @@ def _actions(s: Session, draft_ids: list[int]) -> dict[int, list[DraftAction]]:
 
 
 def _roles(engine: DraftEngine, draft: Draft, actions: list[DraftAction]) -> tuple[dict[int, str], dict[int, str]]:
-    """Our picks' roles (from the client when logged, else the model's assignment) and theirs."""
+    """Our picks' roles (from the client when logged, else the model's assignment) and theirs (the model's, or
+    match-v5's for an imported game)."""
     ev = engine.evaluate(_state(draft, actions))
-    ours = dict(ev.our_roles)
+    ours, theirs = dict(ev.our_roles), dict(ev.their_roles)
     for a in actions:
-        if a.role and a.side == draft.side and a.type == "pick":
-            ours[a.champ_id] = a.role
-    return ours, ev.their_roles
+        if a.role and a.type == "pick":
+            (ours if a.side == draft.side else theirs)[a.champ_id] = a.role
+    return ours, theirs
 
 
 # ---------- list ----------
@@ -123,7 +124,7 @@ def history_rows(db: Engine, catalog: ChampionCatalog, queue: str | None = None,
             "our_champs": [art(catalog, a.champ_id, d.ddragon_version) for a in picks if a.side == d.side],
             "their_champs": [art(catalog, a.champ_id, d.ddragon_version) for a in picks if a.side != d.side],
             "followed_top": sum(1 for a in followed if a.our_rank == 1), "our_turns": len(followed),
-            "match_verified": d.match_verified, "result_source": d.result_source,
+            "match_verified": d.match_verified, "result_source": d.result_source, "imported": d.imported,
             "plan": plan_adherence(d, acts[d.draft_id]),
             "verdict": verdicts.get(d.draft_id),
         })
@@ -368,6 +369,7 @@ def recap(db: Engine, engine: DraftEngine, catalog: ChampionCatalog, draft_id: i
         "header": {"result": draft.result, "queue": queue_label(draft), "patch": draft.patch,
                    "played_at": played.isoformat(), "game_length_s": draft.game_length_s, "side": our_side,
                    "pred_win_prob": draft.pred_win_prob, "match_verified": draft.match_verified,
+                   "imported": draft.imported,
                    "format": fmt.name},
         "bans": _bans_by_phase(actions, steps, card),
         "picks": picks,
@@ -377,6 +379,8 @@ def recap(db: Engine, engine: DraftEngine, catalog: ChampionCatalog, draft_id: i
                    "synergy": {"ours_pp": _win_pp(terms.syn_us), "theirs_pp": _win_pp(terms.syn_them),
                                "net_pp": round(_win_pp(terms.syn_us) - _win_pp(terms.syn_them), 1)}},
         "table": full,
-        "note": ("Logged before per-step P(win) was stored: the timeline was computed later, with the model "
-                 "and stats of that day") if cache.get("backfilled") else None,
+        "note": ("Imported from Riot's match history: the app didn't see this champ select, so nothing was suggested, "
+                 "and the pick order is the order players are listed in. The timeline is today's model and stats")
+        if draft.imported else ("Logged before per-step P(win) was stored: the timeline was computed later, with the "
+                                "model and stats of that day") if cache.get("backfilled") else None,
     }

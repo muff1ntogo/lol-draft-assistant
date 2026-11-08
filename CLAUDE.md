@@ -32,7 +32,7 @@ moves the tracked files, but the local ones stay in the old subfolder: `.env`, `
 ### Commands
 The **Crawl page** (`#/crawl`, `jobs.py`, `api/jobs_routes.py`) runs the crawl and the other jobs from the app: one at a time, each as its own process with no console (output in `cache/jobs/`), so a crawl keeps going if the app closes and is found again when it reopens (`cache/jobs/running.json`). It shows matches per tier for the current patch. Updates wait until a job ends.
 
-Each job is also a subcommand of the app (`draftassist crawl --hours 8`, or `draftassist-cli crawl --hours 8` when installed): crawl, fit, learn, split, postgame, ddragon, opgg, coverage, backfill, pools, scout-check (`src/draftassist/commands.py`). `scout-check` reports which enemy identity fields the recorded champ selects carry, per queue (`docs/enemy-scouting.md`).
+Each job is also a subcommand of the app (`draftassist crawl --hours 8`, or `draftassist-cli crawl --hours 8` when installed): crawl, fit, learn, split, postgame, import-games, ddragon, opgg, coverage, backfill, pools, scout-check (`src/draftassist/commands.py`). `scout-check` reports which enemy identity fields the recorded champ selects carry, per queue (`docs/enemy-scouting.md`).
 
 **Where files live.** A source checkout keeps everything in itself, as below. The installed app (PyInstaller, `config.is_frozen()`) reads its bundled files from the bundle (`config.RESOURCE_ROOT`: `web/dist`, `data/archetype_matchups.yaml`, sample fixtures) and writes to `%LOCALAPPDATA%\DraftAssistant` (`config.DATA_ROOT`: the databases, `cache/`, `.env`, recordings, `data/roster.json`, and the tags and rules YAML, seeded from the bundle on first run and never overwritten). `DRAFTASSIST_HOME` overrides the data folder. `draftassist import-data <checkout>` copies a checkout's databases, `.env` and edited YAML into it (`--with-cache` for `cache/`).
 
@@ -48,6 +48,7 @@ Each job is also a subcommand of the app (`draftassist crawl --hours 8`, or `dra
 | Crawl coverage / Phase 3 acceptance | `uv run python -m draftassist.data.coverage` |
 | Learning job (link players, history, comfort) | `uv run python -m draftassist.learning.jobs` |
 | Confirm logged games via match-v5, and store their timelines | `uv run python -m draftassist.data.postgame` |
+| Import games History missed (3+ of us together, last 60 days) | `uv run python -m draftassist.data.import_games` |
 | Import pools from a file | `uv run python -m draftassist.data.pools import pools.txt` |
 | Ban value breakdown (audit) | `uv run python scripts/ban_audit.py [--real]` |
 | Damage, game length and trait sources for already-crawled matches (from the Riot cache, no API calls) | `uv run python -m draftassist.data.backfill` |
@@ -87,6 +88,11 @@ fill gaps the client leaves.
 player's pool; "Swap in a sub" on the Pools page (`POST /api/players/swap`), Forget for benched players. A new Riot ID for
 a linked player benches them; an unlinked one is renamed. Players and pools are mirrored to `data/roster.json` in the
 data folder after every change (`data/roster.py`, no PUUIDs, gitignored) and restored from it into an empty database.
+
+`import-games.md` (built 8 Nov 2026): **Import missed games** (History page; Crawl job `import`; `draftassist
+import-games`): our active players' ranked games of the last 60 days with 3+ of them on one team that History doesn't
+have become drafts from match-v5 (`data/import_games.py`, `drafts.imported`; pick order is the participants' order, no
+suggestions), with their timelines.
 
 Open points:
 - `flex-simultaneous-bans.md` test 2 assumes greedy recomputation spreads bans across lanes; under the lane ban score it concentrates (banning both bad top matchups is worth more). Implemented as specified; a per-lane diminishing-returns rule would need a decision.

@@ -46,6 +46,8 @@ JOBS: dict[str, JobSpec] = {
                    needs_key=False),
     "learn": JobSpec("Learning job", ("learn",), "Link players, read their history, re-score comfort"),
     "postgame": JobSpec("Confirm games", ("postgame",), "Check logged games against match-v5 and store their timelines"),
+    "import": JobSpec("Import missed games", ("import-games",),
+                      "Games of the last 60 days with 3+ of us together that History doesn't have, from match-v5"),
     "ddragon": JobSpec("Champions", ("ddragon",), "Champion names and icons for a new patch (stop the crawl first)",
                        needs_key=False),
     "opgg": JobSpec("OP.GG stats", ("opgg",), "OP.GG's starting stats for the patch", needs_key=False),
