@@ -5,6 +5,8 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 // `npm run build` writes dist/, which FastAPI serves at http://localhost:8000.
 export default defineConfig({
   plugins: [svelte()],
+  // the History charts (ECharts) are their own chunk, loaded lazily; ~560 kB is expected for it
+  build: { chunkSizeWarningLimit: 600 },
   server: {
     proxy: {
       '/api': 'http://localhost:8000',
