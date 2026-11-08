@@ -109,6 +109,7 @@
               {#if card.plan}<span class="plantag">plan</span>{/if}
               {#if card.badge?.text}<span class="badge">{card.badge.text}</span>{/if}
               {#if card.archetype}<span class="badge">{card.archetype.replaceAll('_', ' ')}</span>{/if}</div>
+            {#if card.target}<div class="target">{card.target.role_label} {card.target.player}: {#if card.target.games}{card.target.games} games{#if card.target.share != null} ({Math.round(card.target.share * 100)}% of theirs){/if}, {Math.round((100 * card.target.wins) / card.target.games)}% won{:else}#{card.target.mastery_rank} by mastery{/if}</div>{/if}
             <div class="reason">{card.reason}{#if card.effect?.length}<span class="effect">{` → ${card.effect.join(', ')}`}</span>{/if}</div>
             {#if card.components}<ComponentBar components={card.components} />{/if}
             {#each card.warnings as w}<div class="warn">{w}</div>{/each}
@@ -188,15 +189,22 @@
 
   <section class="team theirs">
     {#each view.their_slots as slot}
-      <div class="slot">
+      <div class="slot" class:open={!slot.champ}>
         {#if slot.champ}
           <Champ champ={slot.champ} size={56} />
-          <span class="name">{slot.champ.name}{#if slot.badge?.text}<small class="badge">{slot.badge.text}</small>{/if}</span>
+          <span class="name">{slot.champ.name}{#if slot.badge?.text}<small class="badge">{slot.badge.text}</small>{/if}
+            {#if slot.role_probs}<small class="roleprobs" title="Their roles are guessed from how often each champion is played in each role; suggestions assume the first">{slot.role_probs.map((r) => `${r.role_label} ${Math.round(r.p * 100)}%`).join(' / ')}</small>{/if}</span>
+        {:else if slot.likely?.length}
+          <span class="likely" title="Most likely picks for their {slot.open_role_label}: meta in the enemy bracket{slot.scout ? ', blended with the player\'s pool' : ''}">
+            {#each slot.likely as l}
+              <span class="lk"><Champ champ={l.champ} size={30} faded /><small>{Math.round(l.p * 100)}%</small></span>
+            {/each}
+          </span>
         {:else}
           <span class="empty"></span>
         {/if}
         <span class="role" class:scouted={slot.scout}>
-          {slot.role_label || (slot.scout?.role ?? '')}
+          {slot.role_label || slot.open_role_label || (slot.scout?.role ?? '')}
           {#if slot.scout}
             <span class="player" title={slot.scout.riot_id}>{slot.scout.name}</span>
             <span class="pool">
@@ -205,6 +213,9 @@
                   <Champ champ={t.champ} size={22} /></span>
               {/each}
             </span>
+            {#if slot.scout.one_trick}<span class="label otp" title="{slot.scout.one_trick.name} is most of their {slot.scout.games_in_role} recent games in this role">one-trick</span>{/if}
+            {#if slot.scout.mastery_only}<span class="label" title="No recent ranked games: their pool is from mastery">mastery only</span>{/if}
+            {#if slot.scout.role_sure != null && slot.scout.role_sure < 0.85}<span class="label" title="The role is guessed from their games and mastery">role? {Math.round(slot.scout.role_sure * 100)}%</span>{/if}
             {#if !['done', 'missing', 'error'].includes(slot.scout.status)}<span class="scouting">scouting…</span>{/if}
           {/if}
         </span>
@@ -219,6 +230,12 @@
 </main>
 
 <style>
+  .roleprobs { display: block; font-size: 12px; color: var(--gold); font-weight: 400; }
+  .likely { display: flex; gap: 6px; }
+  .lk { display: flex; flex-direction: column; align-items: center; font-size: 11px; color: var(--muted); }
+  .label { font-size: 11px; color: var(--gold); text-transform: none; border: 1px solid #5a4a1c; border-radius: 4px; padding: 0 4px; }
+  .label.otp { color: #e0a640; }
+  .target { font-size: 14px; color: #8ec5ff; margin: 2px 0; }
   .stalestrip { margin: 0 0 10px; padding: 6px 10px; border-radius: 6px; font-size: 14px; background: #3d3214; color: var(--gold); }
   .stalestrip.updating { background: transparent; color: var(--muted); padding: 0; }
   .center.stale :global(article) { opacity: 0.6; }

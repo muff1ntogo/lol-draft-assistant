@@ -212,3 +212,28 @@ def test_pasted_names_fill_in_for_players_the_client_doesnt_name(svc):
     ids, given, source = svc.opponents()
     assert source == "client" and ids == NAMES[:3] + ["Extra1#EUW", "Extra2#EUW"]
     assert given["Extra1#EUW"] is None and given[NAMES[0]] == "top"
+
+
+# ---------- ui-engine-review.md, Stage 2: enemy pools and lanes ----------
+def test_bans_say_whose_champion_they_take(svc, engine):
+    store_pools(engine, svc)
+    cards = svc.live.view(first_ban_event(svc))["center"]["cards"]
+    targeted = [c for c in cards if c["group"] == "pool"]
+    assert targeted and all(c["target"] and c["target"]["games"] == 8 for c in targeted)
+    assert targeted[0]["target"]["share"] == pytest.approx(8 / 24, abs=1e-3)
+
+
+def test_scouted_players_carry_labels(svc, engine):
+    store_pools(engine, svc)
+    scout = svc.live.view(first_ban_event(svc))["their_slots"][0]["scout"]
+    assert scout["games_in_role"] == 24 and scout["one_trick"] is None and scout["mastery_only"] is False
+    assert scout["role_sure"] == 1.0  # the client gave the position
+
+
+def test_open_enemy_slots_show_their_players_likely_picks(svc, engine):
+    store_pools(engine, svc)
+    slots = svc.live.view(first_ban_event(svc))["their_slots"]
+    top = slots[0]
+    assert top["open_role"] == "top" and len(top["likely"]) == 3
+    pool = {t["champ"]["id"] for t in top["scout"]["top"]}
+    assert {l["champ"]["id"] for l in top["likely"]} & pool  # their pool shows up in what they're likely to pick

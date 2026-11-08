@@ -509,11 +509,9 @@ class DraftEngine:
                 for c in self._champs if c not in unavailable}
 
     # ---------- enemy model ----------
-    def _enemy_role_probs(self, state: DraftState, their_roles: dict[int, str]) -> dict[int, dict[str, float]]:
-        """P(enemy picks c in role r) for their next pick: uniform over their open roles, softmax over
-        log(pick rate) + w * logit(win rate) within each role."""
-        if state.picks_left(state.their_side, after=len(state.actions) - 1) == 0:
-            return {}
+    def _enemy_per_role(self, state: DraftState, their_roles: dict[int, str]) -> dict[str, dict[int, float]]:
+        """Per open enemy role: P(their player there picks c), a softmax over log(pick rate) + w * logit(win rate),
+        blended with what their scouted player plays."""
         enemy, w = self._enemy(), self.cfg.enemy_strength_weight
         filled = set(their_roles.values())
         unavailable = state.unavailable()
@@ -534,10 +532,53 @@ class DraftEngine:
                 if state.scouting is not None:  # blended with what their player in r plays
                     allowed = [c for c in self._champs if c not in unavailable]
                     per_role[r] = state.scouting.blend(r, per_role[r], self._role_shares, allowed)
+        return per_role
+
+    def _enemy_role_probs(self, state: DraftState, their_roles: dict[int, str]) -> dict[int, dict[str, float]]:
+        """P(enemy picks c in role r) for their next pick: uniform over their open roles, softmax over
+        log(pick rate) + w * logit(win rate) within each role."""
+        if state.picks_left(state.their_side, after=len(state.actions) - 1) == 0:
+            return {}
+        per_role = self._enemy_per_role(state, their_roles)
         out: dict[int, dict[str, float]] = {}
         for r, probs in per_role.items():
             for c, p in probs.items():
                 out.setdefault(c, {})[r] = p / len(per_role)
+        return out
+
+    def likely_by_role(self, state: DraftState, k: int = 3) -> dict[str, list[tuple[int, float]]]:
+        """Per enemy role still open: the k champions their player there most likely picks, with P (within the role).
+        Empty once they have no picks left."""
+        if state.picks_left(state.their_side, after=len(state.actions) - 1) == 0:
+            return {}
+        self._assign_cache.clear()
+        ev = self._evaluate(state)
+        out = {}
+        for r, probs in self._enemy_per_role(state, ev.their_roles).items():
+            out[r] = sorted(probs.items(), key=lambda cp: (-cp[1], cp[0]))[:k]
+        return out
+
+    def their_role_probs(self, state: DraftState) -> dict[int, dict[str, float]]:
+        """P(their locked champion c plays role r): the client's positions are certain; the rest is the softmax
+        marginal over every assignment of the free roles, scored by sum of log P(champion played in role), the
+        same model that picks their most likely assignment."""
+        fixed = self._their_positions(state)
+        out: dict[int, dict[str, float]] = {c: {r: 1.0} for c, r in fixed.items()}
+        theirs = [c for c in state.their_picks if c not in fixed]
+        if not theirs:
+            return out
+        floor = self.cfg.role_share_floor
+        scored = []
+        for perm in permutations([r for r in ROLES if r not in fixed.values()], len(theirs)):
+            s = sum(math.log(max(self._role_shares.get(c, {}).get(r, 0.0), floor)) for c, r in zip(theirs, perm))
+            scored.append((s, perm))
+        top = max(s for s, _ in scored)
+        z = sum(math.exp(s - top) for s, _ in scored)
+        for s, perm in scored:
+            w = math.exp(s - top) / z
+            for c, r in zip(theirs, perm):
+                out.setdefault(c, {})
+                out[c][r] = out[c].get(r, 0.0) + w
         return out
 
     def enemy_pick_probs(self, state: DraftState) -> dict[int, float]:

@@ -146,8 +146,8 @@ class Services:
         """(EnemyScouting | None, what Live shows): asks for any opponent not fetched yet. Off in Settings: nothing."""
         from draftassist.data.scout import (
             ERROR_RETRY_S,
-            assign_roles,
             build_scouting,
+            guess_roles,
             load_pools,
             scout_summary,
         )
@@ -172,10 +172,10 @@ class Services:
                 self.scout_retried.update(rid.lower() for rid in retry)
                 runner.enqueue(retry)
         shares = self.engine.role_share_map
-        roles = assign_roles(pools, given, shares)
+        roles, sure = guess_roles(pools, given, shares)
         scouting = build_scouting(pools, given, settings["scout_weight"], shares)
         info = {"source": source, "available": runner.available, "running": runner.running, "error": runner.last_error,
-                "players": scout_summary(ids, pools, roles, self.catalog.card)}
+                "players": scout_summary(ids, pools, roles, self.catalog.card, sure=sure)}
         return scouting, info
 
     # ---------- first run and updates (src/draftassist/first_run.py, updates.py) ----------

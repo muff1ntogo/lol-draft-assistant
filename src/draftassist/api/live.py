@@ -333,17 +333,47 @@ def _our_slots(v: _View, finished: bool) -> list[dict]:
     return out
 
 
+ROLE_SURE = 0.85  # a locked enemy champion's role at least this likely is shown as plain fact
+LIKELY_SHOWN = 3  # champions shown per open enemy role
+
+
 def _their_slots(v: _View) -> list[dict]:
+    """Their slots: a locked champion with the role we assume (and the other likely ones when it's a flex pick); an
+    open slot with the role it's most likely for and the champions their player there most likely picks. Scouted
+    players beside the role they're taken to play."""
     roles = v.ev.their_roles
+    st = v.st
     scouted = {p["riot_id"].lower(): p for p in (v.scout_info or {}).get("players", [])}
     by_role = {p["role"]: p for p in scouted.values() if p["role"]}
+    role_probs = v.engine.their_role_probs(st)
+    likely = v.engine.likely_by_role(st, LIKELY_SHOWN) if st.step is not None else {}
+    # open slots take the open roles: the client's position first, then in role order
+    taken = set(roles.values())
+    open_roles = [r for r in ROLES if r not in taken]
+    for s in v.live.their_slots:
+        if not s.champ_id and s.role in open_roles:
+            open_roles.remove(s.role)
     out = []
     for s in v.live.their_slots:
-        role = roles.get(s.champ_id) or s.role
+        role = roles.get(s.champ_id) if s.champ_id else (s.role if s.role and s.role not in taken else
+                                                         (open_roles.pop(0) if open_roles else None))
+        if not s.champ_id and role:
+            taken.add(role)
         player = scouted.get((s.riot_id or "").lower()) or (by_role.get(role) if not s.riot_id else None)
-        out.append({"champ": v.card(s.champ_id), "role": roles.get(s.champ_id),
-                    "role_label": ROLE_LABELS.get(roles.get(s.champ_id, ""), ""),
-                    "badge": v.badge_of(s.champ_id, roles.get(s.champ_id)), "scout": player})
+        slot = {"champ": v.card(s.champ_id), "role": role if s.champ_id else None,
+                "role_label": ROLE_LABELS.get(role or "", "") if s.champ_id else "",
+                "open_role": None if s.champ_id else role,
+                "open_role_label": "" if s.champ_id else ROLE_LABELS.get(role or "", ""),
+                "badge": v.badge_of(s.champ_id, roles.get(s.champ_id)) if s.champ_id else None, "scout": player,
+                "role_probs": None, "likely": None}
+        if s.champ_id:
+            probs = sorted(role_probs.get(s.champ_id, {}).items(), key=lambda rp: -rp[1])
+            if probs and probs[0][1] < ROLE_SURE:
+                slot["role_probs"] = [{"role": r, "role_label": ROLE_LABELS[r], "p": round(p, 3)}
+                                      for r, p in probs[:2] if p >= 0.05]
+        elif role in likely:
+            slot["likely"] = [{"champ": v.card(c), "p": round(p, 3)} for c, p in likely[role]]
+        out.append(slot)
     return out
 
 
@@ -366,6 +396,24 @@ def _center_locked(v: _View) -> dict:
             "threats": [{"champ": v.card(t.champ_id), "reason": t.reason} for t in v.engine.threats(v.st, k=2)]}
 
 
+def _ban_target(st: DraftState, s: Suggestion) -> dict | None:
+    """Whose champion a ban takes, when we scouted them: their games on it in the role (share of their games there),
+    or its rank in their mastery."""
+    if st.scouting is None or not s.role:
+        return None
+    player = next((p for p in st.scouting.players if p.role == s.role), None)
+    if player is None:
+        return None
+    games, wins = player.record(s.champ_id)
+    if games:
+        return {"player": player.name, "role_label": ROLE_LABELS[s.role], "games": games, "wins": wins,
+                "share": round(games / player.n, 3) if player.n else None}
+    rank = player.mastery_rank(s.champ_id)
+    if rank is not None and rank <= 5 and not player.stale(s.champ_id):
+        return {"player": player.name, "role_label": ROLE_LABELS[s.role], "mastery_rank": rank}
+    return None
+
+
 SCOUTED_BAN_CARDS = {1: (5, 2), 2: (3, 1)}  # ban phase -> (from their pools, from the rest) (docs/enemy-scouting.md)
 
 
@@ -375,7 +423,8 @@ def _center_our_ban(v: _View, n_cards: int) -> dict:
     st, about_to_ban = v.st, v.live.ally_ban_hovers
 
     def card(s: Suggestion, **extra) -> dict:
-        return {**_ban_card(v.catalog, s, v.hovered, v.engine.cfg.ban_weights, v.profiles), **extra}
+        return {**_ban_card(v.catalog, s, v.hovered, v.engine.cfg.ban_weights, v.profiles),
+                "target": _ban_target(st, s), **extra}
 
     if st.scouting is not None and not st.format.simultaneous_bans:
         n_pool, n_off = SCOUTED_BAN_CARDS.get(st.step.phase, SCOUTED_BAN_CARDS[2])

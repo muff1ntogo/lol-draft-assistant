@@ -189,6 +189,13 @@ def _role_guess(pools: Mapping[str, PlayerPool], given: Mapping[str, str | None]
     return roles, sure
 
 
+def guess_roles(pools: Mapping[str, PlayerPool], given: Mapping[str, str | None],
+                role_shares: Mapping[int, Mapping[str, float]] | None = None,
+                now: float | None = None) -> tuple[dict[str, str], dict[str, float]]:
+    """(Riot ID -> role, Riot ID -> how sure we are of it): `assign_roles` with its certainty."""
+    return _role_guess(pools, given, role_shares, now)
+
+
 def assign_roles(pools: Mapping[str, PlayerPool], given: Mapping[str, str | None],
                  role_shares: Mapping[int, Mapping[str, float]] | None = None,
                  now: float | None = None) -> dict[str, str]:
@@ -219,19 +226,29 @@ def build_scouting(pools: Mapping[str, PlayerPool], given_roles: Mapping[str, st
 
 
 TOP_SHOWN = 3
+ONE_TRICK_SHARE = 0.6  # one champion is this share of their games in the role...
+ONE_TRICK_GAMES = 8  # ...over at least this many games
 
 
 def scout_summary(riot_ids: Iterable[str], pools: Mapping[str, PlayerPool], roles: Mapping[str, str],
-                  card: Callable[[int], dict | None], now: float | None = None) -> list[dict]:
-    """Per player, what Live shows: their name, the role we take them to play, how far the fetch is, and their top
-    champions in that role (games and win rate), or by mastery until games are in (those played lately first; ones
-    untouched for months only if there's nothing else)."""
+                  card: Callable[[int], dict | None], now: float | None = None,
+                  sure: Mapping[str, float] | None = None) -> list[dict]:
+    """Per player, what Live shows: their name, the role we take them to play (and how sure, from `sure`), how far
+    the fetch is, and their top champions in that role (games and win rate), or by mastery until games are in (those
+    played lately first; ones untouched for months only if there's nothing else). Labels: `one_trick` (one champion
+    is ONE_TRICK_SHARE of ONE_TRICK_GAMES+ games in the role) and `mastery_only` (fetched, but no recent games)."""
     out = []
     for rid in riot_ids:
         pool, role = pools.get(rid), roles.get(rid)
         top: list[dict] = []
+        games_in_role, one_trick = 0, None
         if pool is not None:
             played = pool.games.get(role, {}) if role else {}
+            games_in_role = sum(g for g, _ in played.values())
+            if played and games_in_role >= ONE_TRICK_GAMES:
+                c, (g, _) = max(played.items(), key=lambda kv: (kv[1][0], -kv[0]))
+                if g / games_in_role >= ONE_TRICK_SHARE:
+                    one_trick = card(c)
             if played:
                 for c, (g, w) in sorted(played.items(), key=lambda kv: (-kv[1][0], kv[0]))[:TOP_SHOWN]:
                     top.append({"champ": card(c), "games": g, "wins": w})
@@ -242,7 +259,9 @@ def scout_summary(riot_ids: Iterable[str], pools: Mapping[str, PlayerPool], role
                 top = [{"champ": card(c), "points": p} for c, p in fresh[:TOP_SHOWN]]
         out.append({"riot_id": rid, "name": rid.split("#")[0], "role": role, "status": pool.status if pool else "new",
                     "games_read": pool.games_read if pool else 0, "games_wanted": pool.games_wanted if pool else 0,
-                    "top": top})
+                    "top": top, "games_in_role": games_in_role, "one_trick": one_trick,
+                    "mastery_only": bool(pool is not None and pool.status == "done" and not pool.games),
+                    "role_sure": None if role is None or sure is None else round(sure.get(rid, 1.0), 3)})
     return out
 
 
