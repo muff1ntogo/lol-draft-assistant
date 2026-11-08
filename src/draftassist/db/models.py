@@ -239,6 +239,23 @@ class OwnGameParticipant(ParticipantTimeline, table=True):
     role: str | None = None  # from the match; None if Riot didn't give a position
 
 
+class MatchBuild(SQLModel, table=True):
+    """What a crawled player ran (docs/strategy.md): runes, summoner spells and the items held at the end. Filled by the
+    crawl, and from the Riot cache for matches stored before (data/builds.backfill_builds). No foreign key: the Master+
+    database has its own matches."""
+    __tablename__ = "match_builds"
+
+    match_id: str = Field(primary_key=True)
+    champ_id: int = Field(primary_key=True, index=True)
+    keystone: int | None = Field(default=None, index=True)
+    primary_style: int | None = None
+    sub_style: int | None = None
+    perks_json: str | None = None  # JSON: the six rune ids (four primary, two secondary) in order
+    shards_json: str | None = None  # JSON: [offense, flex, defense] stat shards
+    items_json: str | None = None  # JSON: item ids in slots 0-5 at the end (no trinket, no empties)
+    spells_json: str | None = None  # JSON: the two summoner spell ids, sorted
+
+
 class MatchTeamState(SQLModel, table=True):
     """One team's game state, for crawled matches and our own games alike (no foreign key: ours aren't in crawled_matches).
     Nothing aggregates it. None = unknown, or gold_25 in a game that ended first."""

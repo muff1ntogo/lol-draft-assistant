@@ -107,6 +107,14 @@ def main() -> int:
     print(f"Game length backfilled for {result['updated']} matches; {result['missing']} not in the cache")
     result = backfill_traits(db, settings.cache_dir)
     print(f"Trait sources backfilled for {result['updated']} matches; {result['missing']} not in the cache")
+    from draftassist.data.builds import backfill_builds
+    from draftassist.data.master import master_path
+
+    result = backfill_builds(db, settings.cache_dir)
+    print(f"Runes and items backfilled for {result['updated']} matches; {result['missing']} not in the cache")
+    if master_path(settings.db_path).is_file():
+        result = backfill_builds(init_db(master_path(settings.db_path)), settings.cache_dir)
+        print(f"Master+ runes and items backfilled for {result['updated']} matches; {result['missing']} not in the cache")
     patch = current_patch(db)
     with db.connect() as conn:  # older patches' slices too: the columns they gained, and what the window pools
         older = [r[0] for r in conn.execute(text("SELECT DISTINCT patch FROM crawled_matches WHERE patch <> :p"),

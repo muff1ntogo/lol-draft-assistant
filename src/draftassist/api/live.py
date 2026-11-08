@@ -519,7 +519,8 @@ def _center(v: _View, live: LiveDraft, finished: bool, n_cards: int) -> dict:
 
 def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDraft,
                     data_source: str, note: str | None, pin: dict | None = None, draft_scale: float | None = None,
-                    scouting=None, scout_info: dict | None = None, board_only: bool = False) -> dict:
+                    scouting=None, scout_info: dict | None = None, board_only: bool = False,
+                    strategy_builds=None) -> dict:
     """The Live payload. The board (slots, bans, phase) must build; each panel on top of it (centre, comps,
     plan bar, hover scores) fails on its own and is listed in `panel_errors`. `board_only` skips the
     suggestions (centre None, `pending` True): sent first when a full build is slow."""
@@ -551,6 +552,13 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
     comp = None if board_only else _panel(errors, "comp panels", lambda: {
         "ours": {**team_comp(v.profiles, ours).as_dict(), "target": _target(engine, ours)},
         "theirs": team_comp(v.profiles, theirs).as_dict()})
+    strategy = None
+    if not board_only and st.our_picks:
+        from draftassist.engine.strategy import strategy_view
+
+        strategy = _panel(errors, "strategy", lambda: strategy_view(
+            engine, st, ev.our_roles, ev.their_roles, strategy_builds, catalog.card,
+            (scout_info or {}).get("players")))
     plan = None
     if effects:
         plan = _panel(errors, "plan bar", lambda: _plan_bar(engine, catalog, pin, effects.banner, st, ev.our_roles))
@@ -569,6 +577,7 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
         "center": center,
         "pending": board_only,
         "plan": plan,
+        "strategy": strategy,
         "scouting": scout_info,
         "panel_errors": errors,
     }
@@ -601,6 +610,8 @@ class LiveService:
         # (EnemyScouting | None, what Live shows of it) for a parsed champ select (docs/enemy-scouting.md)
         self.scout_provider: Callable[[LiveDraft], tuple[object, dict | None]] | None = None
         self.on_game_end: Callable[[], None] | None = None
+        # (champ, role, opponent) -> engine.strategy.BuildView | None, for the Strategy view (docs/strategy.md)
+        self.strategy_builds: Callable[[int, str, int | None], object] | None = None
         # One build at a time, in the order events arrive; `submit` keeps only the newest waiting session
         self._lock = threading.RLock()
         self._cv = threading.Condition()
@@ -689,7 +700,8 @@ class LiveService:
             live, pin, scouting, scout_info = self._parse(session)
             self.current = live
             payload = build_live_view(self.engine, self.catalog, live, self.data_source, self.note, pin,
-                                      self.draft_scale, scouting, scout_info, board_only=board_only)
+                                      self.draft_scale, scouting, scout_info, board_only=board_only,
+                                      strategy_builds=self.strategy_builds)
         except SessionParseError as e:
             log.error("could not parse champ select session: %s", e)
             return {"status": "error", "message": str(e)}, None

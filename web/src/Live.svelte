@@ -4,10 +4,18 @@
   import ComponentLegend from './ComponentLegend.svelte';
   import CompPanel from './CompPanel.svelte';
   import ScoutBox from './ScoutBox.svelte';
+  import StrategyView from './StrategyView.svelte';
 
   let { view, secondsLeft } = $props();
   const center = $derived(view.center);
   const pct = (p) => (p < 0.005 ? '<1%' : `${Math.round(p * 100)}%`);
+  // Draft (suggestions) or Strategy (runes, builds, game plan; docs/strategy.md); remembered per browser
+  let tab = $state('draft');
+  try { tab = localStorage.getItem('live.tab') === 'strategy' ? 'strategy' : 'draft'; } catch {}
+  function show(t) {
+    tab = t;
+    try { localStorage.setItem('live.tab', t); } catch {}
+  }
   const pp = (x) => `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(x).toFixed(1)}pp`;
 </script>
 
@@ -19,6 +27,15 @@
   </span>
   <span class="timer">{secondsLeft == null ? '' : Math.ceil(secondsLeft)}</span>
 </header>
+<div class="tabs" role="tablist">
+  <button role="tab" aria-selected={tab === 'draft'} class:on={tab === 'draft'} onclick={() => show('draft')}>Draft</button>
+  <button role="tab" aria-selected={tab === 'strategy'} class:on={tab === 'strategy'} onclick={() => show('strategy')}>
+    Strategy{#if view.strategy?.players?.length} <span class="count">{view.strategy.players.length}</span>{/if}</button>
+</div>
+
+{#if tab === 'strategy'}
+<StrategyView strategy={view.strategy} />
+{:else}
 
 <main class="board">
   <section class="team ours">
@@ -228,8 +245,14 @@
     <ScoutBox compact />
   </section>
 </main>
+{/if}
 
 <style>
+  .tabs { display: flex; gap: 4px; padding: 8px 28px 0; border-bottom: 1px solid var(--line); }
+  .tabs button { background: none; border: 0; color: var(--muted); font: inherit; font-size: 15px; padding: 6px 14px 8px;
+                 cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -1px; }
+  .tabs button.on { color: var(--text); font-weight: 600; border-bottom-color: var(--gold); }
+  .tabs .count { font-size: 12px; background: var(--panel-2); border-radius: 8px; padding: 0 6px; margin-left: 4px; }
   .roleprobs { display: block; font-size: 12px; color: var(--gold); font-weight: 400; }
   .likely { display: flex; gap: 6px; }
   .lk { display: flex; flex-direction: column; align-items: center; font-size: 11px; color: var(--muted); }

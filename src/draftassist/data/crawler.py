@@ -23,6 +23,7 @@ from sqlalchemy import Engine, true
 from sqlmodel import Session, col, func, select
 
 from draftassist.data.riot import RiotClient
+from draftassist.data.builds import parse_builds, store_build
 from draftassist.data.traits_map import parse_match_traits
 from draftassist.db.models import (
     Champion,
@@ -94,6 +95,7 @@ class ParsedMatch:
     damage: tuple[tuple[int | None, int | None, int | None], ...] = ()  # physical, magic, true; same order
     duration_s: int | None = None
     traits: tuple[dict, ...] = ()  # trait source values per participant (data/traits_map.py); same order
+    builds: tuple[dict, ...] = ()  # runes, items, spells per participant (data/builds.py); same order
 
 
 DAMAGE_FIELDS = ("physicalDamageDealtToChampions", "magicDamageDealtToChampions", "trueDamageDealtToChampions")
@@ -121,7 +123,8 @@ def parse_match(match: dict) -> ParsedMatch | None:
     bans = tuple((t["teamId"], b["pickTurn"], b["championId"]) for t in info["teams"] for b in t.get("bans", []))
     return ParsedMatch(match["metadata"]["matchId"], patch_of(info["gameVersion"]), info["queueId"],
                        info.get("gameStartTimestamp", 0), tuple(participants), bans, tuple(damage),
-                       info.get("gameDuration"), parse_match_traits(info["participants"]))
+                       info.get("gameDuration"), parse_match_traits(info["participants"]),
+                       parse_builds(info["participants"]))
 
 
 @dataclass
@@ -290,4 +293,7 @@ class Crawler:
                                        dmg_phys=phys, dmg_magic=magic, dmg_true=true, **t))
             for team, turn, champ in m.bans:
                 s.add(MatchBan(match_id=m.match_id, team_id=team, pick_turn=turn, champ_id=champ))
+            s.flush()
+            for (champ, _, _, _), b in zip(m.participants, m.builds):
+                store_build(s.connection(), m.match_id, champ, b)
             s.commit()

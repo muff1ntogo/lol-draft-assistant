@@ -37,6 +37,21 @@ def fetch_champions(client: httpx.Client, version: str, cache_dir: Path, locale:
     return resp.json()
 
 
+STATIC_FILES = ("item.json", "runesReforged.json", "summoner.json")  # names for the Strategy view (docs/strategy.md)
+
+
+def fetch_static(client: httpx.Client, version: str, cache_dir: Path, name: str, locale: str = "en_US") -> dict | list:
+    """Another per-version Data Dragon file (items, runes, summoner spells), from disk cache when present."""
+    cache_file = cache_dir / "ddragon" / version / locale / name
+    if cache_file.is_file():
+        return json.loads(cache_file.read_text(encoding="utf-8"))
+    resp = client.get(f"{BASE_URL}/cdn/{version}/data/{locale}/{name}")
+    resp.raise_for_status()
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    cache_file.write_text(resp.text, encoding="utf-8")
+    return resp.json()
+
+
 def parse_champions(payload: dict, version: str) -> list[Champion]:
     return [
         Champion(champ_id=int(c["key"]), key=c["id"], name=c["name"], patch=version, tags=list(c.get("tags", [])),
@@ -64,6 +79,11 @@ def refresh(client: httpx.Client, session: Session, cache_dir: Path, locale: str
     version = latest_version(client)
     payload = fetch_champions(client, version, cache_dir, locale)
     count = load_champions(session, parse_champions(payload, version))
+    for name in STATIC_FILES:  # not essential: the Strategy view shows ids without them
+        try:
+            fetch_static(client, version, cache_dir, name, locale)
+        except httpx.HTTPError:
+            pass
     return version, count
 
 

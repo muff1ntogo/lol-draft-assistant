@@ -332,6 +332,7 @@ class Services:
         live.engine, live.catalog = DraftEngine(data, inputs.team, engine_config(self.db)), inputs.catalog
         live.data_source, live.note = inputs.data_source, inputs.note
         live.draft_scale = load_draft_scale(self.db)
+        live.strategy_builds = strategy_builds(self.db, self.settings.cache_dir if self.settings else None, inputs)
         self._synergy_v2 = None
         if self.players is not None:
             self.players.invalidate()
@@ -455,6 +456,7 @@ def build_services(settings: Settings) -> Services:
     live = LiveService(engine, inputs.catalog, hub, inputs.data_source, inputs.note, settings.draft_format,
                        recorder, logger, players, verify_later)
     live.draft_scale = load_draft_scale(db)
+    live.strategy_builds = strategy_builds(db, settings.cache_dir, inputs)
     if logger is not None:
         logger.context = lambda: (live.engine, live.catalog)
     svc = Services(hub, live, db, players, settings.lcu_mode, settings, stats_version(db))
@@ -489,6 +491,18 @@ async def run_demo(live: LiveService, interval: float = 1.5, seed: int = 0) -> N
         await asyncio.sleep(interval)
         live.handle_phase("Lobby", None)  # back in the lobby: screen clears
         await asyncio.sleep(interval * 2)
+
+
+def strategy_builds(db: Engine, cache_dir: Path | None, inputs):
+    """The Strategy view's build reader (docs/strategy.md) for the current patch and our players' brackets."""
+    from draftassist.api.strategy import StrategyBuilds
+    from draftassist.data.crawler import current_patch
+
+    try:
+        patch = current_patch(db)
+    except RuntimeError:  # no champions yet
+        return None
+    return StrategyBuilds(db, cache_dir or Path("cache"), patch, dict(inputs.team.brackets), inputs.catalog.patch)
 
 
 def load_draft_scale(db: Engine) -> float | None:
