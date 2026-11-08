@@ -176,3 +176,17 @@ Each was built with the default shown; changing one is small.
 
 After pulling: `uv sync`; `cd web; npm ci; npm run build`; `data.ddragon` (item, rune and spell names); `data.backfill`
 (runes and items for matches already crawled, both databases; from the cache, no API calls); restart the app.
+
+## Your answers (8 Nov 2026)
+
+1. Vs-opponent builds: 30 **crawled** games (explained in chat): kept.
+2. Item and skill order: you'll research it and write a prompt.
+3. Lane tips: you'll research modelling champion lane strength by level (1–18, 20 for top) and item spikes, and write a
+   prompt.
+4. Item thresholds: explained in chat; open.
+5. Contested from 3%, rare pick under 0.5%, flex role chances under 85%, one-trick at 60% of 8+: kept.
+6. History Overview open by default: kept.
+7. Live speed is fine. Scouting's success rate is the concern: researched in `scouting-research.md` (plan at its end,
+   awaiting your go-ahead).
+8. ECharts: kept.
+9. Explained in chat; open.
