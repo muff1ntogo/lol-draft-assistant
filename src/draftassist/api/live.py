@@ -450,6 +450,20 @@ def _next_two(v: _View) -> list[dict]:
         for pair in eng.suggest_pick_pairs(v.st, k=3)]
 
 
+CONTESTED = 0.03  # their next pick takes it at least this often: the card says so
+RARE_PICK_RATE = 0.005  # picked in under 0.5% of the bracket's games: its numbers rest on few games
+
+
+def _low_data(eng: DraftEngine, champ: int, role: str | None) -> str | None:
+    """Why a card's numbers are thin, if they are: a rare pick in the bracket, or no games on it from our player."""
+    if not role:
+        return None
+    stat = eng.our_stats(role).role_stat(champ, role)
+    if stat is None or stat.pick_rate < RARE_PICK_RATE:
+        return "rare pick: few games behind these numbers"
+    return None
+
+
 def _center_our_pick(v: _View, n_cards: int) -> dict:
     st, live, eng = v.st, v.live, v.engine
     role = live.actor_role if live.actor_role in v.open_roles else None
@@ -458,9 +472,13 @@ def _center_our_pick(v: _View, n_cards: int) -> dict:
               "cards": [_pick_card(v.catalog, s, v.hovered, v.profiles, v.ours) for s in picks], "hover_card": None}
     check = _check_strip(eng, st)
     center["check"] = check
+    enemy_next = eng.enemy_pick_probs(st) if st.picks_left(st.their_side, after=len(st.actions) - 1) else {}
     for card, s in zip(center["cards"], picks):
         _note_fixes(card, s, eng, check)
         card["archetype"] = _archetype_of(eng, s.champ_id, s.role)
+        p = enemy_next.get(s.champ_id, 0.0)
+        card["contested"] = round(p, 3) if p >= CONTESTED else None  # their next pick might take it
+        card["low_data"] = _low_data(eng, s.champ_id, s.role)
     if eng.back_to_back(st):
         center["next_two"] = _next_two(v)
     actor_hover = next((sl.hover_id for sl in live.our_slots if sl.cell_id == live.actor_cell_id), 0)
@@ -468,6 +486,9 @@ def _center_our_pick(v: _View, n_cards: int) -> dict:
         scored = _score_hover(eng, st, v.open_roles, actor_hover, live.actor_role)
         if scored is not None:
             center["hover_card"] = _pick_card(v.catalog, scored, v.hovered, v.profiles, v.ours)
+            if picks and scored.win_prob is not None and picks[0].win_prob is not None:
+                center["hover_card"]["delta_pp"] = round(100 * (scored.win_prob - picks[0].win_prob), 1)
+                center["hover_card"]["vs_name"] = v.catalog.card(picks[0].champ_id)["name"]
     return center
 
 

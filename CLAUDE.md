@@ -94,11 +94,28 @@ import-games`): our active players' ranked games of the last 60 days with 3+ of 
 have become drafts from match-v5 (`data/import_games.py`, `drafts.imported`; pick order is the participants' order, no
 suggestions), with their timelines.
 
+`ui-engine-review.md` (8 Nov 2026; decisions in the doc; built without step-by-step review, as asked): Tags and Rules
+open from Settings (Champion data), not the top bar. **Live speed and no-crash** (`live-speed.md`): the connector
+`submit`s sessions to one builder thread (newest wins), board first after a slow build, each panel fails on its own
+(`panel_errors`), the last good suggestions stay up marked stale, `build_ms` on every payload. **Enemy pools and lanes**
+(`enemy-lanes.md`): role chances for flex picks (`their_role_probs`), the likely picks per open enemy slot
+(`likely_by_role`), one-trick / mastery-only / role-certainty labels, whose champion a ban takes. **History charts**
+(`history-charts.md`): an Overview band (Apache ECharts, lazily loaded; `GET /api/history/stats`). **Strategy tab** on
+Live (`strategy.md`): runes, spells and items from `match_builds` (stored by the crawl; `data.backfill` fills older
+matches from the cache) with names from Data Dragon, what Master+ runs and how it wins in the player's bracket, lane
+plan, game plan and threats (`engine/strategy.py`, `data/builds.py`, `api/strategy.py`). **Top bar** Live · Prep ·
+Review (History + Team) · Roster (Pools) with Crawl and Settings as icons, and Live polish (`nav-and-live-polish.md`).
+After pulling: `uv sync`, `cd web; npm ci; npm run build`, then `data.ddragon` (item and rune names) and `data.backfill`
+(runes and items for matches already crawled).
+
 Open points:
 - `flex-simultaneous-bans.md` test 2 assumes greedy recomputation spreads bans across lanes; under the lane ban score it concentrates (banning both bad top matchups is worth more). Implemented as specified; a per-lane diminishing-returns rule would need a decision.
 - Ranked 5s queue id and what `theirTeam` shows in Ranked 5s: unknown until the first recorded Ranked 5s champ select (recordings land in `fixtures/lcu/recorded/`).
 
 ## Code map (`src/draftassist/`)
+- `engine/strategy.py`: Live's Strategy view (lane plan, build reasons, win conditions); `data/builds.py` reads
+  `match_builds` and Data Dragon names; `api/strategy.py` caches per champion, role and opponent; `api/history_stats.py`
+  is History's Overview band.
 - `engine/`: pure scoring. `engine.py` (scores, picks, bans = rel × discount × (a·Threat + b·Matchup + c·Comp) − d·OwnLoss, Flex group bans; synergy term from `synergy_v2.py` when attached; read-only views for planners), `lane_ban.py`, `matchup_model.py` (matchups smoothed by archetype and kit), `bot_lane.py` (2v2), `blind.py` (blind safety, pool health), `matchup_tree.py`, `comp.py` (timing, the five identities, badges, team comp), `traits.py` / `style.py` / `team.py` / `synergy_v2.py` (synergy v2 traits, pair style rules, team model, Stat / Style / Team evaluator), `plan.py` (plan bans and picks, pin), `guards.py` (Rules 1–3, last step before any list leaves the engine), `formats.py`, `state.py` (`DraftState.unavailable()` is the only availability source), `mathx.py` (the one logit / sigmoid).
 - `lcu/`: `connector.py` (ReadOnlyLcu, GET only), `parser.py` (all LCU field names; `parse_session` = scan actions, fill steps, slots), `recorder.py`, `demo.py`.
 - `api/`: `main.py` (Services, build_services, demo / replay / stats loops, app assembly), routers: `pool_routes.py` (players, pools, import, tier accept / lock), `settings_routes.py`, `learning_routes.py` (lane ban tables, learning job, Team style, prep sheet, model check), `history_routes.py` (history, recap, art), `synergy_routes.py` (synergy v2: Prep synergy and plan, pin, tags, rules, evaluate, synergy settings); `prep_view.py` / `synergy_v2.py` (synergy JSON), `deps.py` (`db_of`), `live.py` (Live view, plan bar, WebSocket hub), `draftlog.py`, `recap.py` (History).

@@ -12,14 +12,19 @@
   import ScoutBox from './ScoutBox.svelte';
   import AppStatus from './AppStatus.svelte';
 
-  const PAGES = { live: 'Live', prep: 'Prep', pools: 'Pools', history: 'History', team: 'Team', crawl: 'Crawl', settings: 'Settings' };
-  // Reached from Settings (Champion data) and the Prep page's header, not the nav; the Settings tab stays lit on them
-  const HIDDEN = { tags: 'Tags', champions: 'Tags', rules: 'Rules' };
-  const navKey = (p) => (p in HIDDEN ? 'settings' : p);
+  // The top bar (docs/ui-engine-review.md, decision 3): Live · Prep · Review (History + Team) · Roster (Pools), then
+  // Crawl and Settings as icons. Every page keeps its own address; a tab stays lit on the pages it groups.
+  const TABS = [['live', 'Live'], ['prep', 'Prep'], ['history', 'Review'], ['pools', 'Roster']];
+  const ICONS = [['crawl', 'Crawl: data jobs'], ['settings', 'Settings']];
+  const PAGES = ['live', 'prep', 'pools', 'history', 'team', 'crawl', 'settings', 'tags', 'champions', 'rules'];
+  const GROUP = { team: 'history', tags: 'settings', champions: 'settings', rules: 'settings' };
+  const navKey = (p) => GROUP[p] ?? p;
   const pageFromHash = () => {
     const key = location.hash.slice(2);
     if (key === 'synergy') return 'prep'; // the Synergy page is part of Prep now (docs/synergy-v2.md)
-    return key in PAGES || key in HIDDEN ? key : 'live';
+    if (key === 'roster') return 'pools';
+    if (key === 'review') return 'history';
+    return PAGES.includes(key) ? key : 'live';
   };
   let page = $state(pageFromHash());
   window.addEventListener('hashchange', () => (page = pageFromHash()));
@@ -52,13 +57,30 @@
 </script>
 
 <nav>
-  {#each Object.entries(PAGES) as [key, label]}
+  {#each TABS as [key, label]}
     <a href={`#/${key}`} class:active={navKey(page) === key}>{label}</a>
   {/each}
   {#if view.status === 'champ_select' && page !== 'live'}
     <a href="#/live" class="alert">Champ select live →</a>
   {/if}
+  <span class="icons" class:pushed={!(view.status === 'champ_select' && page !== 'live')}>
+    {#each ICONS as [key, label]}
+      <a href={`#/${key}`} class="icon" class:active={navKey(page) === key} title={label} aria-label={label}>
+        {#if key === 'crawl'}
+          <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        {:else}
+          <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="6.3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        {/if}
+      </a>
+    {/each}
+  </span>
 </nav>
+{#if page === 'history' || page === 'team'}
+  <div class="subnav">
+    <a href="#/history" class:active={page === 'history'}>History</a>
+    <a href="#/team" class:active={page === 'team'}>Team trends</a>
+  </div>
+{/if}
 
 {#if !connected}
   <div class="banner offline">Reconnecting to the assistant…</div>
@@ -110,6 +132,14 @@
   nav a.active::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: -1px; height: 3px;
                         border-radius: 3px 3px 0 0; background: var(--gold); }
   nav a.alert { margin-left: auto; color: var(--gold); }
+  .icons { display: flex; gap: 2px; }
+  .icons.pushed { margin-left: auto; }
+  nav a.icon { display: flex; align-items: center; padding: 9px 11px 11px; }
+  nav a.icon.active::after { left: 8px; right: 8px; }
+  .subnav { display: flex; gap: 4px; padding: 8px 24px 0; }
+  .subnav a { color: var(--muted); text-decoration: none; font-size: 14px; padding: 5px 12px; border-radius: 6px; }
+  .subnav a:hover { color: var(--text); }
+  .subnav a.active { color: var(--text); background: var(--panel-2); font-weight: 600; }
   .banner { padding: 6px 16px; font-size: 14px; text-align: center; }
   .offline { background: #6e2a2a; }
   .fixture { background: #3d3214; color: var(--gold); }

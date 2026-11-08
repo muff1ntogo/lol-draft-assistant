@@ -16,20 +16,27 @@
     tab = t;
     try { localStorage.setItem('live.tab', t); } catch {}
   }
+  // D / S switch views; ignored while typing (the Scout box)
+  function onKey(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName ?? '')) return;
+    if (e.key === 'd' || e.key === 'D') show('draft');
+    else if (e.key === 's' || e.key === 'S') show('strategy');
+  }
   const pp = (x) => `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(x).toFixed(1)}pp`;
 </script>
 
+<svelte:window onkeydown={onKey} />
 <header class="top {view.side}">
   <span class="side">{view.side.toUpperCase()} SIDE</span>
   <span class="phase">{view.phase}</span>
   <span class="turn">
     {#if view.turn === 'us'}OUR {view.action?.toUpperCase()}{:else if view.turn === 'them'}THEIR {view.action?.toUpperCase()}{/if}
   </span>
-  <span class="timer">{secondsLeft == null ? '' : Math.ceil(secondsLeft)}</span>
+  <span class="timer" class:soon={secondsLeft != null && secondsLeft < 10} class:urgent={secondsLeft != null && secondsLeft < 5}>{secondsLeft == null ? '' : Math.ceil(secondsLeft)}</span>
 </header>
 <div class="tabs" role="tablist">
-  <button role="tab" aria-selected={tab === 'draft'} class:on={tab === 'draft'} onclick={() => show('draft')}>Draft</button>
-  <button role="tab" aria-selected={tab === 'strategy'} class:on={tab === 'strategy'} onclick={() => show('strategy')}>
+  <button role="tab" aria-selected={tab === 'draft'} class:on={tab === 'draft'} onclick={() => show('draft')} title="Draft (D)">Draft</button>
+  <button role="tab" aria-selected={tab === 'strategy'} class:on={tab === 'strategy'} onclick={() => show('strategy')} title="Strategy (S)">
     Strategy{#if view.strategy?.players?.length} <span class="count">{view.strategy.players.length}</span>{/if}</button>
 </div>
 
@@ -129,6 +136,8 @@
             {#if card.target}<div class="target">{card.target.role_label} {card.target.player}: {#if card.target.games}{card.target.games} games{#if card.target.share != null} ({Math.round(card.target.share * 100)}% of theirs){/if}, {Math.round((100 * card.target.wins) / card.target.games)}% won{:else}#{card.target.mastery_rank} by mastery{/if}</div>{/if}
             <div class="reason">{card.reason}{#if card.effect?.length}<span class="effect">{` → ${card.effect.join(', ')}`}</span>{/if}</div>
             {#if card.components}<ComponentBar components={card.components} />{/if}
+            {#if card.contested}<div class="contested" title="How likely their next pick takes it">contested: {pct(card.contested)} they pick it next</div>{/if}
+            {#if card.low_data}<div class="lowdata">{card.low_data}</div>{/if}
             {#each card.warnings as w}<div class="warn">{w}</div>{/each}
           </div>
         </article>
@@ -140,7 +149,7 @@
           <span class="rank">H</span>
           <Champ champ={center.hover_card.champ} size={64} />
           <div>
-            <div class="title">Hover: {center.hover_card.champ.name}</div>
+            <div class="title">Hover: {center.hover_card.champ.name}{#if center.hover_card.delta_pp != null} <small class="delta" class:neg={center.hover_card.delta_pp < 0}>{pp(center.hover_card.delta_pp)} vs {center.hover_card.vs_name}</small>{/if}</div>
             <div class="reason">{center.hover_card.reason}</div>
             {#each center.hover_card.warnings as w}<div class="warn">{w}</div>{/each}
           </div>
@@ -248,6 +257,20 @@
 {/if}
 
 <style>
+  .timer.soon { color: var(--gold); }
+  .timer.urgent { color: var(--red); }
+  .contested { font-size: 14px; color: #e0a640; margin-top: 2px; }
+  .lowdata { font-size: 13px; color: var(--muted); font-style: italic; }
+  .delta { font-size: 14px; color: #1baf7a; font-weight: 600; }
+  .delta.neg { color: #c98500; }
+  /* compact: the app beside the client on one screen */
+  @media (max-width: 1100px) {
+    .board { grid-template-columns: 200px 1fr 200px !important; gap: 14px !important; padding: 12px 14px !important; }
+    .top { padding: 10px 14px !important; font-size: 20px !important; }
+  }
+  @media (max-width: 760px) {
+    .board { grid-template-columns: 1fr !important; }
+  }
   .tabs { display: flex; gap: 4px; padding: 8px 28px 0; border-bottom: 1px solid var(--line); }
   .tabs button { background: none; border: 0; color: var(--muted); font: inherit; font-size: 15px; padding: 6px 14px 8px;
                  cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -1px; }
