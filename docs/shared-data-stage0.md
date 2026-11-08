@@ -192,3 +192,12 @@ Every stage starts with failing tests and ends with `uv run pytest` green, plus 
 4. **keyring** (Windows Credential Manager; adds `keyring` + `pywin32-ctypes` + `jaraco.*`, all pure Python with a PyInstaller hook). *Recommended yes.*
 5. **Refit locally (Stage 4):** later. *Recommended.* Can be done from counts alone: matchup fits and the synergy style and team rules. Needs per-match rows: traits percentiles, execution fits, power curves (frames), damage thresholds.
 6. **Strategy builds by opponent:** share opponent × keystone and opponent × first item only. *Recommended.* Full opponent × page × items is about as big as the per-match rows. Rune pages, items and spells stay opponent-agnostic.
+
+## Decisions (8 Nov 2026)
+
+1. **Turso client:** HTTP API over `httpx` (Hrana pipeline plus the Platform API). No new dependency.
+2. **Quota:** compressed blocks on the free tier. One shared row is one gzip block per (patch, tier, queue, table), with a content hash and `publish_id`. Add a `draftassist shared-inspect` command that decodes and shows what's published, because Turso's console only shows blocks.
+3. **Codec:** decide from `scripts/measure_storage.py` on the real cache. Add `zstandard` only if it beats gzip-6 by at least 1.4×. Otherwise use gzip, or stdlib zlib with a preset dictionary if that wins.
+4. **Credentials:** `keyring` (Windows Credential Manager). The data-folder file is the fallback only where keyring is unavailable.
+5. **Refit locally:** later. Users take fits from the closest published dataset.
+6. **Strategy builds:** no counter-builds for the sake of it. Strategy shows the overall builds and runes, and players choose their own. On top of that it may *suggest* individual items or rune choices that look helpful in this lane, as optional hints. A hint needs enough games and a real gain against this opponent (lane lead or win rate) over the overall build, so most lanes get none. Shared data is therefore overall pages, items and spells, plus opponent × item and opponent × rune counts, used only for those hints. This changes Strategy's behaviour on the admin's machine too.
