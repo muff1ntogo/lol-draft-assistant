@@ -107,3 +107,16 @@ games. Built:
 Still open: whether Ranked 5s shows the enemy's names at all (record one champ select, run `draftassist
 scout-check`). If it doesn't, the Scout opponents box (paste the names you can see, e.g. in the lobby) is the only
 source, and it still works in Ranked 5s.
+
+## Names without tags (8 Nov 2026)
+
+Ranked 5s shows the enemy's names, with their tags only on hover. The session's `gameName` and `tagLine` are separate
+fields; whether `tagLine` is filled for the enemy is confirmed by `draftassist scout-check` on a recording. Either way:
+
+1. **A name without a tag is not a Riot ID** (`lcu/parser.py`): the slot keeps the name for display (`game_name`) and
+   nothing is looked up with a half ID. Live shows "Name · no tag" and asks for Name#TAG in Scout opponents.
+2. **The tag is filled from the client** (`lcu/identity.TagFiller`): when a player has a name and a client PUUID but no
+   tag, a GET on the client's summoner endpoints by PUUID (`/lol-summoner/v2/summoners/puuid/…`, then
+   `/lol-summoner/v1/summoners/by-puuid-cached/…`) fills it in before the session is parsed. Read-only, cached per
+   PUUID, no Riot API call. The endpoints are the community-documented ones and are unconfirmed for late 2026: if both
+   return nothing, (1) applies.

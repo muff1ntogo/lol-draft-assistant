@@ -50,7 +50,8 @@ class Slot:
     hover_id: int  # pick intent / hovered champion, 0 if none
     is_local: bool = False
     puuid: str | None = None
-    riot_id: str | None = None  # "gameName#tagLine" when the client exposes it
+    riot_id: str | None = None  # "gameName#tagLine" when the client exposes both (a name without its tag can't be looked up)
+    game_name: str | None = None  # the name alone, for display, even without a tag
 
 
 @dataclass(frozen=True)
@@ -181,8 +182,9 @@ def _slots(team: list[dict], ours: bool, scan: _ActionScan, local_cell: int,
             hover = scan.pending_picks.get(cell) or selected or m.get("championPickIntent", 0) or 0
         puuid = m.get("puuid") or None
         role = POSITIONS.get(m.get("assignedPosition") or "") or (known_roles.get(puuid) if ours else None)
-        riot_id = f"{m['gameName']}#{m.get('tagLine', '')}" if m.get("gameName") else None
-        out.append(Slot(cell, role, champ, hover, cell == local_cell, puuid, riot_id))
+        name, tag = m.get("gameName") or None, m.get("tagLine") or None
+        riot_id = f"{name}#{tag}" if name and tag else None
+        out.append(Slot(cell, role, champ, hover, cell == local_cell, puuid, riot_id, name))
     return tuple(out)
 
 

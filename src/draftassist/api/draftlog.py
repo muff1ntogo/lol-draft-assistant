@@ -153,8 +153,8 @@ class DraftLogger:
         if center.get("mode") == "locked":
             p.pred_win_prob = center.get("win_prob")
         for slot in live.our_slots:
-            if slot.role and slot.riot_id:
-                p.players[slot.role] = slot.riot_id.split("#")[0]
+            if slot.role and (slot.game_name or slot.riot_id):
+                p.players[slot.role] = slot.game_name or slot.riot_id.split("#")[0]
             if slot.role and slot.champ_id:
                 p.pick_roles[slot.champ_id] = slot.role
         p.scouting = scout_record(p.scouting, payload.get("scouting"), self._clock().timestamp(), len(st.actions))

@@ -365,7 +365,9 @@ def _their_slots(v: _View) -> list[dict]:
                 "open_role": None if s.champ_id else role,
                 "open_role_label": "" if s.champ_id else ROLE_LABELS.get(role or "", ""),
                 "badge": v.badge_of(s.champ_id, roles.get(s.champ_id)) if s.champ_id else None, "scout": player,
-                "role_probs": None, "likely": None}
+                "role_probs": None, "likely": None,
+                # a name the client showed without its tag: scouting needs Name#TAG (paste it in Scout opponents)
+                "name_only": s.game_name if s.game_name and not s.riot_id and player is None else None}
         if s.champ_id:
             probs = sorted(role_probs.get(s.champ_id, {}).items(), key=lambda rp: -rp[1])
             if probs and probs[0][1] < ROLE_SURE:

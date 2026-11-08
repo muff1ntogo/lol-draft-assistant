@@ -231,6 +231,9 @@
         {/if}
         <span class="role" class:scouted={slot.scout}>
           {slot.role_label || slot.open_role_label || (slot.scout?.role ?? '')}
+          {#if slot.name_only}
+            <span class="player" title="The client gave this name without its tag: paste {slot.name_only}#TAG in Scout opponents to scout them">{slot.name_only} <small class="rk">no tag</small></span>
+          {/if}
           {#if slot.scout}
             <span class="player" title={slot.scout.riot_id}>{slot.scout.name}{#if slot.scout.rank} <small class="rk">{slot.scout.rank}</small>{/if}</span>
             <span class="pool">
