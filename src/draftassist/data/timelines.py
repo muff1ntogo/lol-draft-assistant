@@ -18,7 +18,13 @@ from sqlmodel import Session
 
 from draftassist.data.backfill import _cached_match
 from draftassist.data.riot import REGION, cache_path, match_path
-from draftassist.data.timeline_map import PARTICIPANT_COLUMNS, TimelineStats, parse_timeline
+from draftassist.data.timeline_map import (
+    PARTICIPANT_COLUMNS,
+    TimelineStats,
+    parse_build_events,
+    parse_frames,
+    parse_timeline,
+)
 from draftassist.db.models import MatchTeamState
 
 TIMELINE_VERSION = 2  # 1 was gold and XP at 15 only, and was never written: those matches are at 0
@@ -28,6 +34,38 @@ REQUESTS_PER_HOUR = 3_000  # the key's 100 requests per 2 minutes
 def store_team_state(s: Session, match_id: str, stats: TimelineStats) -> None:
     for team, values in stats.teams.items():
         s.merge(MatchTeamState(match_id=match_id, team_id=team, **values))
+
+
+def store_build_events(conn, match_id: str, rows: dict[int, dict]) -> None:
+    import json
+
+    for champ, r in rows.items():
+        conn.execute(text("INSERT OR REPLACE INTO match_build_events (match_id, champ_id, purchases_json, skills, "
+                          "levels_json) VALUES (:m, :c, :p, :s, :l)"),
+                     {"m": match_id, "c": champ, "p": json.dumps(r["purchases"]), "s": r["skills"],
+                      "l": json.dumps({str(k): v for k, v in r["levels"].items()})})
+
+
+FRAME_MINUTES = 30  # frames kept per player: lane phase and the mid game, where the milestones fall
+
+
+def store_frames(conn, match_id: str, rows: dict[int, dict]) -> None:
+    import json
+    import zlib
+
+    for champ, r in rows.items():
+        frames = json.dumps(r["frames"][:FRAME_MINUTES + 1], separators=(",", ":")).encode()
+        conn.execute(text("INSERT OR REPLACE INTO match_frames (match_id, champ_id, frames_z, kills_json) "
+                          "VALUES (:m, :c, :f, :k)"),
+                     {"m": match_id, "c": champ, "f": zlib.compress(frames, 9),
+                      "k": json.dumps(r["kills"], separators=(",", ":"))})
+
+
+def read_frames(blob: bytes) -> list[list]:
+    import json
+    import zlib
+
+    return json.loads(zlib.decompress(blob))
 
 
 def store_timeline(db: Engine, match_id: str, timeline: dict | None, match: dict | None) -> None:
@@ -41,6 +79,9 @@ def store_timeline(db: Engine, match_id: str, timeline: dict | None, match: dict
                 conn.execute(text(f"UPDATE match_participants SET {sets} WHERE match_id = :m AND champ_id = :c"),
                              {**values, "m": match_id, "c": champ})
             store_team_state(s, match_id, stats)
+        if timeline and match:  # builds in order: kept for any length of game (docs/top-lane-power.md, Stage 2)
+            store_build_events(conn, match_id, parse_build_events(timeline, match))
+            store_frames(conn, match_id, parse_frames(timeline, match))
         version = TIMELINE_VERSION if timeline and match else 0
         conn.execute(text("UPDATE crawled_matches SET timeline_done = 1, timeline_version = :v WHERE match_id = :m"),
                      {"v": version, "m": match_id})

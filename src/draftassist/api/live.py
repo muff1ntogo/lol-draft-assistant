@@ -581,7 +581,8 @@ def build_live_view(engine: DraftEngine, catalog: ChampionCatalog, live: LiveDra
 
         strategy = _panel(errors, "strategy", lambda: strategy_view(
             engine, st, ev.our_roles, ev.their_roles, strategy_builds, catalog.card,
-            (scout_info or {}).get("players")))
+            (scout_info or {}).get("players"), getattr(strategy_builds, "opgg_for", None),
+            getattr(strategy_builds, "power_for", None)))
     plan = None
     if effects:
         plan = _panel(errors, "plan bar", lambda: _plan_bar(engine, catalog, pin, effects.banner, st, ev.our_roles))

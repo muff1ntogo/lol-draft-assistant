@@ -1,6 +1,6 @@
 [project]
 name = "draftassist"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local pick/ban assistant for a Ranked 5s team (EUW)"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -24,6 +24,11 @@ draftassist-app = "draftassist.launcher:main"  # same launcher, no console windo
 [build-system]
 requires = ["uv_build>=0.11,<0.12"]
 build-backend = "uv_build"
+
+# Releases are major.minor.<release run number - release_run_base> (.github/workflows/release.yml). When major.minor
+# changes, set release_run_base to the last release's run number, so the new line starts at .1 (0.1.x ended at run 10).
+[tool.draftassist]
+release_run_base = 10
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

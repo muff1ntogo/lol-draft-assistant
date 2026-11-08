@@ -73,8 +73,18 @@ def test_every_push_to_main_publishes_the_installer_the_app_downloads():
     assert "branches: [main]" in RELEASE and "contents: write" in RELEASE
     assert f"packaging/Output/{ASSET}" in RELEASE and "gh release create" in RELEASE
     assert "-Version ${{ steps.version.outputs.version }}" in RELEASE and "github.run_number" in RELEASE
+    assert "release_run_base" in RELEASE  # each major.minor's patch number restarts at 1
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     assert f"github.com/{REPO}/releases/latest/download/{ASSET}" in readme  # the download link up front
+
+
+def test_the_next_release_is_0_2_1():
+    """0.1.x ended at run 10 (v0.1.10); the power-spike work starts 0.2.x at .1 (user, 8 Nov 2026)."""
+    import tomllib
+
+    py = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    major, minor, _ = py["project"]["version"].split(".")
+    assert (major, minor) == ("0", "2") and 11 - py["tool"]["draftassist"]["release_run_base"] == 1
 
 
 def test_a_silent_update_restarts_the_app_and_skips_the_setup_pages():

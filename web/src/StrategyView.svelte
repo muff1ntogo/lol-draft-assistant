@@ -4,8 +4,17 @@
   import Champ from './Champ.svelte';
 
   let { strategy } = $props();
+  // the lane power chart brings ECharts: loaded only when a curve is there to draw
+  let powerChart = $state(null);
+  $effect(() => {
+    if (!powerChart && strategy?.players?.some((p) => p.power)) import('./PowerChart.svelte').then((m) => (powerChart = m.default));
+  });
   const pct = (x) => (x == null ? '—' : `${Math.round(x * 100)}%`);
   const signed = (x) => (x == null ? '' : `${x > 0 ? '+' : x < 0 ? '−' : '±'}${Math.abs(x)}`);
+  const og = (o) => (o ? `${o.games?.toLocaleString() ?? '—'} g${o.wr != null ? ` · ${pct(o.wr)} win` : ''}` : '');
+  const mmss = (s) => (s == null ? '—' : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`);
+  const ord = (o) => (o ? `${pct(o.share)} of ${o.ref_games} g${o.wr != null ? ` · ${pct(o.wr)} win (${o.games} g)` : ''}` : '');
+  const ADV = { even: 'Even lane', aggressive: 'Play aggressive', passive: 'Play safe' };
   const stat = (c) => `${pct(c.share)} pick${c.wr != null ? ` · ${pct(c.wr)} win (${c.games} g)` : ''}`;
 </script>
 
@@ -53,6 +62,11 @@
 
           <h4>Lane</h4>
           <p class="summary">{p.lane.summary}</p>
+          {#if p.power}
+            {#if powerChart}{@const Chart = powerChart}<Chart power={p.power} ourName={p.champ?.name} theirName={p.opponent?.name} />{/if}
+            {#each p.power.lines as l}<div class="powerline">{l}</div>{/each}
+            <div class="muted small">Lane power: gold per minute vs the role's average at each milestone{p.power.mostly_theory ? '; mostly the model so far (few measured games)' : ''}.</div>
+          {/if}
           {#if p.lane.lines.length}<ul>{#each p.lane.lines as l}<li>{l}</li>{/each}</ul>{/if}
           {#if p.lane.matchup_pp != null && p.opponent}
             <div class="muted small">Game matchup {signed(p.lane.matchup_pp)}pp{#if p.lane.archetypes?.[0] && p.lane.archetypes?.[1]} · {p.lane.archetypes[0].replaceAll('_', ' ')} vs {p.lane.archetypes[1].replaceAll('_', ' ')}{/if}</div>
@@ -92,6 +106,44 @@
             </div>
             {#if p.build.reasons.length}<ul class="why">{#each p.build.reasons as r}<li>{r}</li>{/each}</ul>{/if}
           {/if}
+
+          {#if p.opgg?.order}
+            {@const o = p.opgg.order}
+            <h4>In order <small>our crawl · what: {o.ref_label} ({o.ref_games} g)</small></h4>
+            <div class="rows">
+              {#if o.starter}<div class="row"><span class="k">Start</span><span>{o.starter.names.join(' + ')} <small>{ord(o.starter)}</small></span></div>{/if}
+              {#if o.core}<div class="row"><span class="k">Items 1–2</span><span>{o.core.names.join(' → ')} <small>{ord(o.core)}{o.core.order_share != null ? ` · this order ${pct(o.core.order_share)} of the time` : ''}</small></span></div>{/if}
+              {#if o.boots}<div class="row"><span class="k">Boots</span><span>{o.boots.names.join('')} <small>{ord(o.boots)}</small></span></div>{/if}
+              {#if o.skill_max}<div class="row"><span class="k">Skills</span><span>max {o.skill_max.value.split('').join(' > ')}{o.first3 ? ` · start ${o.first3.value.split('').join(' ')}` : ''} <small>{ord(o.skill_max)}</small></span></div>{/if}
+              <div class="row"><span class="k">Timing</span><span>first item {mmss(o.first_item_s)} · level 6 {mmss(o.level6_s)} <small>median</small></span></div>
+            </div>
+          {/if}
+
+          {#if p.opgg && (p.opgg.loading || p.opgg.analysis || p.opgg.matchup)}
+            {@const a = p.opgg.analysis}
+            {@const m = p.opgg.matchup}
+            <h4>OP.GG <small>{p.opgg.loading ? 'loading…' : a ? `${p.opgg.tier ?? 'all'} tier · Solo/Duo` : ''}</small></h4>
+            {#if m}
+              <div class="matchup">
+                <div><strong>vs {m.opponent}:</strong> {ADV[m.play_style] ?? m.play_style ?? ''}{#if m.lane_advantage} · lane advantage: {m.lane_advantage}{/if}{#if m.solo_kill_advantage} · solo kills: {m.solo_kill_advantage}{/if}</div>
+                {#if m.tip}<div class="tip">{m.tip}</div>{/if}
+                {#if m.core}<div class="row"><span class="k">Vs them</span><span>{m.core.names.join(' → ')} <small>{og(m.core)}</small></span></div>{/if}
+                {#if m.skill_order}<div class="row"><span class="k">Skills</span><span class="mono">{m.skill_order.join(' ')}</span></div>{/if}
+                <div class="muted small">Matchup guide: every tier together</div>
+              </div>
+            {/if}
+            {#if a}
+              <div class="rows">
+                {#if a.runes}<div class="row"><span class="k">Runes</span><span><strong>{a.runes.keystone}</strong> · {a.runes.primary_runes.slice(1).join(' · ')} | {a.runes.secondary}: {a.runes.secondary_runes.join(' · ')} <small>{og(a.runes)}</small></span></div>{/if}
+                {#if a.spells}<div class="row"><span class="k">Spells</span><span>{a.spells.names.join(' + ')} <small>{og(a.spells)}</small></span></div>{/if}
+                {#if a.starter}<div class="row"><span class="k">Start</span><span>{a.starter.names.join(' + ')} <small>{og(a.starter)}</small></span></div>{/if}
+                {#if a.core}<div class="row"><span class="k">Core</span><span>{a.core.names.join(' → ')} <small>{og(a.core)}</small></span></div>{/if}
+                {#if a.boots}<div class="row"><span class="k">Boots</span><span>{a.boots.names.join(', ')} <small>{og(a.boots)}</small></span></div>{/if}
+                {#if a.fourth.length}<div class="row"><span class="k">4th item</span><span>{a.fourth.map((f) => f.names.join(', ')).join(' / ')}</span></div>{/if}
+                {#if a.skill_max}<div class="row"><span class="k">Skills</span><span>max {a.skill_max.join(' > ')}{#if a.skill_order} · <span class="mono">{a.skill_order.join(' ')}</span>{/if}</span></div>{/if}
+              </div>
+            {/if}
+          {/if}
         </article>
       {/each}
     </div>
@@ -129,4 +181,8 @@
   em { color: #8ec5ff; font-style: normal; }
   .why { color: var(--muted); font-size: 13px; }
   code { font-size: 12px; }
+  .matchup { background: var(--panel-2); border-radius: 8px; padding: 8px 10px; margin: 4px 0 8px; font-size: 14px; display: grid; gap: 4px; }
+  .tip { color: #8ec5ff; }
+  .powerline { font-size: 14px; margin: 2px 0; }
+  .mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; letter-spacing: 0.5px; }
 </style>

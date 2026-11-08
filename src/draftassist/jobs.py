@@ -52,6 +52,8 @@ JOBS: dict[str, JobSpec] = {
     "ddragon": JobSpec("Champions", ("ddragon",), "Champion names and icons for a new patch (stop the crawl first)",
                        needs_key=False),
     "opgg": JobSpec("OP.GG stats", ("opgg",), "OP.GG's starting stats for the patch", needs_key=False),
+    "power": JobSpec("Lane power", ("power",), "Lane power curves by level and item milestone, for the Strategy tab "
+                     "(after a crawl; downloads Meraki's champion data once a week)", needs_key=False),
     "backfill": JobSpec("Backfill", ("backfill",), "Damage, game length and traits from the cache, then re-aggregate",
                         needs_key=False),
     "coverage": JobSpec("Coverage report", ("coverage",), "Matches per tier, matchup and calibration reports",
