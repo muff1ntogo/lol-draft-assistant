@@ -49,7 +49,8 @@ def store_timeline(db: Engine, match_id: str, timeline: dict | None, match: dict
 
 def backfill_timelines(db: Engine, riot, cache_dir: Path, done: Callable[[], bool] = lambda: False,
                        checkpoint: Callable[[int], None] | None = None, checkpoint_every_s: float = 900.0,
-                       clock: Callable[[], float] = time.time, ids: Iterable[str] | None = None) -> dict[str, int]:
+                       clock: Callable[[], float] = time.time, ids: Iterable[str] | None = None,
+                       on_match: Callable[[int, int], None] | None = None) -> dict[str, int]:
     """`ids`, or stored matches with no timeline yet, newest first, until none are left or `done()`. Safe to stop and restart."""
     if ids is None:
         with db.connect() as conn:
@@ -64,6 +65,8 @@ def backfill_timelines(db: Engine, riot, cache_dir: Path, done: Callable[[], boo
         body = _cached_match(cache_dir, match_id) or riot.match(match_id)
         store_timeline(db, match_id, riot.timeline(match_id) if body else None, body)
         updated += 1
+        if on_match is not None:  # (done, total): the Crawl page's live progress
+            on_match(updated, len(ids))
         if checkpoint is not None and clock() - last >= checkpoint_every_s:
             checkpoint(updated)
             last = clock()

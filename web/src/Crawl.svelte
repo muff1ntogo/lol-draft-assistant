@@ -1,7 +1,7 @@
 <script>
   // The crawl and the other data jobs, from the app (src/draftassist/jobs.py): one at a time, each its own process,
   // so a long crawl keeps going if the app closes, and the app finds it again when reopened.
-  import { patchLabel } from './patch.js';
+  import { patchLabel, riotPatch } from './patch.js';
 
   const CRAWLS = ['crawl', 'timelines', 'master', 'refetch'];
   const TARGET = 20000; // matches per tier the spec's coverage check wants (Phase 3)
@@ -11,18 +11,34 @@
   let message = $state('');
   let now = $state(Date.now() / 1000);
   let logBox = $state(null);
+  // crawl options (jobs.crawl_options); '' = the current patch / every tier
+  const TIERS = ['iron', 'bronze', 'silver', 'gold', 'platinum', 'emerald', 'diamond'];
+  let patch = $state('');
+  let tiers = $state([]);
+  let idsPerQueue = $state(20);
+  let noTimelines = $state(false);
+  // the tier table: follows the running crawl's patch and database unless one is picked here
+  let viewPatch = $state('');
+  let viewDb = $state('');
+  const running = $derived(data?.running);
+  const prog = $derived(data?.progress);
+  const shownDb = $derived(viewDb || (running?.job === 'master' ? 'master' : prog?.database && running ? prog.database : 'main'));
+  const shownPatch = $derived(viewPatch || (running && prog?.patch && shownDb === 'main' ? prog.patch : ''));
 
   async function load() {
     try {
-      data = await (await fetch('/api/jobs')).json();
+      const q = new URLSearchParams({ database: shownDb, ...(shownPatch ? { patch: shownPatch } : {}) });
+      data = await (await fetch(`/api/jobs?${q}`)).json();
     } catch { /* the app is restarting */ }
   }
   load();
+  // a steady poll: every 2 s while a job runs (the tier counts and this run's numbers move live), else every 15 s
+  let busy = $derived(!!data?.running);
   $effect(() => {
-    const every = data?.running ? 3000 : 15000;
-    const t = setInterval(load, every);
+    const t = setInterval(load, busy ? 2000 : 15000);
     return () => clearInterval(t);
   });
+  $effect(() => { shownDb; shownPatch; load(); });
   $effect(() => {
     const t = setInterval(() => (now = Date.now() / 1000), 1000);
     return () => clearInterval(t);
@@ -31,8 +47,6 @@
 
   const jobs = $derived(Object.fromEntries((data?.jobs ?? []).map((j) => [j.id, j])));
   const others = $derived((data?.jobs ?? []).filter((j) => !CRAWLS.includes(j.id)));
-  const running = $derived(data?.running);
-
   async function post(url, body) {
     message = '';
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) });
@@ -40,7 +54,16 @@
     if (res.ok) data = out;
     else message = out.detail;
   }
-  const start = (job) => post('/api/jobs/start', { job, hours: jobs[job]?.hours ? +hours : null });
+  const takesOptions = (job) => job === 'crawl' || job === 'timelines';
+  const start = (job) => post('/api/jobs/start', {
+    job, hours: jobs[job]?.hours ? +hours : null,
+    options: takesOptions(job) ? { patch: patch || null, brackets: tiers.length ? tiers : null,
+                                   ids_per_queue: +idsPerQueue === 20 ? null : +idsPerQueue, no_timelines: noTimelines } : null,
+  });
+  const PHASES = { starting: 'Starting', seeding: 'Finding players (ladder)', timelines: 'Fetching gold leads (timelines)',
+                   crawling: 'Crawling matches', aggregating: 'Refreshing stats', done: 'Done' };
+  const runStored = $derived(prog?.stored ? Object.values(prog.stored).reduce((a, b) => a + b, 0) : 0);
+  const perHour = $derived(running && prog?.started && runStored ? Math.round(runStored / Math.max(1 / 60, (now - prog.started) / 3600)) : null);
   const stop = () => post('/api/jobs/stop');
 
   function since(t) {
@@ -70,8 +93,23 @@
           <strong>{running.label}</strong> running for {since(running.started)}
           <button class="stop" onclick={stop}>Stop</button>
         </div>
-        <p class="muted">It keeps going if you close the app, and picks up where it left off if stopped. Stats refresh
-          as it goes (every 15 minutes) and when it ends.</p>
+        {#if prog}
+          <div class="run">
+            <div><span class="k">Now</span> {PHASES[prog.phase] ?? prog.phase}{prog.database === 'master' ? ' · Master+ database' : ''}{prog.patch ? ` · patch ${patchLabel(prog.patch)}` : ''}</div>
+            <div><span class="k">This run</span> <strong>{runStored.toLocaleString()}</strong> matches{perHour ? ` · ~${perHour.toLocaleString()}/h` : ''}{prog.players ? ` · ${prog.players} players read` : ''}
+              {#if prog.skipped_other_patch} · {prog.skipped_other_patch} from other patches skipped{/if}</div>
+            {#if prog.timelines_total}
+              <div><span class="k">Timelines</span> {prog.timelines_done.toLocaleString()} of {prog.timelines_total.toLocaleString()}
+                <span class="track small"><span class="fill" style="width:{pct(prog.timelines_done, prog.timelines_total)}%"></span></span></div>
+            {/if}
+            {#if prog.stored && Object.keys(prog.stored).length}
+              <div class="per">{#each Object.entries(prog.stored) as [b, n]}<span><span class="tier">{b}</span> +{n}</span>{/each}</div>
+            {/if}
+            <div class="muted small">Updated {prog.updated ? since(prog.updated) : '—'} ago</div>
+          </div>
+        {/if}
+        <p class="muted">It keeps going if you close the app, and picks up where it left off if stopped. The numbers here
+          update live; Live's stats refresh every 15 minutes and when it ends.</p>
       {:else}
         <div class="form">
           <label>What
@@ -84,6 +122,26 @@
           {/if}
           <button onclick={() => start(crawlJob)} disabled={!data.riot_key_set}>Start</button>
         </div>
+        {#if takesOptions(crawlJob)}
+          <div class="form opts">
+            <label>Patch
+              <select bind:value={patch}>
+                <option value="">current ({patchLabel(data.crawl.current) ?? '—'})</option>
+                {#each data.crawl.patches.filter((p) => p !== data.crawl.current) as p}<option value={p}>{patchLabel(p)}</option>{/each}
+              </select>
+              <input class="patchin" placeholder="or type {patchLabel(data.crawl.current) ?? '26.21'}" onchange={(e) => (patch = riotPatch(e.currentTarget.value))} />
+            </label>
+            <label>Match ids per player <input type="number" min="1" max="100" bind:value={idsPerQueue} /></label>
+            <label class="cb"><input type="checkbox" bind:checked={noTimelines} /> Skip timelines (faster, no gold leads)</label>
+          </div>
+          <div class="form opts tiers">
+            <span class="muted lbl">Tiers</span>
+            {#each TIERS as t}
+              <label class="cb cap"><input type="checkbox" value={t} bind:group={tiers} /> {t}</label>
+            {/each}
+            <span class="muted lbl">{tiers.length ? '' : '(none ticked = every tier up to Emerald, plus any set on the Roster)'}</span>
+          </div>
+        {/if}
         <p class="muted">{jobs[crawlJob]?.about}. Live and scouting keep working meanwhile; they share the key's rate
           limits, so both run a little slower.</p>
       {/if}
@@ -95,7 +153,19 @@
     </section>
 
     <section>
-      <h2>Matches crawled {#if data.crawl.patch}<small>patch {patchLabel(data.crawl.patch)}</small>{/if}</h2>
+      <h2>Matches crawled {#if data.crawl.patch}<small>patch {patchLabel(data.crawl.patch)}{data.database === 'master' ? ' · Master+' : ''}</small>{/if}
+        <span class="view">
+          <select bind:value={viewPatch} aria-label="Patch shown">
+            <option value="">{running && prog?.patch ? 'the crawl\'s patch' : 'current patch'}</option>
+            {#each data.crawl.patches as p}<option value={p}>{patchLabel(p)}</option>{/each}
+          </select>
+          {#if data.master_exists}
+            <select bind:value={viewDb} aria-label="Database shown">
+              <option value="">{running ? 'the crawl\'s database' : 'main database'}</option>
+              <option value="main">main</option><option value="master">Master+</option>
+            </select>
+          {/if}
+        </span></h2>
       {#if data.crawl.brackets.length}
         <table>
           <thead><tr><th>Tier</th><th class="n">This patch</th><th class="bar">of {TARGET.toLocaleString()} wanted</th>
@@ -179,6 +249,21 @@
   .bar small { color: var(--muted); margin-left: 8px; font-variant-numeric: tabular-nums; }
   .track { display: inline-block; vertical-align: middle; width: calc(100% - 52px); height: 8px; background: #1f2630; border-radius: 4px; overflow: hidden; }
   .fill { display: block; height: 100%; background: linear-gradient(90deg, #2f6fb7, #4c9aff); border-radius: 4px; }
+  .opts { margin-top: 14px; }
+  .opts input[type='number'] { width: 70px; }
+  .patchin { width: 140px !important; }
+  .cb { gap: 6px !important; }
+  .cap { text-transform: capitalize; }
+  .cb input { width: 16px; height: 16px; }
+  .lbl { margin: 0; }
+  .tiers { gap: 8px 16px; }
+  .run { margin: 14px 0 4px; padding: 12px 14px; background: var(--panel-2); border-radius: 8px; display: grid; gap: 6px; font-size: 15px; }
+  .run .k { display: inline-block; width: 86px; color: var(--muted); }
+  .run .per { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 14px; color: var(--muted); }
+  .track.small { width: 180px; margin-left: 10px; }
+  .small { font-size: 12px; }
+  .view { margin-left: auto; display: flex; gap: 8px; }
+  .view select { height: 30px; font-size: 13px; }
   .jobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
   .job { display: flex; justify-content: space-between; align-items: center; gap: 14px; background: var(--panel-2);
          border-radius: 8px; padding: 12px 14px; }

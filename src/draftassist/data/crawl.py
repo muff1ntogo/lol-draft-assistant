@@ -105,6 +105,27 @@ def main(argv: list[str] | None = None) -> int:
     if deadline is None and args.max_matches is None and not args.timelines_refetch:
         parser.error("give --hours, --minutes or --max-matches")
 
+    from draftassist.data.progress import Progress
+
+    progress = Progress()
+    database = "master" if args.master else "main"
+    progress.update(force=True, database=database, patch=patch, brackets=list(brackets), phase="starting",
+                    stored={}, timelines_done=0, timelines_total=None, players=0, deadline=deadline)
+    printed = {"n": 0}
+
+    def on_timeline(done: int, total: int) -> None:
+        progress.update(phase="timelines", timelines_done=done, timelines_total=total)
+        if done % 100 == 0:
+            print(f"{time.strftime('%H:%M')} timelines: {done:,} of {total:,}", flush=True)
+
+    def on_crawl(st: CrawlStats) -> None:
+        progress.update(phase="crawling", stored=dict(st.stored), players=st.players_crawled,
+                        skipped_other_patch=st.skipped_other_patch)
+        if st.total_stored - printed["n"] >= 100:
+            printed["n"] = st.total_stored
+            print(f"{time.strftime('%H:%M')} +{st.total_stored:,} matches this run "
+                  f"({', '.join(f'{b} {n}' for b, n in st.stored.items() if n)})", flush=True)
+
     stats = CrawlStats()
     try:
         riot = RiotClient(settings.riot_api_key, settings.cache_dir)
@@ -124,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Refetching {cost['matches']:,} timelines for {share:.0%} of each bracket: {cost['requests']:,} requests, "
                   f"about {cost['hours']:.1f} estimated hours at the current limits", flush=True)
             result = backfill_timelines(db, riot, settings.cache_dir, timelines_done, timeline_checkpoint,
-                                        args.aggregate_every * 60, ids=ids)
+                                        args.aggregate_every * 60, ids=ids, on_match=on_timeline)
             print(f"{time.strftime('%H:%M')} timelines: {result['updated']} matches done, {result['left']} left", flush=True)
         else:
             crawler = Crawler(riot, db, patch, brackets, timelines=not args.no_timelines,
@@ -132,6 +153,7 @@ def main(argv: list[str] | None = None) -> int:
             with Session(db) as s:
                 seeds = s.exec(select(func.count()).select_from(SeedPlayer)).one()
             if args.reseed or seeds == 0:
+                progress.update(force=True, phase="seeding")
                 print(f"Seeding {', '.join(brackets)} from league-v4...")
                 print(f"  {crawler.seed(args.seed_pages)} new seed players")
             print(f"Crawling patch {patch}... (stats refresh every {args.aggregate_every:g} min)")
@@ -144,19 +166,21 @@ def main(argv: list[str] | None = None) -> int:
 
             if args.timelines_first:
                 result = backfill_timelines(db, riot, settings.cache_dir, timelines_done, timeline_checkpoint,
-                                            args.aggregate_every * 60)
+                                            args.aggregate_every * 60, on_match=on_timeline)
                 print(f"{time.strftime('%H:%M')} timelines: {result['updated']} matches done, {result['left']} left",
                       flush=True)
             stats = crawler.run(max_matches=args.max_matches, deadline=deadline, ids_per_queue=args.ids_per_queue,
                                 checkpoint=checkpoint,
-                                checkpoint_every_s=args.aggregate_every * 60)
+                                checkpoint_every_s=args.aggregate_every * 60, on_progress=on_crawl)
     except RiotAuthError as e:
         print(f"\n{e}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
         print("\nInterrupted; aggregating what was stored.")
     finally:
+        progress.update(force=True, phase="aggregating")
         totals = refresh()
+        progress.update(force=True, phase="done", stored=dict(stats.stored), players=stats.players_crawled)
     print(f"\nStored this run: {stats.stored} | other patch: {stats.skipped_other_patch} | "
           f"invalid/remake: {stats.skipped_invalid} | players: {stats.players_crawled} (rejected {stats.players_rejected})")
     print(f"Matches per bracket for {patch}: {totals}\n")

@@ -186,7 +186,8 @@ class Crawler:
             return list(s.exec(q).all())
 
     def run(self, max_matches: int | None = None, deadline: float | None = None,
-            ids_per_queue: int = 20, checkpoint=None, checkpoint_every_s: float = 900.0) -> CrawlStats:
+            ids_per_queue: int = 20, checkpoint=None, checkpoint_every_s: float = 900.0,
+            on_progress=None) -> CrawlStats:
         """Crawl until max_matches are stored, the deadline (epoch seconds) passes, or seeds run out.
         `checkpoint(stats)` is called every `checkpoint_every_s` seconds (e.g. to aggregate)."""
         stats = CrawlStats(stored=dict.fromkeys(self.brackets, 0))
@@ -209,6 +210,8 @@ class Crawler:
                 break
             bracket = min(open_brackets, key=lambda b: (have[b] + stats.stored[b], self.brackets.index(b)))
             self._crawl_player(queues[bracket].pop(0), bracket, start_time, ids_per_queue, stats, done, end_time)
+            if on_progress is not None:  # after every player: the Crawl page's live progress
+                on_progress(stats)
             if checkpoint is not None and self._clock() - last_checkpoint >= checkpoint_every_s:
                 checkpoint(stats)
                 last_checkpoint = self._clock()
