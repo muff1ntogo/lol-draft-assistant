@@ -141,3 +141,38 @@ Notes:
 
 Updated order: Live speed and no-crash → enemy pools and lanes → History charts (ECharts) → Strategy tab →
 nav grouping and Live polish.
+
+## Built (8 Nov 2026)
+
+All five, one commit each, without step-by-step review as asked: `live-speed.md`, `enemy-lanes.md`,
+`history-charts.md`, `strategy.md`, `nav-and-live-polish.md`.
+
+## Final stage: decisions for you
+
+Each was built with the default shown; changing one is small.
+
+1. **Strategy: how big a vs-opponent sample before the build switches to it?** Default 30 games in both Master+ and
+   your bracket (`data/builds.MIN_OPP_GAMES`). Lower = more matchup-specific builds, noisier.
+2. **Strategy: item order and skill order.** Not shown: the build is the items held at the end of the game, by how
+   often. Purchase order is in the timelines (already fetched for the newer stats); skill order too. Worth a follow-up?
+3. **Strategy: lane tips rely on the kit tags**, which are mostly unreviewed (drafted by Claude). Review them on the
+   Tags page (Settings → Champion data), or should unreviewed tags be left out of the lane plan?
+4. **Strategy thresholds:** magic resist suggested at 55%+ enemy magic damage, armour at 62%+ physical, anti-heal at
+   2+ high-sustain enemies (`engine/strategy.py`). Keep, or tune?
+5. **"Contested" line on pick cards** shows from 3% (`api/live.CONTESTED`). Too chatty, or not enough?
+6. **"Rare pick" mark** under 0.5% pick rate in the player's bracket (`api/live.RARE_PICK_RATE`). Keep?
+7. **Flex role chances** shown when a pick's top role is under 85% (`api/live.ROLE_SURE`), and scouted players'
+   "role?" label under 85% certainty. Keep?
+8. **One-trick label**: one champion is 60%+ of 8+ recent games in the role (`data/scout.ONE_TRICK_*`). Keep?
+9. **History Overview open by default**, remembered per browser. Collapsed by default instead?
+10. **Live speed**: board first after a build over 150 ms, builds over 250 ms logged. Check `build_ms` in a real champ
+    select (Live payload, or `cache/launcher.log`); if real builds are slow, caching the per-role weights and the
+    scouting blend inside a champ select is the next step (`live-speed.md`, Not done).
+11. **Bundle size**: ECharts adds a lazily loaded ~560 kB chunk (187 kB gzipped) that only History loads. Fine, or
+    should the charts be redrawn in plain SVG to drop the dependency?
+12. **Still open from before:** the per-lane diminishing-returns rule for Flex group bans
+    (`flex-simultaneous-bans.md` test 2), and the Ranked 5s queue id / `theirTeam` contents (first recorded Ranked 5s
+    champ select).
+
+After pulling: `uv sync`; `cd web; npm ci; npm run build`; `data.ddragon` (item, rune and spell names); `data.backfill`
+(runes and items for matches already crawled, both databases; from the cache, no API calls); restart the app.
