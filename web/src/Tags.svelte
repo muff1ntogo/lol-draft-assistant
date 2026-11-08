@@ -152,7 +152,7 @@
 </script>
 
 <main class="page">
-  <h1>Champions <small>tags, fight style and timing per role</small> <a class="back" href="#/prep">← Prep</a></h1>
+  <h1>Champions <small>tags, fight style and timing per role</small> <a class="back" href="#/settings">← Settings</a></h1>
   {#if data}
     <div class="bar">
       <div class="progress" title="{counts.reviewed} of {counts.total} reviewed">

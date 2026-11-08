@@ -57,7 +57,7 @@
 </script>
 
 <main class="page">
-  <h1>Rules <small>style and team rules, priors vs data</small> <a class="back" href="#/prep">← Prep</a></h1>
+  <h1>Rules <small>style and team rules, priors vs data</small> <a class="back" href="#/settings">← Settings</a></h1>
   {#if data}
     <div class="bar">
       <div class="group">

@@ -12,8 +12,10 @@
   import ScoutBox from './ScoutBox.svelte';
   import AppStatus from './AppStatus.svelte';
 
-  const PAGES = { live: 'Live', prep: 'Prep', pools: 'Pools', champions: 'Champions', history: 'History', team: 'Team', crawl: 'Crawl', settings: 'Settings' };
-  const HIDDEN = { tags: 'Tags', rules: 'Rules' }; // the Champions tab opens the Tags page (fight style + tags) // reached from the Prep page's header, not the nav
+  const PAGES = { live: 'Live', prep: 'Prep', pools: 'Pools', history: 'History', team: 'Team', crawl: 'Crawl', settings: 'Settings' };
+  // Reached from Settings (Champion data) and the Prep page's header, not the nav; the Settings tab stays lit on them
+  const HIDDEN = { tags: 'Tags', champions: 'Tags', rules: 'Rules' };
+  const navKey = (p) => (p in HIDDEN ? 'settings' : p);
   const pageFromHash = () => {
     const key = location.hash.slice(2);
     if (key === 'synergy') return 'prep'; // the Synergy page is part of Prep now (docs/synergy-v2.md)
@@ -51,7 +53,7 @@
 
 <nav>
   {#each Object.entries(PAGES) as [key, label]}
-    <a href={`#/${key}`} class:active={page === key}>{label}</a>
+    <a href={`#/${key}`} class:active={navKey(page) === key}>{label}</a>
   {/each}
   {#if view.status === 'champ_select' && page !== 'live'}
     <a href="#/live" class="alert">Champ select live →</a>
