@@ -1,13 +1,7 @@
 <script>
+  // Live (and what it shows) is in the main bundle so champ select never waits for a download; every other page is its
+  // own chunk, fetched when first opened, when its tab is hovered, or once the app is idle.
   import Live from './Live.svelte';
-  import Pools from './Pools.svelte';
-  import History from './History.svelte';
-  import Crawl from './Crawl.svelte';
-  import Prep from './Prep.svelte';
-  import Settings from './Settings.svelte';
-  import Team from './Team.svelte';
-  import Tags from './Tags.svelte';
-  import Rules from './Rules.svelte';
   import PlanBar from './PlanBar.svelte';
   import ScoutBox from './ScoutBox.svelte';
   import AppStatus from './AppStatus.svelte';
@@ -21,6 +15,22 @@
   const PAGES = ['live', 'prep', 'pools', 'history', 'team', 'crawl', 'settings', 'tags', 'champions', 'rules'];
   const GROUP = { team: 'history', tags: 'settings', champions: 'settings', rules: 'settings' };
   const navKey = (p) => GROUP[p] ?? p;
+  const LOADERS = {
+    pools: () => import('./Pools.svelte'), prep: () => import('./Prep.svelte'), history: () => import('./History.svelte'),
+    team: () => import('./Team.svelte'), crawl: () => import('./Crawl.svelte'), settings: () => import('./Settings.svelte'),
+    tags: () => import('./Tags.svelte'), champions: () => import('./Tags.svelte'), rules: () => import('./Rules.svelte'),
+  };
+  const loaded = {}; // page -> promise of its component (each chunk is fetched once)
+  function loadPage(key) {
+    if (!LOADERS[key]) return Promise.resolve(null);
+    loaded[key] ??= LOADERS[key]().then((m) => m.default).catch((err) => { delete loaded[key]; throw err; });
+    return loaded[key];
+  }
+  // warm the rest once the first page is up, so later switches only wait for their data
+  function preloadAll() {
+    const idle = window.requestIdleCallback ?? ((fn) => setTimeout(fn, 300));
+    idle(() => Object.keys(LOADERS).forEach((k) => loadPage(k).catch(() => {})));
+  }
   const pageFromHash = () => {
     const key = location.hash.slice(2);
     if (key === 'synergy') return 'prep'; // the Synergy page is part of Prep now (docs/synergy-v2.md)
@@ -35,7 +45,10 @@
   let nextId = 0;
   let stack = $state([]);
   async function show(key) {
-    const entry = { id: nextId++, key, ready: false };
+    let Comp = null;
+    try { Comp = await loadPage(key); } catch { /* a failed chunk: the page shows its error below */ }
+    if (key !== page) return; // the user moved on while it downloaded
+    const entry = { id: nextId++, key, Comp, ready: false };
     const since = performance.now();
     stack.push(entry);
     await settled(since);
@@ -44,7 +57,7 @@
     stack[i].ready = true;
     stack = stack.slice(i); // older pages leave (out:pageOut) as this one comes in
   }
-  show(pageFromHash());
+  show(pageFromHash()).then(preloadAll);
   window.addEventListener('hashchange', () => {
     const next = pageFromHash();
     if (next === page) return;
@@ -94,14 +107,15 @@
 
 <nav>
   {#each TABS as [key, label]}
-    <a href={`#/${key}`} class:active={navKey(page) === key}>{label}{#if navKey(page) === key}{@render underline()}{/if}</a>
+    <a href={`#/${key}`} class:active={navKey(page) === key} onpointerenter={() => loadPage(key).catch(() => {})}>{label}{#if navKey(page) === key}{@render underline()}{/if}</a>
   {/each}
   {#if view.status === 'champ_select' && page !== 'live'}
     <a href="#/live" class="alert" in:rise={{ y: -4 }}>Champ select live →</a>
   {/if}
   <span class="icons" class:pushed={!(view.status === 'champ_select' && page !== 'live')}>
     {#each ICONS as [key, label]}
-      <a href={`#/${key}`} class="icon" class:active={navKey(page) === key} title={label} aria-label={label}>
+      <a href={`#/${key}`} class="icon" class:active={navKey(page) === key} title={label} aria-label={label}
+         onpointerenter={() => loadPage(key).catch(() => {})}>
         {#if key === 'crawl'}
           <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
         {:else}
@@ -134,23 +148,11 @@
 {/if}
 
 <!-- Pages share one grid cell, so the new page comes in while the old one leaves -->
-{#snippet pageView(key)}
-{#if key === 'pools'}
-  <Pools />
-{:else if key === 'prep'}
-  <Prep />
-{:else if key === 'tags' || key === 'champions'}
-  <Tags />
-{:else if key === 'rules'}
-  <Rules />
-{:else if key === 'settings'}
-  <Settings />
-{:else if key === 'team'}
-  <Team />
-{:else if key === 'crawl'}
-  <Crawl />
-{:else if key === 'history'}
-  <History />
+{#snippet pageView(entry)}
+{#if entry.Comp}
+  <entry.Comp />
+{:else if LOADERS[entry.key]}
+  <main class="idle"><h1>Couldn't load this page</h1><p class="error">Check the connection to the app, then reload.</p></main>
 {:else if view.status === 'champ_select'}
   <Live {view} {secondsLeft} />
 {:else}
@@ -158,15 +160,15 @@
     <h1>{view.status === 'error' ? 'Something went wrong' : view.message}</h1>
     {#if view.status === 'error'}<p class="error">{view.message}</p>{/if}
     {#if view.client}<p>League client: {view.client}</p>{/if}
-    {#if key === 'live' && view.status === 'waiting'}<div class="scoutwrap"><ScoutBox /></div>{/if}
+    {#if entry.key === 'live' && view.status === 'waiting'}<div class="scoutwrap"><ScoutBox /></div>{/if}
   </main>
 {/if}
 {/snippet}
 <div class="stage">
   {#each stack as entry (entry.id)}
-    <div class="page" class:waiting={!entry.ready} inert={!entry.ready} aria-hidden={!entry.ready}
+    <div class="page" data-page={entry.key} class:waiting={!entry.ready} inert={!entry.ready} aria-hidden={!entry.ready}
          use:enter={entry.ready} out:pageOut>
-      {@render pageView(entry.key)}
+      {@render pageView(entry)}
     </div>
   {/each}
 </div>

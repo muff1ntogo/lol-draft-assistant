@@ -713,12 +713,16 @@ async def run_replay(live: LiveService, folder: Path, interval: float = 1.5) -> 
 
 class UIFiles(StaticFiles):
     """The built UI. index.html is revalidated on every load so an updated app never runs a stale
-    bundle; the hashed asset files can be cached."""
+    bundle. Vite's files under assets/ carry a content hash in their names, so a browser may keep them for good:
+    pages open without a revalidation round trip per chunk, and an update brings new names anyway."""
 
     def file_response(self, full_path, *args, **kwargs):
         response = super().file_response(full_path, *args, **kwargs)
-        if str(full_path).endswith(".html"):
+        path = Path(str(full_path))
+        if path.suffix == ".html":
             response.headers["Cache-Control"] = "no-cache"
+        elif path.parent.name == "assets":
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
 
 

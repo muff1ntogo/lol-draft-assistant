@@ -75,8 +75,7 @@ export function swap(node, { duration = 180 } = {}, { direction } = {}) {
   };
 }
 
-// Pages: the new page rises in while the old one fades out over it (both share one grid cell).
-export function pageIn(node, params, options) { return rise(node, { duration: DUR.enter, y: 8 }, options); }
+// Pages: the old page fades out under the new one (both share one grid cell; App.svelte runs the entrance).
 export function pageOut(node, { duration = DUR.enter } = {}, { direction } = {}) {
   return { ...timing(duration, direction ?? 'out'), css: (t) => `opacity: ${t}; pointer-events: none;` };
 }

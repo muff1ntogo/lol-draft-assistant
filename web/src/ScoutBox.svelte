@@ -1,13 +1,14 @@
 <script>
   // docs/enemy-scouting.md, Stage C: paste the opponents' Riot IDs when the client doesn't give them. The client's names
   // win when it has them; pasted ones are forgotten when the game ends.
+  import { untrack } from 'svelte';
   import Champ from './Champ.svelte';
 
   let { compact = false } = $props();
   let text = $state('');
   let info = $state(null);
   let message = $state('');
-  let open = $state(!compact);
+  let open = $state(untrack(() => !compact)); // starts from the prop; the user toggles it after
   let timer = null;
 
   async function load() {
