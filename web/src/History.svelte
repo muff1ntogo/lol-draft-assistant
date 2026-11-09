@@ -1,5 +1,6 @@
 <script>
   import { reveal, rise } from './motion.js';
+  import { track } from './loading.js';
   import Champ from './Champ.svelte';
   import ExecutionStrip from './ExecutionStrip.svelte';
   import { patchLabel } from './patch.js';
@@ -9,7 +10,7 @@
   // (colour-blind safe, distinct from the side blue/red) on the panel surface; the signed number is
   // always shown as well.
   // the charts (ECharts) load on their own, after the list: the rest of the app doesn't wait for them
-  const chartsModule = import('./HistoryCharts.svelte');
+  const chartsModule = track(import('./HistoryCharts.svelte')); // the page waits for the charts' code (loading.js)
   let games = $state(null);
   let filters = $state({ queue: [], patch: [], side: [], result: [] });
   let chosen = $state({ queue: '', side: '', result: '', patch: '' });
