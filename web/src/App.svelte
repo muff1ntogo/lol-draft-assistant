@@ -5,7 +5,7 @@
   import PlanBar from './PlanBar.svelte';
   import ScoutBox from './ScoutBox.svelte';
   import AppStatus from './AppStatus.svelte';
-  import { DUR, CSS_EASE, pageOut, receiveShared, reducedMotion, reveal, rise, sendShared } from './motion.js';
+  import { DUR, CSS_EASE, receiveShared, reducedMotion, reveal, rise, sendShared } from './motion.js';
   import { settled } from './loading.js';
 
   // The top bar (docs/ui-engine-review.md, decision 3): Live · Prep · Review (History + Team) · Roster (Pools), then
@@ -44,18 +44,23 @@
   // have answered. Then the new page rises in as the old one leaves, so it appears whole, in one movement.
   let nextId = 0;
   let stack = $state([]);
+  // One page at a time: the old page fades to blank first (.leaving), while the new one loads out of sight; the new
+  // page rises in once both are done. Loading time hides behind the fade instead of the two pages overlapping.
   async function show(key) {
+    for (const e of stack) e.leaving = true;
+    const faded = new Promise((r) => setTimeout(r, stack.length && !reducedMotion() ? DUR.exitPage : 0));
     let Comp = null;
     try { Comp = await loadPage(key); } catch { /* a failed chunk: the page shows its error below */ }
     if (key !== page) return; // the user moved on while it downloaded
-    const entry = { id: nextId++, key, Comp, ready: false };
+    const entry = { id: nextId++, key, Comp, ready: false, leaving: false };
     const since = performance.now();
     stack.push(entry);
-    await settled(since);
+    await Promise.all([settled(since), faded]);
     const i = stack.findIndex((e) => e.id === entry.id);
-    if (i < 0) return; // a later page already replaced it
-    stack[i].ready = true;
-    stack = stack.slice(i); // older pages leave (out:pageOut) as this one comes in
+    if (i < 0 || entry.id !== stack[stack.length - 1].id) return; // a later page already replaced it
+    stack = stack.slice(i); // the old pages are blank by now: drop them
+    stack[0].ready = true;
+    window.scrollTo(0, 0);
   }
   show(pageFromHash()).then(preloadAll);
   window.addEventListener('hashchange', () => {
@@ -166,8 +171,8 @@
 {/snippet}
 <div class="stage">
   {#each stack as entry (entry.id)}
-    <div class="page" data-page={entry.key} class:waiting={!entry.ready} inert={!entry.ready} aria-hidden={!entry.ready}
-         use:enter={entry.ready} out:pageOut>
+    <div class="page" data-page={entry.key} class:waiting={!entry.ready} class:leaving={entry.leaving}
+         inert={!entry.ready || entry.leaving} aria-hidden={!entry.ready || entry.leaving} use:enter={entry.ready}>
       {@render pageView(entry)}
     </div>
   {/each}
@@ -201,6 +206,7 @@
   .stage { display: grid; }
   .stage > .page { grid-area: 1 / 1; min-width: 0; }
   .stage > .page.waiting { opacity: 0; pointer-events: none; }
+  .stage > .page.leaving { opacity: 0; pointer-events: none; transition: opacity var(--dur-page-exit) var(--ease-in); }
   .banner { padding: 6px 16px; font-size: 14px; text-align: center; }
   .offline { background: #6e2a2a; }
   .fixture { background: var(--gold-bg); color: var(--gold); }

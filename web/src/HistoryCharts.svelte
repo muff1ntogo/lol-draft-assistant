@@ -4,7 +4,7 @@
   // aqua #199e70); every rate carries its game count and a 95% interval.
   import Champ from './Champ.svelte';
   import EChart from './EChart.svelte';
-  import { reveal, swap } from './motion.js';
+  import { receiveShared, reveal, sendShared, swap } from './motion.js';
   import { LINE, MUTED, PANEL, PANEL_2, TEXT } from './palette.js';
 
   let { filters = {} } = $props();
@@ -16,9 +16,21 @@
     try { localStorage.setItem('history.overview', open ? 'open' : 'closed'); } catch {}
   }
 
+  // Timeframe: the last N games (after the filters), or every game; remembered per browser
+  const TIMEFRAMES = [[10, 'Last 10'], [20, '20'], [50, '50'], [100, '100'], [0, 'All']];
+  let last = $state(0);
+  try { last = Number(localStorage.getItem('history.timeframe')) || 0; } catch {}
+  function setLast(n) {
+    last = n;
+    try { localStorage.setItem('history.timeframe', String(n)); } catch {}
+  }
+
+  let request = 0;
   $effect(() => {
     const q = new URLSearchParams(Object.entries(filters).filter(([k, v]) => v && k !== 'result'));
-    fetch(`/api/history/stats?${q}`).then((r) => r.json()).then((d) => (stats = d));
+    if (last) q.set('last', String(last));
+    const mine = ++request; // a quick second click wins over a slow first answer
+    fetch(`/api/history/stats?${q}`).then((r) => r.json()).then((d) => { if (mine === request) stats = d; });
   });
 
   const BLUE = '#3987e5', ORANGE = '#d95926', AQUA = '#199e70';
@@ -145,10 +157,24 @@
 </script>
 
 <section class="overview">
-  <button class="head" onclick={toggle} aria-expanded={open}>
-    <span><span class="chev">{#key open}<span in:swap out:swap>{open ? '▾' : '▸'}</span>{/key}</span> Overview</span>
-    {#if stats?.games}<span class="muted">{stats.games} games · {pct(stats.overall.wr)} won ({ci(stats.overall)})</span>{/if}
-  </button>
+  <div class="headrow">
+    <button class="head" onclick={toggle} aria-expanded={open}>
+      <span><span class="chev">{#key open}<span in:swap out:swap>{open ? '▾' : '▸'}</span>{/key}</span> Overview</span>
+      {#if stats?.games}<span class="muted">{stats.last && stats.total_games > stats.games ? `last ${stats.games} of ${stats.total_games}` : stats.games} games
+        · {pct(stats.overall.wr)} won ({ci(stats.overall)})</span>{/if}
+    </button>
+    {#if open}
+      <div class="range" role="group" aria-label="Timeframe">
+        {#each TIMEFRAMES as [n, label]}
+          <button class:on={last === n} aria-pressed={last === n} onclick={() => setLast(n)}
+                  title={n ? `Only the last ${n} games` : 'Every game'}>
+            {#if last === n}<span class="pill" in:receiveShared={{ key: 'timeframe' }} out:sendShared={{ key: 'timeframe' }}></span>{/if}
+            <span class="lbl">{label}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
+  </div>
   {#if open && stats}
   <div transition:reveal>
     {#if !stats.games}
@@ -227,8 +253,17 @@
 
 <style>
   .overview { background: var(--panel); border: 1px solid var(--panel-2); border-radius: 10px; padding: 10px 16px 14px; margin-bottom: 14px; }
+  .headrow { display: flex; align-items: center; gap: 16px; }
   .head { display: flex; gap: 14px; align-items: baseline; background: none; border: 0; color: var(--text); font: inherit;
-          font-size: 16px; font-weight: 600; padding: 4px 0; cursor: pointer; width: 100%; text-align: left; }
+          font-size: 16px; font-weight: 600; padding: 4px 0; cursor: pointer; flex: 1; min-width: 0; text-align: left; }
+  /* the timeframe: a segmented control whose highlight slides to the chosen range */
+  .range { display: flex; gap: 2px; padding: 3px; background: var(--panel-2); border-radius: 8px; flex: none; }
+  .range button { position: relative; background: none; border: 0; color: var(--muted); font: inherit; font-size: 13px;
+                  padding: 4px 12px; border-radius: 6px; }
+  .range button:hover { color: var(--text); }
+  .range button.on { color: var(--on-gold); font-weight: 600; }
+  .range .pill { position: absolute; inset: 0; border-radius: 6px; background: var(--gold); }
+  .range .lbl { position: relative; }
   .muted { color: var(--muted); font-size: 13px; font-weight: 400; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px 18px; margin-top: 8px; }
   figure { margin: 0; min-width: 0; }

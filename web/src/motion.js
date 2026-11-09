@@ -1,7 +1,8 @@
 // The app's motion vocabulary: one place for durations, curves and the Svelte transitions built on them, so every
 // page moves the same way. The rules (also in app.css's tokens):
 // - Entrances ease out; on-screen movement eases in and out; no spring bounce in everyday transitions.
-// - Exits are about 20% shorter than entrances, and the new state comes in while the old one leaves (no gap).
+// - Exits are about 20% shorter than entrances. Within a page the new state comes in as the old leaves; whole pages
+//   go one at a time (the old one fades to blank, then the new one rises in; App.svelte).
 // - Dropdown-like reveals stay within 150-250 ms; list rows stagger by 30 ms.
 // - Reveals and colour changes use a mask (clip-path), not a fade from the centre.
 // - Popovers start at scale 0.95 from their trigger and go back to it, never into the centre.
@@ -10,7 +11,7 @@
 // prefers-reduced-motion turns every one of these into an instant change.
 import { crossfade } from 'svelte/transition';
 
-export const DUR = { enter: 220, menu: 200, move: 280, stagger: 30, pulse: 520 };
+export const DUR = { enter: 220, menu: 200, move: 280, stagger: 30, pulse: 520, exitPage: 160 }; // exitPage: app.css --dur-page-exit
 export const EXIT = 0.8; // exits are 20% shorter than entrances
 const STAGGER_CAP = 12; // a long list shouldn't keep its last row waiting
 
@@ -73,11 +74,6 @@ export function swap(node, { duration = 180 } = {}, { direction } = {}) {
     ...timing(duration, direction),
     css: (t, u) => `opacity: ${t}; transform: scale(${0.8 + 0.2 * t}); filter: blur(${(u * 3).toFixed(2)}px);`,
   };
-}
-
-// Pages: the old page fades out under the new one (both share one grid cell; App.svelte runs the entrance).
-export function pageOut(node, { duration = DUR.enter } = {}, { direction } = {}) {
-  return { ...timing(duration, direction ?? 'out'), css: (t) => `opacity: ${t}; pointer-events: none;` };
 }
 
 // Shared objects: the same key on both ends moves one object from its old place to its new one (an on-screen move, so

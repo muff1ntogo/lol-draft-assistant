@@ -28,3 +28,11 @@ API: `GET /api/history/stats?queue=&side=&patch=` (`api/history_stats.py`), read
 - A ban's own effect on P(win) isn't shown: the draft model's P(win) only moves on picks.
 
 Tests: `tests/test_history_stats.py`.
+
+## Timeframe (9 Nov 2026)
+
+The Overview's header has a timeframe picker: Last 10, 20, 50, 100 or All (remembered per browser). It sends
+`last=N` to `GET /api/history/stats`, which keeps the most recent N games after the filters. Every chart uses only
+those games, with one exception: the rolling win-rate line still reads the games before the timeframe, so its first
+points are as smoothed as the rest. The rolling window is 5 games for timeframes of 20 or fewer (10 otherwise), and
+game numbers stay counted from the first filtered game, so "game 47" is the same game in every timeframe.
