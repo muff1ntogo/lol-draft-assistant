@@ -79,3 +79,21 @@ def test_lane_gold_feeds_the_player_grid(svc, engine):
         s.commit()
     row = stats(svc)["players"][0]["champions"][0]
     assert row["gold15"] == 420 and row["gold_games"] == 1
+
+
+def test_timeframe_keeps_the_last_games(svc):
+    results = [True, False, False, True, True, True, False]
+    for i, won in enumerate(results):
+        gid = 7_400_000_000 + i
+        side = "blue" if i % 2 == 0 else "red"
+        play(svc, demo_sessions(svc.engine, TOURNAMENT, side, game_id=gid), gid, side, won)
+    every = stats(svc)
+    assert every["games"] == every["total_games"] == 7 and every["last"] is None and every["rolling"] == 10
+    recent = stats(svc, last=3)
+    assert recent["games"] == 3 and recent["total_games"] == 7 and recent["overall"]["wins"] == 2
+    assert recent["rolling"] == 5  # a short timeframe smooths over fewer games
+    # the trend keeps its game numbers, and its rolling line reads games from before the timeframe
+    assert [t["game"] for t in recent["trend"]] == [5, 6, 7]
+    assert recent["trend"][0]["rolling_wr"] == pytest.approx(3 / 5, abs=1e-3)
+    assert sum(b["games"] for b in recent["calibration"]) <= 3
+    assert stats(svc, last=0)["games"] == 7  # 0 means every game

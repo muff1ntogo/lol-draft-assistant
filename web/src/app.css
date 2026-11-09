@@ -44,6 +44,7 @@
   --ease-in: cubic-bezier(0.32, 0, 0.67, 0);
   --dur-enter: 220ms;
   --dur-exit: 176ms;
+  --dur-page-exit: 160ms; /* motion.js DUR.exitPage */
   --dur-menu: 200ms; /* dropdowns and reveals: 150-250 ms */
   --stagger: 30ms;
   --ease: 140ms var(--ease-out);

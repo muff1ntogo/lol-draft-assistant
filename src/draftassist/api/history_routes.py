@@ -28,12 +28,13 @@ def get_history(request: Request, queue: str | None = None, side: str | None = N
 
 @router.get("/api/history/stats")
 def get_history_stats(request: Request, queue: str | None = None, side: str | None = None,
-                      patch: str | None = None) -> dict:
-    """The overview band above the list (docs/history-charts.md); the result filter doesn't apply."""
+                      patch: str | None = None, last: int | None = None) -> dict:
+    """The overview band above the list (docs/history-charts.md); the result filter doesn't apply.
+    `last`: only the most recent N games (the Overview's timeframe)."""
     from draftassist.api.history_stats import history_stats
 
     svc: Services = request.app.state.services
-    return history_stats(db_of(svc), svc.engine, svc.catalog, queue or None, side or None, patch or None)
+    return history_stats(db_of(svc), svc.engine, svc.catalog, queue or None, side or None, patch or None, last)
 
 
 @router.get("/api/history/{draft_id}")

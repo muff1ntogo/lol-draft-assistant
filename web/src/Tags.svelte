@@ -318,6 +318,7 @@
   .tm.late { color: var(--link); }
   .measured span { margin-right: 8px; }
   .actions { white-space: nowrap; }
+  .actions button + button { margin-left: 8px; }
   .err { color: var(--red); font-size: 12px; }
   .muted { color: var(--muted); }
   .small { font-size: 12px; }

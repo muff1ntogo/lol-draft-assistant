@@ -17,6 +17,12 @@ from draftassist.engine.engine import DraftEngine
 from draftassist.engine.model import ROLE_LABELS, ROLES
 
 ROLLING = 10  # games in the rolling win rate
+SHORT_ROLLING = 5  # ... when the timeframe is 20 games or fewer, so the line still moves
+TIMEFRAMES = (10, 20, 50, 100)  # the Overview's "last N games" choices (None = every game)
+
+
+def rolling_for(last: int | None) -> int:
+    return SHORT_ROLLING if last is not None and last <= 20 else ROLLING
 CALIBRATION_BINS = 10
 Z = 1.96  # 95% Wilson interval
 
@@ -59,10 +65,10 @@ def _calibration(games: list[Draft]) -> list[dict]:
              "predicted": round(sum(d.pred_win_prob for d in v) / len(v), 3)} for b, v in sorted(bins.items())]
 
 
-def _trend(games: list[Draft]) -> list[dict]:
+def _trend(games: list[Draft], rolling: int = ROLLING) -> list[dict]:
     out = []
     for i, d in enumerate(games):
-        window = games[max(0, i - ROLLING + 1): i + 1]
+        window = games[max(0, i - rolling + 1): i + 1]
         preds = [g.pred_win_prob for g in window if g.pred_win_prob is not None]
         out.append({"game": i + 1, "draft_id": d.draft_id, "played_at": d.played_at.isoformat(), "result": d.result,
                     "pred": None if d.pred_win_prob is None else round(d.pred_win_prob, 3),
@@ -83,7 +89,7 @@ def _split(games: list[Draft], key) -> list[dict]:
     return out
 
 
-def _execution(s: Session, games: list[Draft]) -> list[dict]:
+def _execution(s: Session, games: list[Draft], first: int = 1) -> list[dict]:
     rows = {e.draft_id: e for e in s.exec(select(GameExecution).where(
         col(GameExecution.draft_id).in_([d.draft_id for d in games]))).all()}
     out = []
@@ -91,7 +97,7 @@ def _execution(s: Session, games: list[Draft]) -> list[dict]:
         e = rows.get(d.draft_id)
         if e is None:
             continue
-        out.append({"game": i + 1, "draft_id": d.draft_id, "result": d.result, "verdict": e.verdict,
+        out.append({"game": i + first, "draft_id": d.draft_id, "result": d.result, "verdict": e.verdict,
                     "draft": round(100 * e.draft, 1), "early": None if e.early is None else round(100 * e.early, 1),
                     "conversion": None if e.conversion is None else round(100 * e.conversion, 1)})
     return out
@@ -178,20 +184,27 @@ def _scouting(games: list[Draft]) -> dict | None:
 
 
 def history_stats(db: Engine, engine: DraftEngine, catalog: ChampionCatalog, queue: str | None = None,
-                  side: str | None = None, patch: str | None = None) -> dict:
-    """Everything the overview band draws. Remakes and games without a result are left out."""
+                  side: str | None = None, patch: str | None = None, last: int | None = None) -> dict:
+    """Everything the overview band draws. Remakes and games without a result are left out.
+    `last` keeps only the most recent N games (after the filters). The rolling line still reads the games before the
+    timeframe, so its first points are as smoothed as the rest; game numbers count from the first filtered game."""
+    last = last if last and last > 0 else None
+    rolling = rolling_for(last)
     with Session(db) as s:
         drafts = s.exec(select(Draft).where(col(Draft.result).in_(("win", "loss")))
                         .order_by(col(Draft.played_at), col(Draft.draft_id))).all()
-        games = _filtered(drafts, catalog, queue, side, patch)
+        every = _filtered(drafts, catalog, queue, side, patch)
+        games = every[-last:] if last else every
+        trend = _trend(every, rolling)[-last:] if last else _trend(every, rolling)
         acts = _actions(s, [d.draft_id for d in games])
-        execution = _execution(s, games)
+        execution = _execution(s, games, first=len(every) - len(games) + 1)  # numbered like the trend
         players = _players(s, engine, catalog, games, acts)
     predicted = [d for d in games if d.pred_win_prob is not None and not d.imported]
     return {
-        "games": len(games), "overall": rate(sum(map(_won, games)), len(games)),
+        "games": len(games), "total_games": len(every), "last": last, "timeframes": list(TIMEFRAMES),
+        "overall": rate(sum(map(_won, games)), len(games)),
         "calibration": _calibration(predicted), "calibrated_games": len(predicted),
-        "trend": _trend(games), "rolling": ROLLING,
+        "trend": trend, "rolling": rolling,
         "execution": execution,
         "sides": _split(games, lambda d: d.side), "queues": _split(games, queue_label),
         "players": players, "bans": _bans(catalog, games, acts),

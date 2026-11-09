@@ -422,6 +422,8 @@
   button { background: var(--blue-deep); color: var(--text); border: 0; padding: 8px 18px; height: 36px; }
   button.primary, button[type="submit"] { background: var(--gold); color: var(--on-gold); font-weight: 600; }
   button.primary:disabled, button[type="submit"]:disabled { background: var(--gold-bg); color: var(--muted); }
+  /* a section's own Save sits clear of the help text or checkbox above it */
+  section > button { margin-top: 18px; }
   .muted { color: var(--muted); font-size: 14px; line-height: 1.55; max-width: 76ch; margin: 8px 0 4px; }
   .msg { color: var(--good); }
   .row.links { margin-top: 0; }
