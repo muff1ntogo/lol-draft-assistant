@@ -1,6 +1,6 @@
 <script>
   // Share of a ban's value per component (Threat / Matchup / Comp). Colours: categorical slots 1-3
-  // (dark steps), validated on the panel surface #161b22. Negative components shrink the total but
+  // (dark steps), validated on the panel surface #101a30 (palette.js). Negative components shrink the total but
   // have no segment; the tooltip lists all three signed values, so colour is never the only signal.
   let { components } = $props();
   const NAMES = [

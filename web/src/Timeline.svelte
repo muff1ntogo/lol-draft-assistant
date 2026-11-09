@@ -1,4 +1,5 @@
 <script>
+  import { pop } from './motion.js';
   // Model P(win) after each of the 20 draft steps. One series (no legend; the title names it),
   // 2px line, recessive gridlines, the biggest swing marked with a dot and a label, and a hover
   // crosshair + tooltip. Values outside 30-70% are pinned to the edge and say so in the tooltip.
@@ -53,7 +54,9 @@
     </svg>
     {#if hover !== null}
       {@const p = points[hover]}
-      <div class="tip" style="left:{(x(hover) / W) * 100}%">
+      <!-- the tip follows the pointer exactly (never tweened); only its appearance animates, from the crosshair -->
+      <div class="tip" style="left:{(x(hover) / W) * 100}%" in:pop={{ base: 'translateX(-50%)', origin: '50% 100%' }}
+           out:pop={{ base: 'translateX(-50%)', origin: '50% 100%' }}>
         <strong>Step {p.step} · {p.label === 'ban' ? 'ban' : p.label}</strong>
         <span>{p.champ ? p.champ.name : 'skipped'} ({p.side})</span>
         <span>P(win) {pct(p.win_prob)} ({signedPct(p.delta)}pp){#if p.win_prob < 0.3 || p.win_prob > 0.7} · off scale{/if}</span>
@@ -67,15 +70,15 @@
   figcaption { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
   .wrap { position: relative; }
   svg { width: 100%; height: auto; display: block; }
-  .grid { stroke: #2c3440; stroke-width: 1; }
-  .grid.mid { stroke: #4a5361; stroke-dasharray: 4 4; }
-  .tick, .xlab { fill: #8b96a3; font-size: 12px; }
+  .grid { stroke: var(--line); stroke-width: 1; }
+  .grid.mid { stroke: var(--line-strong); stroke-dasharray: 4 4; }
+  .tick, .xlab { fill: var(--muted); font-size: 12px; }
   .xlab.ban { font-size: 16px; }
-  .line { fill: none; stroke: #e3b341; stroke-width: 2; stroke-linejoin: round; }
-  .cross { stroke: #8b96a3; stroke-width: 1; }
-  .hoverdot { fill: #e3b341; stroke: #161b22; stroke-width: 2; }
-  .swing { fill: #e3b341; stroke: #161b22; stroke-width: 2; }
-  .swinglab { fill: #e6edf3; font-size: 13px; font-weight: 600; }
+  .line { fill: none; stroke: var(--gold); stroke-width: 2; stroke-linejoin: round; }
+  .cross { stroke: var(--muted); stroke-width: 1; }
+  .hoverdot { fill: var(--gold); stroke: var(--panel); stroke-width: 2; }
+  .swing { fill: var(--gold); stroke: var(--panel); stroke-width: 2; }
+  .swinglab { fill: var(--text); font-size: 13px; font-weight: 600; }
   .tip { position: absolute; top: 0; transform: translateX(-50%); pointer-events: none; display: flex; flex-direction: column;
-         background: #0d1117; border: 1px solid #2d3540; border-radius: 6px; padding: 6px 10px; font-size: 13px; white-space: nowrap; }
+         background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font-size: 13px; white-space: nowrap; }
 </style>

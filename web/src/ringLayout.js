@@ -43,5 +43,5 @@ export function ringLayout(cols, width) {
     heads[col.role] = { x: cx + headAt * Math.cos(head), y: cy + headAt * Math.sin(head),
                         place: col.role === 'top' ? 'above' : direction < 0 ? 'left' : 'right' };
   }
-  return { nodes, heads, icon, height: Math.ceil(cy + bottom + 10) };
+  return { nodes, heads, icon, cx, cy, height: Math.ceil(cy + bottom + 10) };
 }

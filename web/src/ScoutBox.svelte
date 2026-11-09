@@ -1,13 +1,14 @@
 <script>
   // docs/enemy-scouting.md, Stage C: paste the opponents' Riot IDs when the client doesn't give them. The client's names
   // win when it has them; pasted ones are forgotten when the game ends.
+  import { untrack } from 'svelte';
   import Champ from './Champ.svelte';
 
   let { compact = false } = $props();
   let text = $state('');
   let info = $state(null);
   let message = $state('');
-  let open = $state(!compact);
+  let open = $state(untrack(() => !compact)); // starts from the prop; the user toggles it after
   let timer = null;
 
   async function load() {
@@ -92,12 +93,12 @@
   textarea { width: 100%; box-sizing: border-box; background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
              border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 14px; resize: vertical; }
   .actions { display: flex; gap: 10px; margin-top: 6px; }
-  button { background: #2f6fb7; color: white; border: 0; border-radius: 6px; padding: 5px 14px; font: inherit; font-size: 14px;
+  button { background: var(--gold); color: var(--on-gold); font-weight: 600; border: 0; border-radius: 6px; padding: 5px 14px; font: inherit; font-size: 14px;
            cursor: pointer; }
   button:disabled { opacity: 0.5; cursor: default; }
   button.link { background: none; color: var(--muted); padding: 0; }
   .note { margin: 0; font-size: 13px; color: var(--muted); }
-  .error { margin: 0; font-size: 13px; color: #e0a640; }
+  .error { margin: 0; font-size: 13px; color: var(--down-text); }
   ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
   li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; font-size: 14px; }
   .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

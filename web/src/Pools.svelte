@@ -1,4 +1,5 @@
 <script>
+  import { pulse } from './motion.js';
   import Champ from './Champ.svelte';
 
   const LABELS = { top: 'Top', jungle: 'Jungle', mid: 'Mid', adc: 'ADC', support: 'Support' };
@@ -132,7 +133,7 @@
 
 <main class="page">
   <h1>Roster <small class="h1sub">players, subs and champion pools</small></h1>
-  {#if message}<p class="ok">{message}</p>{/if}
+  {#if message}<p class="ok" use:pulse={{ value: message, ok: !/^(Not|No) |fail|error|couldn/i.test(message) }}>{message}</p>{/if}
 
   <section>
     <h2>Players</h2>
@@ -154,7 +155,7 @@
         {/each}
       </tbody>
     </table>
-    <button onclick={savePlayers}>Save players</button>
+    <button class="primary" onclick={savePlayers}>Save players</button>
     <p class="muted small">
       A linked player whose Riot ID you change goes to the bench with their pool; one never linked is just renamed.
     </p>
@@ -263,7 +264,7 @@
     <h2>Import pools</h2>
     <p class="muted">One block per role. Importing a role replaces its pool; roles you leave out stay as they are.</p>
     <textarea bind:value={text} rows="10" placeholder={EXAMPLE}></textarea>
-    <button onclick={importPools} disabled={!text.trim()}>Import</button>
+    <button class="primary" onclick={importPools} disabled={!text.trim()}>Import</button>
     {#if importErrors.length}
       <ul class="errors">{#each importErrors as e}<li>{e}</li>{/each}</ul>
     {/if}
@@ -287,7 +288,7 @@
   .small-btn { margin: 0; padding: 4px 10px; font-size: 13px; }
   .small-btn.ghost { background: var(--panel-2); border: 1px solid var(--line); }
   .health { font-size: 12px; color: var(--muted); margin: 0 0 8px; display: flex; flex-direction: column; gap: 2px; }
-  .health .missing { color: #e0a640; }
+  .health .missing { color: var(--down-text); }
   .page { max-width: 1440px; margin: 0 auto; padding: 20px 28px 60px; }
   h1 { font-size: 32px; margin: 8px 0 16px; }
   h2 { font-size: 20px; margin: 28px 0 10px; }
@@ -299,20 +300,21 @@
                             border-radius: 6px; padding: 6px 8px; font: inherit; }
   input { width: 100%; }
   textarea { width: 100%; font-family: Consolas, monospace; }
-  button { margin-top: 10px; background: var(--blue); color: white; border: 0; border-radius: 6px;
+  button { margin-top: 10px; background: var(--blue-deep); color: var(--text); border: 0; border-radius: 6px;
            padding: 8px 16px; font: inherit; cursor: pointer; }
   button:disabled { opacity: 0.5; cursor: default; }
+  button.primary, button[type="submit"] { background: var(--gold); color: var(--on-gold); font-weight: 600; }
   .roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
   .role { background: var(--panel); border-radius: 8px; padding: 12px; }
   .entry { display: grid; grid-template-columns: 32px 1fr auto auto auto; grid-auto-rows: auto; align-items: center; gap: 4px 8px;
            margin: 8px 0; }
   .rec { grid-column: 2 / -1; margin-top: -4px; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .badge { grid-column: 2 / -1; justify-self: start; margin-top: -2px; padding: 0 5px; font-size: 11px; color: #c9d1d9;
-           background: #2d3540; border-radius: 4px; }
+  .badge { grid-column: 2 / -1; justify-self: start; margin-top: -2px; padding: 0 5px; font-size: 11px; color: var(--text-2);
+           background: var(--line); border-radius: 4px; }
   .lock { background: none; border: 0; padding: 0; margin: 0; cursor: pointer; font-size: 14px; opacity: 0.45; }
   .lock.on { opacity: 1; }
-  .proposal { grid-column: 2 / -1; justify-self: start; margin: 0; padding: 2px 8px; font-size: 12px; background: #3d3214;
-              color: var(--gold); border: 1px solid #6b5a1f; border-radius: 4px; }
+  .proposal { grid-column: 2 / -1; justify-self: start; margin: 0; padding: 2px 8px; font-size: 12px; background: var(--gold-bg);
+              color: var(--gold); border: 1px solid var(--gold-line); border-radius: 4px; }
   .poolhead { display: flex; align-items: center; justify-content: space-between; }
   .secondary { margin: 0; background: var(--panel-2); border: 1px solid var(--line); }
   .link { margin: 0 0 0 8px; padding: 0; background: none; color: var(--gold); font-size: 12px; text-transform: none; }
@@ -330,8 +332,8 @@
   /* docs/draft-vs-execution.md, Stage 6: a hint only. Teal / amber as validated; the text is always written */
   .lanehint { grid-column: 2 / -1; justify-self: start; margin-top: -2px; font-size: 11px; border-radius: 4px; padding: 0 6px;
               background: var(--panel-2); }
-  .lanehint.behind_in_lane { color: #c98500; }
-  .lanehint.ahead_in_lane { color: #1baf7a; }
+  .lanehint.behind_in_lane { color: var(--down); }
+  .lanehint.ahead_in_lane { color: var(--up); }
   .muted { color: var(--muted); }
   .warn { color: var(--gold); }
   .ok { color: var(--good); }

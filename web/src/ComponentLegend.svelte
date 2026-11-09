@@ -5,7 +5,7 @@
 </span>
 
 <style>
-  .legend { display: inline-flex; gap: 14px; font-size: 13px; color: #8b96a3; }
+  .legend { display: inline-flex; gap: 14px; font-size: 13px; color: var(--muted); }
   .legend span { display: inline-flex; align-items: center; gap: 5px; }
   i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
   .threat { background: #3987e5; }

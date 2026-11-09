@@ -16,9 +16,9 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-BACKGROUND = "#0d1117"  # web/src/app.css --bg
-CAPTION = "#090c10"  # the nav bar (web/src/App.svelte)
-BORDER = "#2d3540"  # --line
+BACKGROUND = "#0a1122"  # web/src/app.css --bg
+CAPTION = "#070d1a"  # the nav bar (web/src/app.css --nav)
+BORDER = "#26355a"  # --line
 DEFAULT_SIZE = (1600, 960)
 MIN_SIZE = (1000, 700)
 GEOMETRY_FILE = "window.json"

@@ -170,36 +170,36 @@
   h2 { font-size: 19px; margin: 0; }
   h3 { font-size: 16px; margin: 0 0 2px; }
   h3 small { color: var(--muted); font-weight: 400; font-size: 13px; }
-  h4 { font-size: 13px; margin: 10px 0 4px; color: #c9d1d9; }
+  h4 { font-size: 13px; margin: 10px 0 4px; color: var(--text-2); }
   .group { display: inline-flex; gap: 4px; }
   .pin { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }
-  .pinbtn { background: var(--blue); border-color: var(--blue); color: white; }
+  .pinbtn { background: var(--gold); border-color: var(--gold); color: var(--on-gold); font-weight: 600; }
   .pinbtn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .pinned { color: #8ec5ff; font-size: 13px; }
+  .pinned { color: var(--link); font-size: 13px; }
   button { font: inherit; font-size: 13px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
-  button.on { background: #3d3214; border-color: var(--gold); color: var(--gold); }
-  button.blue.on { background: #12304d; border-color: #2f6fb7; color: #8ec5ff; }
-  button.red.on { background: #3d1a17; border-color: #c0423a; color: #ff9b94; }
+  button.on { background: var(--gold-bg); border-color: var(--gold); color: var(--gold); }
+  button.blue.on { background: var(--side-blue-bg); border-color: var(--side-blue); color: var(--link); }
+  button.red.on { background: var(--side-red-bg); border-color: var(--side-red); color: var(--side-red-text); }
   .bans, .picks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 8px; }
   .picks { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 12px; }
   .col { min-width: 0; }
   ol { margin: 6px 0 0; padding-left: 18px; }
   li { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
   .txt { display: flex; flex-direction: column; min-width: 0; flex: 1; font-size: 13px; }
-  .txt span { color: #c9d1d9; }
+  .txt span { color: var(--text-2); }
   .val, .num { font-variant-numeric: tabular-nums; font-size: 13px; }
   .owner { font-size: 11px; font-weight: 400; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; margin-left: 6px; }
   .warn { color: var(--warn); font-size: 12px; }
   .order { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
   .slot { flex: none; width: 30px; text-align: center; font-weight: 700; font-size: 13px; border-radius: 4px; padding: 2px 0; }
-  .slot.blue { background: #12304d; color: #8ec5ff; }
-  .slot.red { background: #3d1a17; color: #ff9b94; }
+  .slot.blue { background: var(--side-blue-bg); color: var(--link); }
+  .slot.red { background: var(--side-red-bg); color: var(--side-red-text); }
   .fill { display: flex; align-items: center; gap: 8px; margin: 3px 0; font-size: 13px; }
   .fill .name { min-width: 92px; }
   .fill .role { min-width: 56px; color: var(--muted); }
   .icons { display: inline-flex; gap: 2px; }
-  .pos { color: #4fd1a1; }
-  .neg { color: #e0a640; }
+  .pos { color: var(--up-text); }
+  .neg { color: var(--down-text); }
   .muted { color: var(--muted); }
   .small { font-size: 12px; }
   .error { color: var(--red); }

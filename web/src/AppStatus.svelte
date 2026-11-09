@@ -70,15 +70,15 @@
 <style>
   .banner { padding: 6px 16px; font-size: 14px; text-align: center; display: flex; gap: 10px; justify-content: center;
             align-items: center; flex-wrap: wrap; }
-  .update { background: #12324f; color: #cfe6ff; }
-  .setup { background: #3d3214; color: var(--gold); }
-  .pbar { display: inline-block; width: 160px; height: 6px; border-radius: 3px; background: #1d1a10; overflow: hidden; }
+  .update { background: var(--side-blue-bg); color: var(--text); }
+  .setup { background: var(--gold-bg); color: var(--gold); }
+  .pbar { display: inline-block; width: 160px; height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
   .pbar span { display: block; height: 100%; background: var(--gold); }
-  .key { background: #1f2630; color: var(--muted); }
-  .key a { color: #8ec5ff; }
-  button { background: #2f6fb7; color: white; border: 0; border-radius: 6px; padding: 3px 12px; font: inherit; cursor: pointer; }
+  .key { background: var(--panel-2); color: var(--muted); }
+  .key a { color: var(--link); }
+  button { background: var(--gold); color: var(--on-gold); font-weight: 600; border: 0; border-radius: 6px; padding: 3px 12px; font: inherit; cursor: pointer; }
   button:disabled { opacity: 0.5; cursor: default; }
   button.link { background: none; color: var(--muted); padding: 0; text-decoration: underline; }
   .muted { color: var(--muted); }
-  .error { color: #e0a640; }
+  .error { color: var(--down-text); }
 </style>

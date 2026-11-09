@@ -1,12 +1,13 @@
 <script>
+  import { LINE, MUTED, PANEL_2, SIDE_BLUE, SIDE_RED, TEXT } from './palette.js';
   // Lane power by milestone (docs/top-lane-power.md, Stages 4-5): gold per minute vs the role's average at each
   // milestone, ours and the lane opponent's, on an even milestone axis (not time). Spikes marked. Loaded lazily with
-  // ECharts, like History's charts. Colours: the sides' validated pair (ours blue #2f6fb7, theirs red #c0423a), plus a
+  // ECharts, like History's charts. Colours: the sides' validated pair (ours blue #4a8ee0, theirs red #d0574e; palette.js), plus a
   // dash on theirs so the lines never rely on colour alone.
   import EChart from './EChart.svelte';
 
   let { power, ourName = 'You', theirName = 'Them' } = $props();
-  const OURS = '#4c8fd6', THEIRS = '#d0574e', INK = '#8b96a3', GRID = '#2d3540', TEXT = '#e6edf3';
+  const OURS = SIDE_BLUE, THEIRS = SIDE_RED, INK = MUTED, GRID = LINE;
   const val = (p) => (p.combined == null ? null : Math.round(p.combined));
 
   const option = $derived({
@@ -16,7 +17,7 @@
     legend: { top: 0, left: 40, itemGap: 22, textStyle: { color: INK },
               data: [{ name: ourName, icon: 'path://M0,0H18V2H0Z' }, ...(power.theirs ? [{ name: theirName, icon: 'path://M0,0H6V2H0ZM12,0H18V2H12Z' }] : [])] },
     tooltip: {
-      trigger: 'axis', backgroundColor: '#1f2630', borderColor: GRID, textStyle: { color: TEXT, fontSize: 13 },
+      trigger: 'axis', backgroundColor: PANEL_2, borderColor: GRID, textStyle: { color: TEXT, fontSize: 13 },
       formatter: (ps) => {
         const i = ps[0].dataIndex, a = power.ours[i], b = power.theirs?.[i];
         const line = (p, who) => p ? `<b>${val(p) == null ? '—' : (val(p) > 0 ? '+' : '') + val(p)}</b> gold/min · ${who}${p.spike ? ' · spike' : ''}`
