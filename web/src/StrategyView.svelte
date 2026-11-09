@@ -184,11 +184,11 @@
   .opt { margin-right: 10px; }
   .opt.first { font-weight: 600; }
   small { color: var(--muted); }
-  em { color: #8ec5ff; font-style: normal; }
+  em { color: var(--link); font-style: normal; }
   .why { color: var(--muted); font-size: 13px; }
   code { font-size: 12px; }
   .matchup { background: var(--panel-2); border-radius: 8px; padding: 8px 10px; margin: 4px 0 8px; font-size: 14px; display: grid; gap: 4px; }
-  .tip { color: #8ec5ff; }
+  .tip { color: var(--link); }
   .powerline { font-size: 14px; margin: 2px 0; }
   .mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; letter-spacing: 0.5px; }
 </style>

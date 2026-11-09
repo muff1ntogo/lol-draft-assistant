@@ -1,7 +1,7 @@
 <script>
   // One team's comp: comp type, fight-style shares over the five identities and confidence (picks / 5).
   // Identity colours: categorical slots 4-8 in the documented order (slots 1-3 are Threat / Matchup / Comp on
-  // this screen), validated as an adjacent stack on the panel surface #161b22 (dataviz validator: all checks
+  // this screen), validated as an adjacent stack on the panel surface #161b22 and again on #101a30 (palette.js) (dataviz validator: all checks
   // pass). Every segment is also labelled with its share in text and listed in the tooltip, so colour is
   // never the only signal.
   let { comp, title } = $props();
@@ -52,13 +52,13 @@
   .head { display: flex; justify-content: space-between; align-items: center; }
   .t { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
   .conf { display: inline-flex; gap: 3px; }
-  .conf i { width: 10px; height: 6px; border-radius: 2px; background: #2d3540; }
+  .conf i { width: 10px; height: 6px; border-radius: 2px; background: var(--line); }
   .conf i.on { background: var(--muted); }
   .labels { display: flex; gap: 18px; align-items: baseline; margin-top: 2px; font-size: 20px; font-weight: 700; }
   .field { display: flex; flex-direction: column; }
   .field small { font-size: 11px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
-  .timing.early { color: #e0a640; }
-  .timing.late { color: #79b8ff; }
+  .timing.early { color: var(--down-text); }
+  .timing.late { color: var(--link); }
   .style.mixed { color: var(--muted); font-weight: 500; }
   .bar { display: flex; gap: 2px; height: 6px; margin-top: 6px; cursor: help; }
   .seg { min-width: 3px; }

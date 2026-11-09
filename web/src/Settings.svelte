@@ -1,4 +1,5 @@
 <script>
+  import { pulse, reveal } from './motion.js';
   let slider = $state(0.6);
   let weights = $state({ threat: 1.0, matchup: 1.5, comp: 1.0, own: 1.0 });
   let cap = $state(10);
@@ -180,7 +181,7 @@
           crawling; your own games, History and scouting stay on this machine. Without a code it works on its own, as before.</p>
         <p><button type="button" onclick={() => (showAdmin = !showAdmin)}>{showAdmin ? 'Cancel' : 'I am the team admin'}</button></p>
         {#if showAdmin}
-          <form class="admin" onsubmit={(e) => { e.preventDefault(); saveAdmin(); }}>
+          <form class="admin" transition:reveal onsubmit={(e) => { e.preventDefault(); saveAdmin(); }}>
             <label>Database URL <input bind:value={admin.url} placeholder="libsql://team-stats-you.turso.io" /></label>
             <label>Organisation <input bind:value={admin.org} placeholder="your Turso organisation (slug)" /></label>
             <label>Database name <input bind:value={admin.database} placeholder="team-stats" /></label>
@@ -208,7 +209,7 @@
                placeholder={appSetup?.riot_key_set ? 'set (paste a new one to replace it)' : 'RGAPI-…'} /></label>
       <button type="submit" disabled={!riotKey.trim()}>Save key</button>
     </form>
-    {#if keyMessage}<p class="muted">{keyMessage}</p>{/if}
+    {#if keyMessage}<p class="muted" use:pulse={{ value: keyMessage, ok: !/^(Not|No) |fail|error|couldn/i.test(keyMessage) }}>{keyMessage}</p>{/if}
     <p class="muted">
       Stored in {appSetup?.data_folder ?? 'the data folder'}\.env, never shown again. Needed for match history and scouting;
       get one at developer.riotgames.com.
@@ -220,7 +221,7 @@
         <button type="button" onclick={checkUpdate} disabled={checking || installing}>
           {checking ? 'Checking…' : 'Check for updates'}</button>
         {#if appUpdate?.available}
-          <button type="button" onclick={installUpdate} disabled={installing}>
+          <button type="button" class="primary" onclick={installUpdate} disabled={installing}>
             {installing ? 'Installing…' : `Update to ${appUpdate.latest}`}</button>
         {/if}
       {/if}
@@ -361,8 +362,8 @@
       Flex / Solo: allow suggesting a ban on a champion a teammate has declared as their pick
     </label>
 
-    <button onclick={save}>Save</button>
-    {#if message}<p class="msg">{message}</p>{/if}
+    <button class="primary" onclick={save}>Save</button>
+    {#if message}<p class="msg" use:pulse={{ value: message, ok: !/^(Not|No) |fail|error|couldn/i.test(message) }}>{message}</p>{/if}
   </section>
 
   <section class="gap">
@@ -393,8 +394,8 @@
       Log-odds added on the Live screen to a pinned plan's bans (our ban turns) and to plan champions due at our
       current pick (0.3 ≈ 7.5pp). Applied when a plan is pinned; plan suggestions still pass every guardrail.
     </p>
-    <button onclick={saveSynergy}>Save synergy settings</button>
-    {#if synMessage}<p class="msg">{synMessage}</p>{/if}
+    <button class="primary" onclick={saveSynergy}>Save synergy settings</button>
+    {#if synMessage}<p class="msg" use:pulse={{ value: synMessage, ok: !/^(Not|No) |fail|error|couldn/i.test(synMessage) }}>{synMessage}</p>{/if}
   </section>
 </main>
 
@@ -404,7 +405,7 @@
   h1 { font-size: 34px; margin: 4px 0 22px; }
   h2 { font-size: 21px; margin: 0 0 16px; }
   h2.sub { font-size: 18px; margin: 30px 0 4px; padding-top: 24px; border-top: 1px solid var(--line); }
-  section { background: var(--panel); border: 1px solid #1d232c; border-radius: 10px; padding: 24px 28px; }
+  section { background: var(--panel); border: 1px solid var(--panel-2); border-radius: 10px; padding: 24px 28px; }
   section + section, section.gap { margin-top: 22px; }
   .row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin-top: 18px; }
   .row input, .advanced input { width: 96px; height: 34px; background: var(--panel-2); color: var(--text);
@@ -418,7 +419,9 @@
   summary:hover { color: var(--text); }
   .check { display: flex; gap: 10px; align-items: flex-start; margin: 22px 0 6px; font-size: 16px; line-height: 1.45; }
   .check input { margin-top: 4px; width: 16px; height: 16px; flex: none; }
-  button { background: var(--blue); color: white; border: 0; padding: 8px 18px; height: 36px; }
+  button { background: var(--blue-deep); color: var(--text); border: 0; padding: 8px 18px; height: 36px; }
+  button.primary, button[type="submit"] { background: var(--gold); color: var(--on-gold); font-weight: 600; }
+  button.primary:disabled, button[type="submit"]:disabled { background: var(--gold-bg); color: var(--muted); }
   .muted { color: var(--muted); font-size: 14px; line-height: 1.55; max-width: 76ch; margin: 8px 0 4px; }
   .msg { color: var(--good); }
   .row.links { margin-top: 0; }

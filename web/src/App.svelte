@@ -11,6 +11,8 @@
   import PlanBar from './PlanBar.svelte';
   import ScoutBox from './ScoutBox.svelte';
   import AppStatus from './AppStatus.svelte';
+  import { DUR, CSS_EASE, pageOut, receiveShared, reducedMotion, reveal, rise, sendShared } from './motion.js';
+  import { settled } from './loading.js';
 
   // The top bar (docs/ui-engine-review.md, decision 3): Live · Prep · Review (History + Team) · Roster (Pools), then
   // Crawl and Settings as icons. Every page keeps its own address; a tab stays lit on the pages it groups.
@@ -27,7 +29,41 @@
     return PAGES.includes(key) ? key : 'live';
   };
   let page = $state(pageFromHash());
-  window.addEventListener('hashchange', () => (page = pageFromHash()));
+
+  // The pages on stage (loading.js): the one showing, and a new one mounted out of sight until its first requests
+  // have answered. Then the new page rises in as the old one leaves, so it appears whole, in one movement.
+  let nextId = 0;
+  let stack = $state([]);
+  async function show(key) {
+    const entry = { id: nextId++, key, ready: false };
+    const since = performance.now();
+    stack.push(entry);
+    await settled(since);
+    const i = stack.findIndex((e) => e.id === entry.id);
+    if (i < 0) return; // a later page already replaced it
+    stack[i].ready = true;
+    stack = stack.slice(i); // older pages leave (out:pageOut) as this one comes in
+  }
+  show(pageFromHash());
+  window.addEventListener('hashchange', () => {
+    const next = pageFromHash();
+    if (next === page) return;
+    page = next; // the nav answers at once; the page follows when it's ready
+    show(next);
+  });
+  // the entrance, run when a page waiting out of sight is ready (a WAAPI animation, as the element already exists)
+  function enter(node, ready) {
+    let was = ready;
+    return {
+      update(now) {
+        if (now && !was && !reducedMotion() && node.animate) {
+          node.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }],
+                       { duration: DUR.enter, easing: CSS_EASE.out });
+        }
+        was = now;
+      },
+    };
+  }
 
   let view = $state({ status: 'waiting', message: 'Connecting to the assistant…' });
   let connected = $state(false);
@@ -58,10 +94,10 @@
 
 <nav>
   {#each TABS as [key, label]}
-    <a href={`#/${key}`} class:active={navKey(page) === key}>{label}</a>
+    <a href={`#/${key}`} class:active={navKey(page) === key}>{label}{#if navKey(page) === key}{@render underline()}{/if}</a>
   {/each}
   {#if view.status === 'champ_select' && page !== 'live'}
-    <a href="#/live" class="alert">Champ select live →</a>
+    <a href="#/live" class="alert" in:rise={{ y: -4 }}>Champ select live →</a>
   {/if}
   <span class="icons" class:pushed={!(view.status === 'champ_select' && page !== 'live')}>
     {#each ICONS as [key, label]}
@@ -71,40 +107,49 @@
         {:else}
           <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="6.3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
         {/if}
+        {#if navKey(page) === key}{@render underline()}{/if}
       </a>
     {/each}
   </span>
 </nav>
+<!-- One underline, one key: it slides from the old tab to the new one instead of blinking out and in -->
+{#snippet underline()}<span class="underline" in:receiveShared={{ key: 'nav' }} out:sendShared={{ key: 'nav' }}></span>{/snippet}
 {#if page === 'history' || page === 'team'}
-  <div class="subnav">
-    <a href="#/history" class:active={page === 'history'}>History</a>
-    <a href="#/team" class:active={page === 'team'}>Team trends</a>
+  <div class="subnav" transition:reveal>
+    {#each [['history', 'History'], ['team', 'Team trends']] as [key, label]}
+      <a href={`#/${key}`} class:active={page === key}>
+        {#if page === key}<span class="pill" in:receiveShared={{ key: 'subnav' }} out:sendShared={{ key: 'subnav' }}></span>{/if}
+        <span class="label">{label}</span>
+      </a>
+    {/each}
   </div>
 {/if}
 
 {#if !connected}
-  <div class="banner offline">Reconnecting to the assistant…</div>
+  <div class="banner offline" transition:reveal>Reconnecting to the assistant…</div>
 {/if}
 <AppStatus inDraft={view.status === 'champ_select'} />
 {#if view.note}
   <div class="banner fixture">{view.note}</div>
 {/if}
 
-{#if page === 'pools'}
+<!-- Pages share one grid cell, so the new page comes in while the old one leaves -->
+{#snippet pageView(key)}
+{#if key === 'pools'}
   <Pools />
-{:else if page === 'prep'}
+{:else if key === 'prep'}
   <Prep />
-{:else if page === 'tags' || page === 'champions'}
+{:else if key === 'tags' || key === 'champions'}
   <Tags />
-{:else if page === 'rules'}
+{:else if key === 'rules'}
   <Rules />
-{:else if page === 'settings'}
+{:else if key === 'settings'}
   <Settings />
-{:else if page === 'team'}
+{:else if key === 'team'}
   <Team />
-{:else if page === 'crawl'}
+{:else if key === 'crawl'}
   <Crawl />
-{:else if page === 'history'}
+{:else if key === 'history'}
   <History />
 {:else if view.status === 'champ_select'}
   <Live {view} {secondsLeft} />
@@ -113,9 +158,18 @@
     <h1>{view.status === 'error' ? 'Something went wrong' : view.message}</h1>
     {#if view.status === 'error'}<p class="error">{view.message}</p>{/if}
     {#if view.client}<p>League client: {view.client}</p>{/if}
-    {#if page === 'live' && view.status === 'waiting'}<div class="scoutwrap"><ScoutBox /></div>{/if}
+    {#if key === 'live' && view.status === 'waiting'}<div class="scoutwrap"><ScoutBox /></div>{/if}
   </main>
 {/if}
+{/snippet}
+<div class="stage">
+  {#each stack as entry (entry.id)}
+    <div class="page" class:waiting={!entry.ready} inert={!entry.ready} aria-hidden={!entry.ready}
+         use:enter={entry.ready} out:pageOut>
+      {@render pageView(entry.key)}
+    </div>
+  {/each}
+</div>
 
 {#if page === 'live' && view.plan}
   {#key view.plan.text}<PlanBar bar={view.plan} />{/key}
@@ -129,20 +183,25 @@
           border-radius: 6px 6px 0 0; }
   nav a:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
   nav a.active { color: var(--text); font-weight: 600; }
-  nav a.active::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: -1px; height: 3px;
-                        border-radius: 3px 3px 0 0; background: var(--gold); }
+  .underline { position: absolute; left: 14px; right: 14px; bottom: -1px; height: 3px;
+               border-radius: 3px 3px 0 0; background: var(--gold); }
   nav a.alert { margin-left: auto; color: var(--gold); }
   .icons { display: flex; gap: 2px; }
   .icons.pushed { margin-left: auto; }
   nav a.icon { display: flex; align-items: center; padding: 9px 11px 11px; }
-  nav a.icon.active::after { left: 8px; right: 8px; }
+  nav a.icon .underline { left: 8px; right: 8px; }
   .subnav { display: flex; gap: 4px; padding: 8px 24px 0; }
-  .subnav a { color: var(--muted); text-decoration: none; font-size: 14px; padding: 5px 12px; border-radius: 6px; }
+  .subnav a { position: relative; color: var(--muted); text-decoration: none; font-size: 14px; padding: 5px 12px; border-radius: 6px; }
   .subnav a:hover { color: var(--text); }
-  .subnav a.active { color: var(--text); background: var(--panel-2); font-weight: 600; }
+  .subnav a.active { color: var(--text); font-weight: 600; }
+  .subnav .pill { position: absolute; inset: 0; border-radius: 6px; background: var(--panel-2); }
+  .subnav .label { position: relative; }
+  .stage { display: grid; }
+  .stage > .page { grid-area: 1 / 1; min-width: 0; }
+  .stage > .page.waiting { opacity: 0; pointer-events: none; }
   .banner { padding: 6px 16px; font-size: 14px; text-align: center; }
   .offline { background: #6e2a2a; }
-  .fixture { background: #3d3214; color: var(--gold); }
+  .fixture { background: var(--gold-bg); color: var(--gold); }
   .idle { display: grid; place-items: center; align-content: center; min-height: 80vh; gap: 4px; color: var(--muted); }
   .idle h1 { color: var(--text); font-size: 40px; font-weight: 600; margin: 0; }
   .idle p { font-size: 20px; margin: 4px; }

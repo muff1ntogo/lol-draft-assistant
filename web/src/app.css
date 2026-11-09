@@ -1,18 +1,52 @@
 :root {
-  --bg: #0d1117;
-  --panel: #161b22;
-  --panel-2: #1f2630;
-  --line: #2d3540;
-  --text: #e6edf3;
-  --muted: #8b96a3;
-  --blue: #4c9aff;
+  /* Colour identity: two quiet blues and one bright yellow.
+     Midnight blue for the surfaces (bg → nav → panels → lines), an analogous azure for quiet accents (links,
+     secondary buttons, our side), and yellow for what must stand out: highlights, the selected tab, main actions.
+     Chart colours are in palette.js too (ECharts can't read these), validated on --panel. */
+  --bg: #0a1122;
+  --nav: #070d1a; /* the window's title bar takes this colour too (window_chrome.py) */
+  --panel: #101a30;
+  --panel-2: #18243e;
+  --panel-3: #1e2c4a;
+  --line: #26355a;
+  --line-strong: #3a4c74;
+  --text: #e9eef8;
+  --text-2: #c6d1e6;
+  --muted: #8d9cba;
+  --blue: #5b8de8;        /* the analogous blue: quiet accents */
+  --blue-deep: #1b3260;   /* its fill for secondary buttons and selections */
+  --link: #9dbcf6;
+  --gold: #ffd23f;        /* the bright yellow: highlights and main actions */
+  --gold-bg: #2a2814;
+  --gold-line: #6a5a1c;
+  --on-gold: #0a1122;     /* text on yellow */
   --red: #ff6b6b;
-  --gold: #e3b341;
   --good: #3fb950;
   --warn: #f0883e;
-  --nav: #090c10; /* the window's title bar takes this colour too (window_chrome.py) */
+  /* favourability (validated pair): teal ahead, orange behind; never yellow, which means "look here" */
+  --up: #1baf7a;
+  --up-text: #4fd1a1;
+  --up-bg: #0f3a33;
+  --down: #e0702e;
+  --down-text: #f2a35e;
+  --down-bg: #3a2416;
+  /* sides (validated pair) */
+  --side-blue: #4a8ee0;
+  --side-blue-bg: #142d55;
+  --side-red: #d0574e;
+  --side-red-bg: #3d1a1c;
+  --side-red-text: #ff9b94;
   --radius: 8px;
-  --ease: 140ms ease;
+  /* Motion (src/motion.js has the same values for Svelte transitions): entrances ease out, on-screen movement eases
+     in and out, exits are ~20% shorter than entrances, no spring bounce. */
+  --ease-out: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-in: cubic-bezier(0.32, 0, 0.67, 0);
+  --dur-enter: 220ms;
+  --dur-exit: 176ms;
+  --dur-menu: 200ms; /* dropdowns and reveals: 150-250 ms */
+  --stagger: 30ms;
+  --ease: 140ms var(--ease-out);
   /* Windows 11's own type (Segoe UI Variable), then Windows 10's */
   font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   color: var(--text);
@@ -29,32 +63,59 @@ body { margin: 0; min-height: 100vh; }
 img { display: block; }
 h1, h2, h3 { font-family: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif; }
 
-::selection { background: rgba(76, 154, 255, 0.35); }
+::selection { background: rgba(255, 210, 63, 0.3); }
 
 /* Thin scrollbars that sit back until hovered, like Windows 11's */
 ::-webkit-scrollbar { width: 12px; height: 12px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #2d3540; border-radius: 6px; border: 3px solid transparent; background-clip: padding-box; }
-::-webkit-scrollbar-thumb:hover { background: #45505e; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--line-strong); border: 3px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-corner { background: transparent; }
 
 /* Controls: the same rounding and a quiet transition everywhere */
 button, input, select, textarea { font: inherit; border-radius: 6px; }
 button, a, input, select, textarea, .card, .chip, .part {
   transition: background-color var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease),
-              opacity var(--ease);
+              opacity var(--ease), transform 160ms var(--ease-out);
 }
 button:not(:disabled) { cursor: pointer; }
 button:not(:disabled):hover { filter: brightness(1.12); }
-button:not(:disabled):active { filter: brightness(0.95); }
-input:hover, select:hover, textarea:hover { border-color: #45505e; }
+/* pressed buttons give a little (0.97), and come back on the same ease-out curve */
+button:not(:disabled):active { filter: brightness(0.95); transform: scale(0.97); transition-duration: 140ms, 140ms, 140ms, 140ms, 140ms, 90ms; }
+
+/* Sliders: a round knob that stretches 12% along the track while it is held. The knob follows the pointer exactly
+   (no tween on its position); only the stretch animates. */
+input[type="range"] { -webkit-appearance: none; appearance: none; height: 18px; background: transparent; }
+input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line); }
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 7px;
+  background: var(--blue); border: 2px solid var(--panel); transition: transform 160ms var(--ease-out);
+}
+input[type="range"]:not(:disabled):active::-webkit-slider-thumb { transform: scaleX(1.12); }
+input[type="range"]:disabled::-webkit-slider-thumb { background: var(--muted); }
+
+/* <details>: the content is uncovered by a mask from the summary down, and its parts settle one after another */
+details[open] > :not(summary) { animation: reveal-down var(--dur-menu) var(--ease-out) backwards; /* no fill afterwards: the mask would clip focus rings */ }
+details[open] > :not(summary):nth-child(3) { animation-delay: var(--stagger); }
+details[open] > :not(summary):nth-child(4) { animation-delay: calc(2 * var(--stagger)); }
+details[open] > :not(summary):nth-child(n + 5) { animation-delay: calc(3 * var(--stagger)); }
+@keyframes reveal-down {
+  from { clip-path: inset(0 0 100% 0); opacity: 0.4; transform: translateY(-4px); }
+  to { clip-path: inset(0 0 0 0); opacity: 1; transform: none; }
+}
+summary { transition: color var(--ease); }
+input:hover, select:hover, textarea:hover { border-color: var(--line-strong); }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--blue); }
 
 /* A visible focus ring for the keyboard only */
-:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 :focus:not(:focus-visible) { outline: none; }
 
-a { color: #8ec5ff; }
+a { color: var(--link); }
+
+/* Main actions are yellow with midnight text; everything else stays in the quiet blues */
+button.primary, button[type="submit"] { background: var(--gold); border-color: var(--gold); color: var(--on-gold); font-weight: 600; }
+button.primary:disabled, button[type="submit"]:disabled { background: var(--gold-bg); border-color: var(--gold-line); color: var(--muted); }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }

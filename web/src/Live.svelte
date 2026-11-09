@@ -1,4 +1,5 @@
 <script>
+  import { rise, swap } from './motion.js';
   import Champ from './Champ.svelte';
   import ComponentBar from './ComponentBar.svelte';
   import ComponentLegend from './ComponentLegend.svelte';
@@ -50,7 +51,8 @@
       <div class="slot" class:local={slot.is_local}>
         <span class="role">{slot.role_label}</span>
         {#if slot.champ}
-          <Champ champ={slot.champ} size={56} />
+          <!-- a lock-in replaces the faded hover in place: crossfade with scale and blur -->
+          <span class="lockin" in:swap><Champ champ={slot.champ} size={56} /></span>
           <span class="name">{slot.champ.name}{#if slot.badge?.text}<small class="badge">{slot.badge.text}</small>{/if}</span>
         {:else if slot.hover}
           <Champ champ={slot.hover} size={56} faded />
@@ -87,8 +89,8 @@
     {:else if center.mode === 'our_ban_group'}
       <div class="grouphead"><h2>{center.title}</h2><ComponentLegend /></div>
       <div class="group">
-        {#each center.cards as card}
-          <article class="gcard {card.status}">
+        {#each center.cards as card, i}
+          <article class="gcard {card.status}" in:rise|global={{ i }}>
             <div class="owner">{card.role_label}{#if card.player} <span>{card.player}</span>{/if}</div>
             {#if card.status === 'locked'}
               <div class="status">locked</div>
@@ -125,7 +127,7 @@
         {#if center.scouted && card.group !== center.cards[i - 1]?.group}
           <h3 class="bangroup">{card.group === 'pool' ? 'From their pools' : 'Strongest of the rest'}</h3>
         {/if}
-        <article class="card" class:highlighted={card.highlighted} class:compact={center.cards.length > 3}>
+        <article class="card" class:highlighted={card.highlighted} class:compact={center.cards.length > 3} in:rise|global={{ i }}>
           <span class="rank">{i + 1}</span>
           <Champ champ={card.champ} size={center.cards.length > 3 ? 60 : 88} />
           <div>
@@ -174,8 +176,8 @@
     {:else if center.mode === 'enemy_turn'}
       <h2>{center.title}</h2>
       <p class="muted">Their most likely picks</p>
-      {#each center.cards as card}
-        <article class="card enemy">
+      {#each center.cards as card, i}
+        <article class="card enemy" in:rise|global={{ i }}>
           <Champ champ={card.champ} size={72} />
           <div>
             <div class="title">{card.champ.name} <small>{pct(card.prob)} · {card.role_label}</small>
@@ -217,7 +219,8 @@
     {#each view.their_slots as slot}
       <div class="slot" class:open={!slot.champ}>
         {#if slot.champ}
-          <Champ champ={slot.champ} size={56} />
+          <!-- a lock-in replaces the faded hover in place: crossfade with scale and blur -->
+          <span class="lockin" in:swap><Champ champ={slot.champ} size={56} /></span>
           <span class="name">{slot.champ.name}{#if slot.badge?.text}<small class="badge">{slot.badge.text}</small>{/if}
             {#if slot.role_probs}<small class="roleprobs" title="Their roles are guessed from how often each champion is played in each role; suggestions assume the first">{slot.role_probs.map((r) => `${r.role_label} ${Math.round(r.p * 100)}%`).join(' / ')}</small>{/if}</span>
         {:else if slot.likely?.length}
@@ -262,10 +265,10 @@
 <style>
   .timer.soon { color: var(--gold); }
   .timer.urgent { color: var(--red); }
-  .contested { font-size: 14px; color: #e0a640; margin-top: 2px; }
+  .contested { font-size: 14px; color: var(--down-text); margin-top: 2px; }
   .lowdata { font-size: 13px; color: var(--muted); font-style: italic; }
-  .delta { font-size: 14px; color: #1baf7a; font-weight: 600; }
-  .delta.neg { color: #c98500; }
+  .delta { font-size: 14px; color: var(--up); font-weight: 600; }
+  .delta.neg { color: var(--down); }
   /* compact: the app beside the client on one screen */
   @media (max-width: 1100px) {
     .board { grid-template-columns: 200px 1fr 200px !important; gap: 14px !important; padding: 12px 14px !important; }
@@ -283,16 +286,16 @@
   .roleprobs { display: block; font-size: 12px; color: var(--gold); font-weight: 400; }
   .likely { display: flex; gap: 6px; }
   .lk { display: flex; flex-direction: column; align-items: center; font-size: 11px; color: var(--muted); }
-  .label { font-size: 11px; color: var(--gold); text-transform: none; border: 1px solid #5a4a1c; border-radius: 4px; padding: 0 4px; }
-  .label.otp { color: #e0a640; }
-  .target { font-size: 14px; color: #8ec5ff; margin: 2px 0; }
-  .stalestrip { margin: 0 0 10px; padding: 6px 10px; border-radius: 6px; font-size: 14px; background: #3d3214; color: var(--gold); }
+  .label { font-size: 11px; color: var(--gold); text-transform: none; border: 1px solid var(--gold-line); border-radius: 4px; padding: 0 4px; }
+  .label.otp { color: var(--down-text); }
+  .target { font-size: 14px; color: var(--link); margin: 2px 0; }
+  .stalestrip { margin: 0 0 10px; padding: 6px 10px; border-radius: 6px; font-size: 14px; background: var(--gold-bg); color: var(--gold); }
   .stalestrip.updating { background: transparent; color: var(--muted); padding: 0; }
   .center.stale :global(article) { opacity: 0.6; }
   .panelnote { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
   .checkstrip { display: flex; gap: 14px; margin: 0 0 8px; font-size: 14px; color: var(--muted); }
-  .checkstrip .no { color: #e0a640; font-weight: 600; }
-  .plantag { font-size: 13px; font-weight: 600; color: #8ec5ff; border: 1px solid #2f6fb7; border-radius: 4px;
+  .checkstrip .no { color: var(--down-text); font-weight: 600; }
+  .plantag { font-size: 13px; font-weight: 600; color: var(--link); border: 1px solid var(--side-blue); border-radius: 4px;
              padding: 0 5px; margin-left: 6px; vertical-align: middle; }
   .top { display: grid; grid-template-columns: 1fr auto 1fr auto; align-items: center; gap: 24px;
          padding: 14px 28px; font-size: 26px; font-weight: 700; border-bottom: 4px solid var(--line); }
@@ -339,14 +342,14 @@
   .pairpick > span { display: flex; flex-direction: column; }
   .pairpick small { color: var(--muted); font-size: 13px; }
   .pairstats { display: flex; flex-direction: column; align-items: flex-end; font-size: 16px; font-variant-numeric: tabular-nums; }
-  .syn.pos { color: #4fd1a1; }
-  .syn.neg { color: #e0a640; }
+  .syn.pos { color: var(--up-text); }
+  .syn.neg { color: var(--down-text); }
   .card.highlighted { border-color: var(--gold); background: var(--panel-2); }
   .card.compact { gap: 14px; padding: 8px 14px; }
   .card.compact .title { font-size: 23px; }
   .card.compact .reason { font-size: 17px; margin-top: 2px; }
   .card.compact .rank { font-size: 22px; }
-  .badge { font-size: 13px; font-weight: 500; color: #c9d1d9; background: #2d3540; border-radius: 4px;
+  .badge { font-size: 13px; font-weight: 500; color: var(--text-2); background: var(--line); border-radius: 4px;
            padding: 1px 6px; margin-left: 8px; white-space: nowrap; vertical-align: middle; }
   .name .badge { margin: 2px 0 0; align-self: flex-start; font-size: 12px; }
   .effect { color: var(--gold); }
@@ -354,7 +357,7 @@
   .rank { font-size: 28px; font-weight: 700; color: var(--muted); width: 1.2em; }
   .title { font-size: 30px; font-weight: 700; }
   .title small { font-size: 18px; color: var(--muted); font-weight: 500; margin-left: 10px; }
-  .reason { font-size: 22px; color: #c9d1d9; margin-top: 4px; }
+  .reason { font-size: 22px; color: var(--text-2); margin-top: 4px; }
   .warn { color: var(--warn); font-size: 18px; font-style: normal; margin-top: 4px; }
   .muted { color: var(--muted); font-size: 18px; margin: 0; }
   .winprob { font-size: 96px; font-weight: 800; line-height: 1; }
@@ -367,8 +370,9 @@
   .owner span { text-transform: none; color: var(--text); margin-left: 6px; }
   .gname { font-size: 22px; font-weight: 700; }
   .gcard :global(.bar) { max-width: 180px; }
-  .greason { font-size: 16px; color: #c9d1d9; line-height: 1.3; }
+  .greason { font-size: 16px; color: var(--text-2); line-height: 1.3; }
   .status { font-size: 13px; color: var(--muted); text-transform: uppercase; }
   .hovering { font-size: 14px; color: var(--gold); }
   .free { font-size: 16px; color: var(--muted); margin-top: 24px; }
+  .lockin { display: inline-flex; }
 </style>

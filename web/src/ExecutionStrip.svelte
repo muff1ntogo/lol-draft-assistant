@@ -1,4 +1,5 @@
 <script>
+  import { reveal, rise, swap } from './motion.js';
   // docs/draft-vs-execution.md, Stage 4. Teal = moved in our favour, amber = against, grey = within 1pp. Validated on the
   // panel surface (CLAUDE.md); the signed number and the label are always written too.
   import { STATS, signed as signedNum } from './format.js';
@@ -66,11 +67,11 @@
       {#each e.chips as c}
         {#if c.players.length}
           <button class="chip {tone(c.share_pp)}" aria-expanded={openBot} onclick={() => (openBot = !openBot)}>
-            <b>{c.name} {openBot ? '▾' : '▸'}</b><span>{c.label}</span><em>{pp(c.share_pp, 1)}</em>
+            <b>{c.name} <span class="chev">{#key openBot}<span in:swap out:swap>{openBot ? '▾' : '▸'}</span>{/key}</span></b><span>{c.label}</span><em>{pp(c.share_pp, 1)}</em>
           </button>
           {#if openBot}
-            {#each c.players as p}
-              <div class="chip sub {tone(p.share_pp)}"><b>{p.name}</b><span>{p.label}</span><em>{pp(p.share_pp, 1)}</em></div>
+            {#each c.players as p, i}
+              <div class="chip sub {tone(p.share_pp)}" in:rise={{ i }} out:rise><b>{p.name}</b><span>{p.label}</span><em>{pp(p.share_pp, 1)}</em></div>
             {/each}
           {/if}
         {:else}
@@ -82,7 +83,7 @@
 
     <button class="toggle" aria-expanded={openTable} onclick={() => (openTable = !openTable)}>{openTable ? 'Hide' : 'Show'} every stat</button>
     {#if openTable}
-      <div class="tables">
+      <div class="tables" transition:reveal>
         <table>
           <thead><tr><th>Stat</th><th class="n">Actual</th><th class="n">Expected</th><th class="n">SD</th><th class="n">z</th><th>Label</th></tr></thead>
           <tbody>
@@ -127,39 +128,41 @@
 
 <style>
   .strip { background: var(--panel); border-radius: 8px; padding: 12px 16px; margin-top: 10px; display: grid; gap: 10px; }
-  h3 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: #8b96a3; font-weight: 600; }
-  .verdict { margin: 0; font-size: 16px; color: #c9d1d9; }
+  h3 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-weight: 600; }
+  .verdict { margin: 0; font-size: 16px; color: var(--text-2); }
   .verdict strong { color: var(--text); }
   .parts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-  .part { background: var(--panel-2, #1f2630); border-left: 4px solid #8b96a3; border-radius: 4px; padding: 6px 10px; display: grid; gap: 1px; }
-  .part.up { border-left-color: #1baf7a; }
-  .part.down { border-left-color: #c98500; }
+  .part { background: var(--panel-2, var(--panel-2)); border-left: 4px solid var(--muted); border-radius: 4px; padding: 6px 10px; display: grid; gap: 1px; }
+  .part.up { border-left-color: var(--up); }
+  .part.down { border-left-color: var(--down); }
   .part.result { border-left-color: var(--text); }
   .part b { font-size: 18px; font-variant-numeric: tabular-nums; }
-  .name { font-size: 13px; color: #c9d1d9; }
-  .range { font-size: 12px; color: #8b96a3; font-variant-numeric: tabular-nums; }
+  .name { font-size: 13px; color: var(--text-2); }
+  .range { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; }
-  .chip { display: grid; gap: 1px; min-width: 104px; padding: 6px 10px; background: var(--panel-2, #1f2630); border: 0; border-left: 4px solid #8b96a3;
+  .chip { display: grid; gap: 1px; min-width: 104px; padding: 6px 10px; background: var(--panel-2, var(--panel-2)); border: 0; border-left: 4px solid var(--muted);
           border-radius: 4px; color: var(--text); font: inherit; font-size: 13px; text-align: left; }
   button.chip { cursor: pointer; }
-  .chip.up { border-left-color: #1baf7a; }
-  .chip.down { border-left-color: #c98500; }
+  .chip.up { border-left-color: var(--up); }
+  .chip.down { border-left-color: var(--down); }
   .chip.sub { min-width: 88px; opacity: 0.92; }
-  .chip span { color: #c9d1d9; }
+  .chip span { color: var(--text-2); }
   .chip em { font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .key { margin: 0; font-size: 12px; color: #8b96a3; }
+  .key { margin: 0; font-size: 12px; color: var(--muted); }
   .toggle { justify-self: start; background: none; border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 13px; }
   .tables { display: grid; grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr); gap: 16px; align-items: start; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; color: #8b96a3; font-weight: 500; padding: 3px 6px; border-bottom: 1px solid var(--line); }
-  td { padding: 3px 6px; border-bottom: 1px solid #1f2630; }
+  th { text-align: left; color: var(--muted); font-weight: 500; padding: 3px 6px; border-bottom: 1px solid var(--line); }
+  td { padding: 3px 6px; border-bottom: 1px solid var(--panel-2); }
   .n { text-align: right; font-variant-numeric: tabular-nums; }
   .group td { padding-top: 8px; font-weight: 700; }
-  .group span { font-weight: 400; color: #8b96a3; }
-  .basis td { color: #8b96a3; }
-  td.good { color: #1baf7a; }
-  td.bad { color: #c98500; }
+  .group span { font-weight: 400; color: var(--muted); }
+  .basis td { color: var(--muted); }
+  td.good { color: var(--up); }
+  td.bad { color: var(--down); }
   @media (max-width: 1100px) {
     .tables { grid-template-columns: 1fr; }
   }
+  .chev { display: inline-grid; width: 1ch; }
+  .chev > span { grid-area: 1 / 1; }
 </style>

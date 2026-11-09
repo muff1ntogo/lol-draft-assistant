@@ -120,7 +120,7 @@
 
 <style>
   .source { font-size: 13px; margin: 0 0 10px; }
-  .waiting { font-size: 13px; margin: 0 0 10px; padding: 6px 10px; border-radius: 6px; background: #3d3214; color: #e0a640; }
+  .waiting { font-size: 13px; margin: 0 0 10px; padding: 6px 10px; border-radius: 6px; background: var(--gold-bg); color: var(--down-text); }
   .tune { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; font-size: 13px; margin: 0 0 12px; }
   .tune label { display: inline-flex; align-items: center; gap: 8px; }
   .tune strong { font-variant-numeric: tabular-nums; }
@@ -130,27 +130,27 @@
   .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
   .chip { font: inherit; font-size: 13px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 2px 10px; }
   .chip small { color: var(--muted); }
-  .chip.green { border-color: #1baf7a; cursor: default; }
-  .chip.amber { border-color: #c98500; cursor: default; }
-  .chip.red { border-color: #c0423a; background: #3a1d1b; cursor: pointer; }
+  .chip.green { border-color: var(--up); cursor: default; }
+  .chip.amber { border-color: var(--down); cursor: default; }
+  .chip.red { border-color: var(--side-red); background: var(--side-red-bg); cursor: pointer; }
   .chip.grey { border-style: dashed; color: var(--muted); cursor: default; }
   .detail { font-size: 13px; margin: 4px 0; }
   .health { display: flex; gap: 14px; margin: 4px 0 8px; color: var(--muted); }
-  .health .missing { color: #e0a640; }
+  .health .missing { color: var(--down-text); }
   .small { font-size: 12px; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--line); font-size: 12px; }
-  td { padding: 3px 6px; border-bottom: 1px solid #1f2630; vertical-align: middle; }
+  td { padding: 3px 6px; border-bottom: 1px solid var(--panel-2); vertical-align: middle; }
   .num { text-align: right; font-variant-numeric: tabular-nums; }
   .icons { white-space: nowrap; }
   .icons span { display: inline-block; margin-right: 2px; }
   .answer { white-space: nowrap; }
-  .flag { margin-left: 6px; font-size: 11px; padding: 0 5px; border-radius: 4px; background: #3a1d1b; color: #e8a09a; }
-  tr.gap strong { color: #e8a09a; }
-  tr.more td { font-size: 13px; color: #c9d1d9; }
+  .flag { margin-left: 6px; font-size: 11px; padding: 0 5px; border-radius: 4px; background: var(--side-red-bg); color: var(--side-red-text); }
+  tr.gap strong { color: var(--side-red-text); }
+  tr.more td { font-size: 13px; color: var(--text-2); }
   .poolnote { display: block; font-size: 11px; font-weight: 400; }
-  .inpool { margin-left: 6px; font-size: 11px; padding: 0 5px; border-radius: 4px; background: #3d3214; color: var(--gold); }
-  .counter { margin-left: 6px; font-size: 11px; padding: 0 5px; border-radius: 4px; background: #0f3d2e; color: #4fd1a1; }
+  .inpool { margin-left: 6px; font-size: 11px; padding: 0 5px; border-radius: 4px; background: var(--gold-bg); color: var(--gold); }
+  .counter { margin-left: 6px; font-size: 11px; padding: 0 5px; border-radius: 4px; background: var(--up-bg); color: var(--up-text); }
   .plan { font-size: 12px; }
   .muted { color: var(--muted); }
 </style>

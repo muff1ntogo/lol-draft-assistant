@@ -17,9 +17,9 @@
 
 <style>
   .champ { position: relative; display: inline-grid; place-items: center; flex: none;
-           border-radius: 6px; overflow: hidden; background: #2d3540; }
+           border-radius: 6px; overflow: hidden; background: var(--line); }
   img { width: 100%; height: 100%; }
-  .initials { font-weight: 700; color: #c9d1d9; text-align: center; line-height: 1.05; padding: 2px; word-break: break-word; }
+  .initials { font-weight: 700; color: var(--text-2); text-align: center; line-height: 1.05; padding: 2px; word-break: break-word; }
   .faded { opacity: 0.55; }
   .banned { filter: grayscale(1) brightness(0.7); }
   .banned::after { content: ""; position: absolute; inset: 0;

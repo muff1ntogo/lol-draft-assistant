@@ -1,9 +1,11 @@
 <script>
   // History's overview band (docs/history-charts.md): our games across games, under the list's queue / side / patch
-  // filters. Colours: the component set validated on the panel surface #161b22 (blue #3987e5, orange #d95926,
+  // filters. Colours: the component set validated on the panel surface #101a30 (palette.js) (blue #3987e5, orange #d95926,
   // aqua #199e70); every rate carries its game count and a 95% interval.
   import Champ from './Champ.svelte';
   import EChart from './EChart.svelte';
+  import { reveal, swap } from './motion.js';
+  import { LINE, MUTED, PANEL, PANEL_2, TEXT } from './palette.js';
 
   let { filters = {} } = $props();
   let stats = $state(null);
@@ -20,14 +22,14 @@
   });
 
   const BLUE = '#3987e5', ORANGE = '#d95926', AQUA = '#199e70';
-  const INK = '#8b96a3', GRID = '#2d3540', TEXT = '#e6edf3';
+  const INK = MUTED, GRID = LINE;
   const pct = (x) => (x == null ? '—' : `${Math.round(x * 100)}%`);
   const ci = (r) => (r.ci ? `${pct(r.ci[0])}–${pct(r.ci[1])}` : '');
   const signed = (x) => (x == null ? '—' : `${x > 0 ? '+' : x < 0 ? '−' : '±'}${Math.abs(x)}`);
   const base = {
     animation: false,
     textStyle: { color: INK, fontFamily: 'inherit' },
-    tooltip: { backgroundColor: '#1f2630', borderColor: GRID, textStyle: { color: TEXT, fontSize: 13 } },
+    tooltip: { backgroundColor: PANEL_2, borderColor: GRID, textStyle: { color: TEXT, fontSize: 13 } },
   };
   const axis = (extra = {}) => ({ axisLine: { lineStyle: { color: GRID } }, axisTick: { show: false },
                                   splitLine: { lineStyle: { color: GRID, opacity: 0.5 } }, axisLabel: { color: INK }, ...extra });
@@ -94,7 +96,7 @@
         } },
       { type: 'scatter', color: BLUE, z: 6, data: stats.calibration.map((b) => [b.predicted, b.wr]),
         symbolSize: (v, p) => 8 + Math.min(16, 2 * Math.sqrt(stats.calibration[p.dataIndex].games)),
-        itemStyle: { borderColor: '#161b22', borderWidth: 2 } },
+        itemStyle: { borderColor: PANEL, borderWidth: 2 } },
     ],
   });
 
@@ -112,7 +114,7 @@
     yAxis: axis({ type: 'value', axisLabel: { color: INK, formatter: (v) => `${v}pp` } }),
     series: [['Draft', 'draft', BLUE], ['Early game', 'early', ORANGE], ['Conversion', 'conversion', AQUA]].map(([name, key, color]) => ({
       name, type: 'bar', stack: 'split', stackStrategy: 'samesign', color, barMaxWidth: 18,
-      itemStyle: { borderColor: '#161b22', borderWidth: 1 }, data: stats.execution.map((e) => e[key]) })),
+      itemStyle: { borderColor: PANEL, borderWidth: 1 }, data: stats.execution.map((e) => e[key]) })),
   });
 
   // win rate by side, queue, following #1, plan: small horizontal bars with 95% whiskers
@@ -144,10 +146,11 @@
 
 <section class="overview">
   <button class="head" onclick={toggle} aria-expanded={open}>
-    <span>{open ? '▾' : '▸'} Overview</span>
+    <span><span class="chev">{#key open}<span in:swap out:swap>{open ? '▾' : '▸'}</span>{/key}</span> Overview</span>
     {#if stats?.games}<span class="muted">{stats.games} games · {pct(stats.overall.wr)} won ({ci(stats.overall)})</span>{/if}
   </button>
   {#if open && stats}
+  <div transition:reveal>
     {#if !stats.games}
       <p class="muted">No finished games under these filters yet.</p>
     {:else}
@@ -218,11 +221,12 @@
         </div>
       {/if}
     {/if}
+  </div>
   {/if}
 </section>
 
 <style>
-  .overview { background: var(--panel); border: 1px solid #1d232c; border-radius: 10px; padding: 10px 16px 14px; margin-bottom: 14px; }
+  .overview { background: var(--panel); border: 1px solid var(--panel-2); border-radius: 10px; padding: 10px 16px 14px; margin-bottom: 14px; }
   .head { display: flex; gap: 14px; align-items: baseline; background: none; border: 0; color: var(--text); font: inherit;
           font-size: 16px; font-weight: 600; padding: 4px 0; cursor: pointer; width: 100%; text-align: left; }
   .muted { color: var(--muted); font-size: 13px; font-weight: 400; }
@@ -243,9 +247,12 @@
   td.gold { position: relative; width: 56px; }
   td.gold::before { content: ''; position: absolute; left: 50%; top: 3px; bottom: 3px; border-left: 1px solid var(--line); }
   td.gv { width: 3.5em; color: var(--muted); }
-  .gbar { position: absolute; top: 6px; bottom: 6px; left: 50%; width: var(--w); background: #1baf7a; border-radius: 0 3px 3px 0; }
-  .gbar.neg { left: auto; right: 50%; background: #c98500; border-radius: 3px 0 0 3px; }
+  .gbar { position: absolute; top: 6px; bottom: 6px; left: 50%; width: var(--w); background: var(--up); border-radius: 0 3px 3px 0; }
+  .gbar.neg { left: auto; right: 50%; background: var(--down); border-radius: 3px 0 0 3px; }
   .scoutline { font-size: 14px; margin: 0; }
   .bans { display: flex; flex-wrap: wrap; gap: 10px 16px; }
   .ban { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+  /* the old and new chevron share one cell while they crossfade */
+  .chev { display: inline-grid; width: 1ch; }
+  .chev > span { grid-area: 1 / 1; }
 </style>

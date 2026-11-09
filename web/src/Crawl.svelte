@@ -1,4 +1,5 @@
 <script>
+  import { pulse } from './motion.js';
   // The crawl and the other data jobs, from the app (src/draftassist/jobs.py): one at a time, each its own process,
   // so a long crawl keeps going if the app closes, and the app finds it again when reopened.
   import { patchLabel, riotPatch } from './patch.js';
@@ -291,9 +292,9 @@
         {/if}
         <div class="form opts">
           <label class="cb"><input type="checkbox" bind:checked={sel.master_tree} /> Master+ games for the Matchup tree</label>
-          <button onclick={saveSelection}>Apply</button>
+          <button class="primary" onclick={saveSelection}>Apply</button>
         </div>
-        {#if selMessage}<p class="muted">{selMessage}</p>{/if}
+        {#if selMessage}<p class="muted" use:pulse={{ value: selMessage, ok: !/^(Not|No) |fail|error|couldn/i.test(selMessage) }}>{selMessage}</p>{/if}
         <p class="muted">Win rates, matchups and synergy are summed from the pulled counts for exactly this choice. Fits (matchup
           model, synergy rules, traits) come from the admin's dataset closest to it, named above. Changes apply between drafts.</p>
       </section>
@@ -393,7 +394,7 @@
           {#if jobs[crawlJob]?.hours}
             <label>For <input type="number" min="0.5" max="24" step="0.5" bind:value={hours} /> hours</label>
           {/if}
-          <button onclick={() => start(crawlJob)} disabled={!data.riot_key_set}>Start</button>
+          <button class="primary" onclick={() => start(crawlJob)} disabled={!data.riot_key_set}>Start</button>
         </div>
         {#if takesOptions(crawlJob)}
           <div class="form opts">
@@ -515,7 +516,7 @@
             {/each}
           </tbody>
         </table>
-        {#if storageMessage}<p class="muted">{storageMessage}</p>{/if}
+        {#if storageMessage}<p class="muted" use:pulse={{ value: storageMessage, ok: !/^(Not|No) |fail|error|couldn/i.test(storageMessage) }}>{storageMessage}</p>{/if}
         <p class="muted">The optimising runs as a job (one at a time, output above). The crawl's raw matches are never
           deleted: counts, fits and backfills are computed from them, and publishing copies only counts and fits.</p>
       </section>
@@ -546,7 +547,7 @@
   h2 { font-size: 21px; margin: 0 0 16px; display: flex; align-items: baseline; gap: 10px; }
   h2 small { font-size: 14px; color: var(--muted); font-weight: 400; }
   h3 { font-size: 14px; color: var(--muted); font-weight: 600; margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.4px; }
-  section { background: var(--panel); border: 1px solid #1d232c; border-radius: 10px; padding: 24px 28px; }
+  section { background: var(--panel); border: 1px solid var(--panel-2); border-radius: 10px; padding: 24px 28px; }
   section + section { margin-top: 22px; }
   .muted { color: var(--muted); font-size: 14px; line-height: 1.55; margin: 8px 0 0; max-width: 76ch; }
   .warn { color: var(--gold); margin: 0 0 16px; }
@@ -554,26 +555,28 @@
   .form label { display: flex; align-items: center; gap: 10px; }
   select, input { height: 34px; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); padding: 4px 10px; }
   input { width: 80px; }
-  button { background: var(--blue); color: white; border: 0; padding: 8px 18px; height: 36px; }
+  button { background: var(--blue-deep); color: var(--text); border: 0; padding: 8px 18px; height: 36px; }
+  button.primary, button[type="submit"] { background: var(--gold); color: var(--on-gold); font-weight: 600; }
+  button.primary:disabled, button[type="submit"]:disabled { background: var(--gold-bg); color: var(--muted); }
   button:disabled { opacity: 0.45; cursor: default; }
   button.stop { background: #8a3a3a; margin-left: auto; }
   .running { display: flex; align-items: center; gap: 10px; font-size: 17px; }
-  .dot { width: 10px; height: 10px; border-radius: 50%; background: #1baf7a; box-shadow: 0 0 0 4px rgba(27, 175, 122, 0.2);
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--up); box-shadow: 0 0 0 4px rgba(27, 175, 122, 0.2);
          animation: pulse 1.6s ease-in-out infinite; }
   @keyframes pulse { 50% { box-shadow: 0 0 0 7px rgba(27, 175, 122, 0.05); } }
-  pre { background: #0b0f14; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 0;
-        max-height: 320px; overflow: auto; font: 12.5px/1.5 "Cascadia Mono", Consolas, monospace; color: #c9d1d9;
+  pre { background: var(--nav); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 0;
+        max-height: 320px; overflow: auto; font: 12.5px/1.5 "Cascadia Mono", Consolas, monospace; color: var(--text-2);
         white-space: pre-wrap; word-break: break-word; }
   table { width: 100%; border-collapse: collapse; font-size: 15px; }
   th { text-align: left; color: var(--muted); font-weight: 500; font-size: 13px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
-  td { padding: 8px; border-bottom: 1px solid #1f2630; }
+  td { padding: 8px; border-bottom: 1px solid var(--panel-2); }
   tfoot td { font-weight: 600; border-bottom: 0; }
   .n { text-align: right; font-variant-numeric: tabular-nums; }
   .tier { text-transform: capitalize; }
   .bar { width: 34%; }
   .bar small { color: var(--muted); margin-left: 8px; font-variant-numeric: tabular-nums; }
-  .track { display: inline-block; vertical-align: middle; width: calc(100% - 52px); height: 8px; background: #1f2630; border-radius: 4px; overflow: hidden; }
-  .fill { display: block; height: 100%; background: linear-gradient(90deg, #2f6fb7, #4c9aff); border-radius: 4px; }
+  .track { display: inline-block; vertical-align: middle; width: calc(100% - 52px); height: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+  .fill { display: block; height: 100%; background: linear-gradient(90deg, var(--side-blue), var(--blue)); border-radius: 4px; }
   .opts { margin-top: 14px; }
   .opts input[type='number'] { width: 70px; }
   .patchin { width: 140px !important; }
@@ -587,9 +590,9 @@
   .tsetname { background: none; border: 0; padding: 0; color: var(--muted); font-size: 13px; text-align: left; cursor: pointer; }
   .tsetname:hover { color: var(--text); }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chip { text-transform: capitalize; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line, #2a3240);
+  .chip { text-transform: capitalize; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line, var(--line));
           background: var(--panel-2); color: var(--muted); font-size: 14px; cursor: pointer; }
-  .chip.on { border-color: var(--accent, #4a9eff); color: var(--text); background: color-mix(in srgb, var(--accent, #4a9eff) 22%, transparent); }
+  .chip.on { border-color: var(--accent, var(--blue)); color: var(--text); background: color-mix(in srgb, var(--accent, var(--blue)) 22%, transparent); }
   .grp .ghead td { padding-top: 14px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 0; }
   .grp .sub td { color: var(--muted); font-size: 13px; }
   tr.none td { color: var(--muted); }

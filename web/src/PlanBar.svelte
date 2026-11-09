@@ -80,31 +80,31 @@
 
 <style>
   .planbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; align-items: center; gap: 22px;
-             padding: 6px 20px; min-height: 64px; background: #0f1a26; border-top: 2px solid #2f6fb7; }
-  .planbar.at_risk { border-top-color: #c98500; background: #1d1810; }
-  .planbar.broken { border-top-color: #c0423a; background: #1f1312; }
+             padding: 6px 20px; min-height: 64px; background: var(--nav); border-top: 2px solid var(--side-blue); }
+  .planbar.at_risk { border-top-color: var(--down); background: var(--nav); }
+  .planbar.broken { border-top-color: var(--side-red); background: var(--nav); }
   .spacer { height: 76px; }
   .t { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
   .head { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; flex: none; }
-  .pill { font-size: 13px; font-weight: 700; padding: 0 6px; border-radius: 4px; background: #12304d; color: #8ec5ff; }
-  .pill.at_risk { background: #3d2e0a; color: #f0c674; }
-  .pill.broken { background: #4a1f1c; color: #ffb4ad; }
+  .pill { font-size: 13px; font-weight: 700; padding: 0 6px; border-radius: 4px; background: var(--side-blue-bg); color: var(--link); }
+  .pill.at_risk { background: var(--down-bg); color: var(--down-text); }
+  .pill.broken { background: var(--side-red-bg); color: var(--side-red-text); }
   .unpin { font: inherit; font-size: 12px; background: none; color: var(--muted); border: 1px solid var(--line);
            border-radius: 5px; padding: 0 8px; cursor: pointer; }
   .slots { display: flex; gap: 14px; flex: none; }
   .slot { display: flex; align-items: center; gap: 7px; }
   .ic { position: relative; flex: none; }
-  .actual { position: absolute; right: -8px; bottom: -6px; border: 2px solid #0f1a26; border-radius: 6px; line-height: 0; }
+  .actual { position: absolute; right: -8px; bottom: -6px; border: 2px solid var(--nav); border-radius: 6px; line-height: 0; }
   .txt { display: flex; flex-direction: column; line-height: 1.15; }
   .name { font-size: 14px; font-weight: 600; }
   .st { font-size: 12px; color: var(--muted); }
-  .slot.picked .st { color: #4fd1a1; }
-  .slot.replaced .st, .slot.at_risk .st { color: #e0a640; }
-  .slot.banned .st, .slot.taken .st { color: #ff9b94; }
+  .slot.picked .st { color: var(--up-text); }
+  .slot.replaced .st, .slot.at_risk .st { color: var(--down-text); }
+  .slot.banned .st, .slot.taken .st { color: var(--side-red-text); }
   .bans { display: flex; flex-direction: column; gap: 3px; flex: none; }
   .row { display: inline-flex; gap: 3px; align-items: center; }
   .ban { border-radius: 6px; outline: 2px solid transparent; outline-offset: 1px; line-height: 0; }
-  .ban.ours { outline-color: #1baf7a; }
+  .ban.ours { outline-color: var(--up); }
   .row.off .t { margin-right: 4px; }
   .summary { display: flex; flex-direction: column; gap: 3px; margin-left: auto; flex: none; }
   .srow { display: flex; align-items: center; gap: 8px; font-size: 13px; }
@@ -114,8 +114,8 @@
   .magic { background: #3987e5; }
   .true { background: #199e70; }
   .lbl { font-weight: 700; min-width: 44px; }
-  .timing.early { color: #e0a640; }
-  .timing.late { color: #79b8ff; }
-  .small { font-size: 12px; color: #c9d1d9; }
+  .timing.early { color: var(--down-text); }
+  .timing.late { color: var(--link); }
+  .small { font-size: 12px; color: var(--text-2); }
   .muted { color: var(--muted); font-weight: 500; }
 </style>

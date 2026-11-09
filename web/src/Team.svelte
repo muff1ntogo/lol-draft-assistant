@@ -1,4 +1,5 @@
 <script>
+  import { pulse } from './motion.js';
   import { signed, statName } from './format.js';
 
   let data = $state(null);
@@ -156,7 +157,7 @@
           {#each Object.entries(data.choices) as [key, label]}<option value={key}>{label}</option>{/each}
         </select>
       </label>
-      {#if message}<p class="ok">{message}</p>{/if}
+      {#if message}<p class="ok" use:pulse={{ value: message, ok: !/^(Not|No) |fail|error|couldn/i.test(message) }}>{message}</p>{/if}
       <p class="muted small">
         Each logged draft is classified like the Live comp panel, from the champions' tags (Champions page): an
         identity (Engage, Poke, Pick, Protect, Split) needs 35% of the comp and two champions of it, else it is Mixed.
@@ -176,17 +177,17 @@
   h2 small { font-size: 14px; color: var(--muted); font-weight: 400; margin-left: 8px; }
   section { background: var(--panel); border-radius: 8px; padding: 16px 20px; margin-bottom: 16px; }
   .form { display: flex; gap: 6px; }
-  .g { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 6px; font-weight: 800; background: #222a35; }
-  .g.win { color: #1baf7a; }
+  .g { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 6px; font-weight: 800; background: var(--panel-3); }
+  .g.win { color: var(--up); }
   .g.loss { color: #e5737d; }
   .styles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
   .style { background: var(--panel-2); border: 2px solid transparent; border-radius: 8px; padding: 10px 12px; }
-  .style.suggested { border-color: #e3b341; }
-  .style.chosen { box-shadow: inset 0 0 0 1px #4c9aff; }
+  .style.suggested { border-color: var(--gold); }
+  .style.chosen { box-shadow: inset 0 0 0 1px var(--blue); }
   .label { font-weight: 700; }
   .nums { font-size: 18px; margin-top: 4px; }
-  .tag { display: inline-block; margin-top: 6px; font-size: 12px; color: #e3b341; }
-  .tag.mine { color: #4c9aff; margin-left: 6px; }
+  .tag { display: inline-block; margin-top: 6px; font-size: 12px; color: var(--gold); }
+  .tag.mine { color: var(--blue); margin-left: 6px; }
   .advice { margin: 14px 0; }
   .set { display: flex; align-items: center; gap: 10px; }
   select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font: inherit; }
@@ -198,20 +199,20 @@
   .windows { display: inline-flex; gap: 4px; margin-left: auto; }
   .windows button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px;
                     font: inherit; font-size: 13px; cursor: pointer; }
-  .windows button.on { border-color: #e3b341; }
+  .windows button.on { border-color: var(--gold); }
   h3 { font-size: 16px; margin: 18px 0 8px; }
   h3 small { font-weight: 400; font-size: 13px; margin-left: 6px; }
   .lever { margin: 0 0 10px; }
   .parts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .part { background: var(--panel-2); border-left: 4px solid #8b96a3; border-radius: 4px; padding: 6px 10px; display: grid; }
-  .part span { font-size: 13px; color: #c9d1d9; }
+  .part { background: var(--panel-2); border-left: 4px solid var(--muted); border-radius: 4px; padding: 6px 10px; display: grid; }
+  .part span { font-size: 13px; color: var(--text-2); }
   .part b { font-size: 18px; font-variant-numeric: tabular-nums; }
-  .part.good { border-left-color: #1baf7a; }
-  .part.bad { border-left-color: #c98500; }
+  .part.good { border-left-color: var(--up); }
+  .part.bad { border-left-color: var(--down); }
   .early, .verdicts { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 13px; align-items: baseline; }
   .ep b, .vc b { font-variant-numeric: tabular-nums; }
-  .ep.good b, td.good { color: #1baf7a; }
-  .ep.bad b, td.bad { color: #c98500; }
+  .ep.good b, td.good { color: var(--up); }
+  .ep.bad b, td.bad { color: var(--down); }
   .vc { background: var(--panel-2); border-radius: 4px; padding: 2px 8px; }
   .vc.zero { opacity: 0.55; }
   .players { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
