@@ -55,7 +55,7 @@
     const entry = { id: nextId++, key, Comp, ready: false, leaving: false };
     const since = performance.now();
     stack.push(entry);
-    await Promise.all([settled(since), faded]);
+    await Promise.all([settled(since, () => document.querySelector(`.stage > .page[data-entry="${entry.id}"]`)), faded]);
     const i = stack.findIndex((e) => e.id === entry.id);
     if (i < 0 || entry.id !== stack[stack.length - 1].id) return; // a later page already replaced it
     stack = stack.slice(i); // the old pages are blank by now: drop them
@@ -171,7 +171,7 @@
 {/snippet}
 <div class="stage">
   {#each stack as entry (entry.id)}
-    <div class="page" data-page={entry.key} class:waiting={!entry.ready} class:leaving={entry.leaving}
+    <div class="page" data-page={entry.key} data-entry={entry.id} class:waiting={!entry.ready} class:leaving={entry.leaving}
          inert={!entry.ready || entry.leaving} aria-hidden={!entry.ready || entry.leaving} use:enter={entry.ready}>
       {@render pageView(entry)}
     </div>

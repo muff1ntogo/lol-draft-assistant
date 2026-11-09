@@ -39,11 +39,13 @@
   });
 
   let timer;
+  let first = true;
   $effect(() => {
     const body = JSON.stringify({ scope, view, threshold_pp: threshold, locks,
                                   columns: Object.fromEntries(ROLES.filter((r) => columns[r]?.length).map((r) => [r, columns[r]])),
                                   use_draft: useDraft });
     clearTimeout(timer);
+    if (first) { first = false; load(body); return; } // at once on open, so the page appears with it (loading.js)
     timer = setTimeout(() => load(body), 120);
   });
 

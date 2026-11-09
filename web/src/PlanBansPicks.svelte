@@ -37,20 +37,32 @@
     try { localStorage.setItem('prep-bans', JSON.stringify({ side, format })); } catch { /* not remembered */ }
   });
 
+  // While the page opens (its first second) requests go out at once, so it appears with them (loading.js); after that
+  // edits are debounced. A request identical to the last one sent is skipped: Prep hands over the same locks again
+  // once the synergy view has loaded.
   let timer;
+  let lastBody = null;
+  const opened = performance.now();
   $effect(() => {
     const body = JSON.stringify({ locks, side, format });
     clearTimeout(timer);
+    if (body === lastBody) return;
+    if (performance.now() - opened < 1000) { load(body); return; }
     timer = setTimeout(() => load(body), 150);
   });
 
+  let seq = 0;
   async function load(body) {
+    lastBody = body;
+    const mine = ++seq; // only the newest answer is shown, whichever order they arrive in
     loading = true;
     const r = await fetch('/api/prep/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+    const out = await r.json();
+    if (mine !== seq) return;
     loading = false;
-    if (!r.ok) { error = (await r.json()).detail; return; }
+    if (!r.ok) { error = out.detail; return; }
     error = null;
-    data = await r.json();
+    data = out;
   }
 
   const signed = (x, d = 1) => (x == null ? '—' : `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(x).toFixed(d)}`);
