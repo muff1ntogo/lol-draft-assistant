@@ -67,18 +67,19 @@
 
 <style>
   .timeline { margin: 0; }
-  figcaption { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  figcaption { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
   .wrap { position: relative; }
   svg { width: 100%; height: auto; display: block; }
-  .grid { stroke: var(--line); stroke-width: 1; }
-  .grid.mid { stroke: var(--line-strong); stroke-dasharray: 4 4; }
-  .tick, .xlab { fill: var(--muted); font-size: 12px; }
+  .grid { stroke: var(--hairline); stroke-width: 1; }
+  .grid.mid { stroke: var(--hairline-strong); stroke-dasharray: 4 4; }
+  .tick, .xlab { fill: var(--text-3); font-size: 11px; font-family: var(--font-mono); }
   .xlab.ban { font-size: 16px; }
-  .line { fill: none; stroke: var(--gold); stroke-width: 2; stroke-linejoin: round; }
-  .cross { stroke: var(--muted); stroke-width: 1; }
-  .hoverdot { fill: var(--gold); stroke: var(--panel); stroke-width: 2; }
-  .swing { fill: var(--gold); stroke: var(--panel); stroke-width: 2; }
-  .swinglab { fill: var(--text); font-size: 13px; font-weight: 600; }
+  /* one series, so neutral ink: lime is never a data colour */
+  .line { fill: none; stroke: var(--text-1); stroke-width: 2; stroke-linejoin: round; }
+  .cross { stroke: var(--text-3); stroke-width: 1; }
+  .hoverdot { fill: var(--text-1); stroke: var(--bg); stroke-width: 2; }
+  .swing { fill: var(--text-1); stroke: var(--bg); stroke-width: 2; }
+  .swinglab { fill: var(--text-1); font-size: 12px; font-weight: 600; }
   .tip { position: absolute; top: 0; transform: translateX(-50%); pointer-events: none; display: flex; flex-direction: column;
-         background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font-size: 13px; white-space: nowrap; }
+         background: var(--surface-2); border: 1px solid var(--hairline-strong); border-radius: var(--radius-sm); padding: 6px 10px; font-size: 12px; white-space: nowrap; }
 </style>

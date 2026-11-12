@@ -9,6 +9,7 @@ export const PANEL_2 = '#1b1d22';
 export const LINE = '#2a2d34';
 export const LINE_STRONG = '#3a3e47';
 export const TEXT = '#ececee';
+export const TEXT_2 = '#b4b8c1'; // a single series with no meaning of its own (win rate by split): neutral ink
 export const MUTED = '#858a95';
 export const SIGNAL = '#c8f135';
 export const GOLD = SIGNAL; // the old name, kept for the charts that still read it

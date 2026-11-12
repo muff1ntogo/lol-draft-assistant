@@ -178,6 +178,23 @@ graph, a long synergy table, three columns of ban lists, a patch overview at the
   labels in `MUTED`. Run the dataviz validator for any new series set (see "Colour").
 - Team trends: `PageHeader` + `Segmented` window (10 / 20 / all) + charts.
 
+**Built (12 Nov 2026).** With these choices:
+
+- Review's two pages switch from a `Segmented` in each page's header (History / Team trends); the sub-navigation strip
+  in `App.svelte` is gone.
+- History, top to bottom: the Overview (`Stat`s for games, win rate and the Brier score, which moved here from the
+  list's side box; then the charts and the player tables), the filters as a `Toolbar`, the games as a `Table` that
+  scrolls inside its own height, and the chosen game's recap under it (it was beside a narrow list before).
+- A result is a word in ink (Win bright, Loss quiet), never a colour: teal and orange are for signed figures only. The
+  recap's "VICTORY" banner is a 24px heading now.
+- Charts read `palette.js`: the validated series set (`COMPONENT`) where a chart has several series, neutral ink
+  (`TEXT_2`) where it has one (win rate by side used the series blue, which read as the blue side). The draft timeline's
+  line is ink, not lime.
+- In the recap the side is each team column's outer edge; lane-matchup bars sit in the middle column, away from it.
+- Team trends is full width: parts as `Stat`s (coloured only when the band is clear of 0), early game and verdicts
+  as tables, players as tables without boxes, styles as a table with "suggested" / "our style" written out.
+- Checked with 26 simulated games seeded into a scratch database (demo mode has none), so lane matchups show "no data".
+
 ### Step 5: Roster: profiles, adding players, bench and delete (`Pools.svelte` and new pages)
 
 A feature as well as a restyle, with its own task doc: **`docs/roster-profiles.md`** (decisions, flows, API, data and

@@ -3,6 +3,9 @@
   // docs/draft-vs-execution.md, Stage 4. Teal = moved in our favour, amber = against, grey = within 1pp. Validated on the
   // panel surface (CLAUDE.md); the signed number and the label are always written too.
   import { STATS, signed as signedNum } from './format.js';
+  import Stat from './ui/Stat.svelte';
+  import Table from './ui/Table.svelte';
+  import Button from './ui/Button.svelte';
 
   let { e } = $props();
   let openBot = $state(false);
@@ -18,10 +21,10 @@
   // The SD in the stat's own unit: a percentage stat's spread is a percentage too
   const spread = (stat, sd) => (STATS[stat]?.[1] === 'pct' ? `${Math.round(sd * 100)}%` : sd.toFixed(1));
   // Whether the label is good or bad for us. z stays raw (for deaths a positive z is bad), so the colour says which way it went
-  const fav = (label) => (label.endsWith('ahead') ? 'good' : label.endsWith('behind') ? 'bad' : '');
+  const fav = (label) => (label.endsWith('ahead') ? 'up' : label.endsWith('behind') ? 'down' : '');
   const pp = (x, digits = 0) => `${signedNum(x, digits)}pp`;
   const pct = (p) => `${Math.round(p * 100)}%`;
-  const tone = (x) => (x >= 1 ? 'up' : x <= -1 ? 'down' : 'flat');
+  const tone = (x) => (x >= 1 ? 'up' : x <= -1 ? 'down' : null);
 
   // Each step runs from where the last one ended, on a 0-100% axis
   const steps = $derived.by(() => {
@@ -44,80 +47,73 @@
     <p class="verdict"><strong>{e.verdict}</strong>{#if e.contributors.length}: {e.contributors.join(', ')}{/if}</p>
   {/if}
 
-  <!-- One tile per part, as on the Team page: the signed number first, the chance it moved from and to underneath -->
+  <!-- One figure per part, as on the Team page: the signed number first, the chance it moved from and to underneath -->
   <div class="parts">
     {#each steps as s}
-      <div class="part {tone(s.part)}" title={s.hint}>
-        <span class="name">{s.name}</span>
-        <b>{pp(s.part)}</b>
-        <span class="range">{pct(s.from)} → {pct(s.to)}</span>
-      </div>
+      <Stat value={signedNum(s.part, 0)} unit="pp" label={s.name} tone={tone(s.part)} note="{pct(s.from)} → {pct(s.to)}" title={s.hint} />
     {/each}
     {#if e.available}
-      <div class="part result">
-        <span class="name">Result</span>
-        <b>{e.result ? 'Won' : 'Lost'}</b>
-        <span class="range">the parts add up to {e.result ? '+50' : '−50'}pp</span>
-      </div>
+      <Stat value={e.result ? 'Won' : 'Lost'} label="Result" note="the parts add up to {e.result ? '+50' : '−50'}pp" />
     {/if}
   </div>
 
   {#if e.available}
-    <div class="chips">
+    <div class="roles">
+      <span class="label-caps">Early game by part</span>
       {#each e.chips as c}
         {#if c.players.length}
-          <button class="chip {tone(c.share_pp)}" aria-expanded={openBot} onclick={() => (openBot = !openBot)}>
-            <b>{c.name} <span class="chev">{#key openBot}<span in:swap out:swap>{openBot ? '▾' : '▸'}</span>{/key}</span></b><span>{c.label}</span><em>{pp(c.share_pp, 1)}</em>
+          <button class="rolechip" aria-expanded={openBot} onclick={() => (openBot = !openBot)}>
+            <b>{c.name} <span class="chev">{#key openBot}<span in:swap out:swap>{openBot ? '▾' : '▸'}</span>{/key}</span></b><span>{c.label}</span><em class="mono {tone(c.share_pp) ?? ''}">{pp(c.share_pp, 1)}</em>
           </button>
           {#if openBot}
             {#each c.players as p, i}
-              <div class="chip sub {tone(p.share_pp)}" in:rise={{ i }} out:rise><b>{p.name}</b><span>{p.label}</span><em>{pp(p.share_pp, 1)}</em></div>
+              <div class="rolechip sub" in:rise={{ i }} out:rise><b>{p.name}</b><span>{p.label}</span><em class="mono {tone(p.share_pp) ?? ''}">{pp(p.share_pp, 1)}</em></div>
             {/each}
           {/if}
         {:else}
-          <div class="chip {tone(c.share_pp)}"><b>{c.name}</b><span>{c.label}</span><em>{pp(c.share_pp, 1)}</em></div>
+          <div class="rolechip"><b>{c.name}</b><span>{c.label}</span><em class="mono {tone(c.share_pp) ?? ''}">{pp(c.share_pp, 1)}</em></div>
         {/if}
       {/each}
     </div>
-    <p class="key">Each chip's share of the early game, against what this draft was expected to do. Single games are noisy.</p>
+    <p class="key">Each part's share of the early game, against what this draft was expected to do. Single games are noisy.</p>
 
-    <button class="toggle" aria-expanded={openTable} onclick={() => (openTable = !openTable)}>{openTable ? 'Hide' : 'Show'} every stat</button>
+    <div><Button variant="ghost" aria-expanded={openTable} onclick={() => (openTable = !openTable)}>{openTable ? 'Hide' : 'Show'} every stat</Button></div>
     {#if openTable}
       <div class="tables" transition:reveal>
-        <table>
-          <thead><tr><th>Stat</th><th class="n">Actual</th><th class="n">Expected</th><th class="n">SD</th><th class="n">z</th><th>Label</th></tr></thead>
+        <Table dense sticky={false}>
+          <thead><tr><th scope="col">Stat</th><th scope="col" class="num">Actual</th><th scope="col" class="num">Expected</th><th scope="col" class="num">SD</th><th scope="col" class="num">z</th><th scope="col">Label</th></tr></thead>
           <tbody>
             {#each rows as c}
-              <tr class="group"><td colspan="6">{c.name} <span>{pp(c.share_pp, 1)} · {c.label}</span></td></tr>
+              <tr class="group"><td colspan="6"><strong>{c.name}</strong> <span><span class="mono">{pp(c.share_pp, 1)}</span> · {c.label}</span></td></tr>
               {#if !c.stats.some((s) => s.stat === c.headline.stat)}
                 <tr class="basis">
-                  <td>{STATS[c.headline.stat][0]} (what the label reads)</td><td class="n">{value(c.headline.stat, c.headline.actual)}</td>
-                  <td class="n">{value(c.headline.stat, c.headline.expected)}</td><td class="n">{spread(c.headline.stat, c.headline.sd)}</td>
-                  <td class="n {fav(c.headline.label)}">{signedNum(c.headline.z, 1)}</td><td class={fav(c.headline.label)}>{c.headline.label}</td>
+                  <td>{STATS[c.headline.stat][0]} (what the label reads)</td><td class="num mono">{value(c.headline.stat, c.headline.actual)}</td>
+                  <td class="num mono">{value(c.headline.stat, c.headline.expected)}</td><td class="num mono">{spread(c.headline.stat, c.headline.sd)}</td>
+                  <td class="num mono {fav(c.headline.label)}">{signedNum(c.headline.z, 1)}</td><td>{c.headline.label}</td>
                 </tr>
               {/if}
               {#each c.stats as s}
                 <tr>
-                  <td>{STATS[s.stat][0]}</td><td class="n">{value(s.stat, s.actual)}</td><td class="n">{value(s.stat, s.expected)}</td>
-                  <td class="n">{spread(s.stat, s.sd)}</td><td class="n {fav(s.label)}">{signedNum(s.z, 1)}</td><td class={fav(s.label)}>{s.label}</td>
+                  <td>{STATS[s.stat][0]}</td><td class="num mono">{value(s.stat, s.actual)}</td><td class="num mono">{value(s.stat, s.expected)}</td>
+                  <td class="num mono">{spread(s.stat, s.sd)}</td><td class="num mono {fav(s.label)}">{signedNum(s.z, 1)}</td><td>{s.label}</td>
                 </tr>
               {/each}
             {/each}
           </tbody>
-        </table>
+        </Table>
         {#if e.detail}
-          <table class="after">
-            <thead><tr><th>After 15:00</th><th class="n">Us</th><th class="n">Them</th></tr></thead>
+          <Table dense sticky={false}>
+            <thead><tr><th scope="col">After 15:00</th><th scope="col" class="num">Us</th><th scope="col" class="num">Them</th></tr></thead>
             <tbody>
               {#each after as [name, key]}
-                {#if e.detail[key]}<tr><td>{name}</td><td class="n">{e.detail[key][0]}</td><td class="n">{e.detail[key][1]}</td></tr>{/if}
+                {#if e.detail[key]}<tr><td>{name}</td><td class="num mono">{e.detail[key][0]}</td><td class="num mono">{e.detail[key][1]}</td></tr>{/if}
               {/each}
               {#if e.detail.gold_25}
-                <tr><td>{STATS.gold_25[0]}: expected {value('gold_25', e.detail.gold_25.expected)}, {e.detail.gold_25.label}</td>
-                  <td class="n" colspan="2">{value('gold_25', e.detail.gold_25.actual)}</td></tr>
+                <tr><td>{STATS.gold_25[0]}: expected <span class="mono">{value('gold_25', e.detail.gold_25.expected)}</span>, {e.detail.gold_25.label}</td>
+                  <td class="num mono" colspan="2">{value('gold_25', e.detail.gold_25.actual)}</td></tr>
               {/if}
             </tbody>
-          </table>
+          </Table>
         {/if}
       </div>
     {/if}
@@ -127,42 +123,28 @@
 </section>
 
 <style>
-  .strip { background: var(--panel); border-radius: 8px; padding: 12px 16px; margin-top: 10px; display: grid; gap: 10px; }
-  h3 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-weight: 600; }
-  .verdict { margin: 0; font-size: 16px; color: var(--text-2); }
-  .verdict strong { color: var(--text); }
-  .parts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-  .part { background: var(--panel-2, var(--panel-2)); border-left: 4px solid var(--muted); border-radius: 4px; padding: 6px 10px; display: grid; gap: 1px; }
-  .part.up { border-left-color: var(--up); }
-  .part.down { border-left-color: var(--down); }
-  .part.result { border-left-color: var(--text); }
-  .part b { font-size: 18px; font-variant-numeric: tabular-nums; }
-  .name { font-size: 13px; color: var(--text-2); }
-  .range { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; }
-  .chip { display: grid; gap: 1px; min-width: 104px; padding: 6px 10px; background: var(--panel-2, var(--panel-2)); border: 0; border-left: 4px solid var(--muted);
-          border-radius: 4px; color: var(--text); font: inherit; font-size: 13px; text-align: left; }
-  button.chip { cursor: pointer; }
-  .chip.up { border-left-color: var(--up); }
-  .chip.down { border-left-color: var(--down); }
-  .chip.sub { min-width: 88px; opacity: 0.92; }
-  .chip span { color: var(--text-2); }
-  .chip em { font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .key { margin: 0; font-size: 12px; color: var(--muted); }
-  .toggle { justify-self: start; background: none; border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 13px; }
-  .tables { display: grid; grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr); gap: 16px; align-items: start; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; color: var(--muted); font-weight: 500; padding: 3px 6px; border-bottom: 1px solid var(--line); }
-  td { padding: 3px 6px; border-bottom: 1px solid var(--panel-2); }
-  .n { text-align: right; font-variant-numeric: tabular-nums; }
-  .group td { padding-top: 8px; font-weight: 700; }
-  .group span { font-weight: 400; color: var(--muted); }
-  .basis td { color: var(--muted); }
-  td.good { color: var(--up); }
-  td.bad { color: var(--down); }
-  @media (max-width: 1100px) {
-    .tables { grid-template-columns: 1fr; }
-  }
+  .strip { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--hairline); display: grid; gap: 14px; }
+  h3 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
+  .verdict { margin: 0; font-size: 15px; color: var(--text-2); }
+  .verdict strong { color: var(--text-1); }
+  .parts { display: flex; flex-wrap: wrap; gap: 16px 48px; }
+  .roles { display: flex; flex-wrap: wrap; gap: 8px 28px; align-items: flex-start; }
+  .roles > .label-caps { align-self: center; }
+  .rolechip { display: grid; gap: 1px; padding: 0; background: none; border: 0; color: var(--text-1); font: inherit; font-size: 13px; text-align: left; }
+  button.rolechip { cursor: pointer; }
+  button.rolechip:hover b { text-decoration: underline; filter: none; }
+  .rolechip.sub { padding-left: 12px; border-left: 1px solid var(--hairline-strong); }
+  .rolechip b { font-weight: 600; }
+  .rolechip span { color: var(--text-3); font-size: 12px; }
+  .rolechip em { font-style: normal; font-weight: 600; font-size: 12.5px; color: var(--text-2); }
+  .up { color: var(--up-text) !important; }
+  .down { color: var(--down-text) !important; }
+  .key { margin: 0; font-size: 12px; color: var(--text-3); }
+  .tables { display: grid; grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr); gap: 32px; align-items: start; }
+  .group td { padding-top: 8px; }
+  .group span { color: var(--text-3); }
+  .basis td { color: var(--text-3); }
+  @media (max-width: 1180px) { .tables { grid-template-columns: 1fr; } }
   .chev { display: inline-grid; width: 1ch; }
   .chev > span { grid-area: 1 / 1; }
 </style>

@@ -162,17 +162,6 @@
 
 <div class="content" class:folded={railFolded}>
 {#if !railFolded}<Notice items={notices} />{/if}
-{#if page === 'history' || page === 'team'}
-  <div class="subnav" transition:reveal>
-    {#each [['history', 'History'], ['team', 'Team trends']] as [key, label]}
-      <a href={`#/${key}`} class:active={page === key}>
-        {#if page === key}<span class="pill" in:receiveShared={{ key: 'subnav' }} out:sendShared={{ key: 'subnav' }}></span>{/if}
-        <span class="label">{label}</span>
-      </a>
-    {/each}
-  </div>
-{/if}
-
 <!-- Pages share one grid cell, so the new page comes in while the old one leaves -->
 {#snippet pageView(entry)}
 {#if entry.Comp}
@@ -236,12 +225,6 @@
     .rail:not(:hover):not(:focus-within) .lbl, .rail:not(:hover):not(:focus-within) .word { opacity: 0; }
     .content { margin-left: var(--rail-w-collapsed); }
   }
-  .subnav { display: flex; gap: 4px; padding: 12px 24px 0; }
-  .subnav a { position: relative; color: var(--muted); text-decoration: none; font-size: 14px; padding: 5px 12px; border-radius: 6px; }
-  .subnav a:hover { color: var(--text); }
-  .subnav a.active { color: var(--text); font-weight: 600; }
-  .subnav .pill { position: absolute; inset: 0; border-radius: 6px; background: var(--panel-2); }
-  .subnav .label { position: relative; }
   .stage { display: grid; }
   .stage > .page { grid-area: 1 / 1; min-width: 0; }
   .stage > .page.waiting { opacity: 0; pointer-events: none; }

@@ -1,6 +1,13 @@
 <script>
   import { pulse } from './motion.js';
   import { signed, statName } from './format.js';
+  import Champ from './Champ.svelte';
+  import PageHeader from './ui/PageHeader.svelte';
+  import Segmented from './ui/Segmented.svelte';
+  import Field from './ui/Field.svelte';
+  import Stat from './ui/Stat.svelte';
+  import Table from './ui/Table.svelte';
+  import Tag from './ui/Tag.svelte';
 
   let data = $state(null);
   let message = $state('');
@@ -36,94 +43,94 @@
   const bandText = (b, digits, unit = '') => `${signed(b.mean, digits)}${unit}${b.se != null ? ` ± ${b.se.toFixed(digits)}` : ''}`;
   const excludesZero = (b) => b.se != null && (b.mean + b.se < 0 || b.mean - b.se > 0);
   // Teal = in our favour, amber = against, grey = the band reaches 0. z is raw, so for deaths a positive mean is against us
-  const tone = (b, lowerIsBetter = false) => (!excludesZero(b) ? '' : (b.mean > 0) !== lowerIsBetter ? 'good' : 'bad');
+  const tone = (b, lowerIsBetter = false) => (!excludesZero(b) ? null : (b.mean > 0) !== lowerIsBetter ? 'up' : 'down');
 </script>
 
-<main class="page">
-  <h1>Team</h1>
+<main class="console">
+  <PageHeader title="Team trends" description="Where our games are won and lost across games: draft, early game and conversion, per player, and by comp style.">
+    {#snippet actions()}
+      <Segmented label="Review pages" value="team" onchange={(v) => (location.hash = `#/${v}`)} options={[['history', 'History'], ['team', 'Team trends']]} />
+    {/snippet}
+  </PageHeader>
   {#if data}
-    <section>
-      <h2>Recent form <small>last {data.recent.games} finished games · {data.recent.wins}W {data.recent.games - data.recent.wins}L</small></h2>
+    <section class="first">
+      <h2>Recent form <span class="sub">last {data.recent.games} finished games · <span class="mono">{data.recent.wins}W {data.recent.games - data.recent.wins}L</span></span></h2>
       <div class="form">
         {#each data.recent.form as g}
-          <span class="g {g.result}" title="{g.result} · {g.style ? data.choices[g.style] : 'style unknown'} · {new Date(g.played_at).toLocaleDateString()}">
+          <span class="g mono {g.result}" title="{g.result} · {g.style ? data.choices[g.style] : 'style unknown'} · {new Date(g.played_at).toLocaleDateString()}">
             {g.result === 'win' ? 'W' : 'L'}
           </span>
         {:else}
-          <span class="muted">No finished games yet.</span>
+          <span class="none">No finished games yet</span>
         {/each}
       </div>
     </section>
 
-    <section class="trends">
-      <h2>Draft vs execution
-        <span class="windows" role="group" aria-label="Games">
-          {#each [['10', 'Last 10'], ['20', 'Last 20'], ['all', 'All']] as [key, label]}
-            <button class:on={trendWindow === key} aria-pressed={trendWindow === key} onclick={() => (trendWindow = key)}>{label}</button>
-          {/each}
-        </span>
-      </h2>
+    <section>
+      <div class="sechead">
+        <h2>Draft vs execution</h2>
+        <span class="label-caps">Games</span>
+        <Segmented label="Games" bind:value={trendWindow} options={[['10', 'Last 10'], ['20', 'Last 20'], ['all', 'All']]} />
+      </div>
       {#if !trends}
-        <p class="muted">Loading…</p>
+        <p class="none">Loading…</p>
       {:else if trends.team.too_few}
-        <p>Too few games for a trend: {trends.team.games} with execution data, {trends.min_games} needed.</p>
+        <p class="none">Too few games for a trend: {trends.team.games} with execution data, {trends.min_games} needed.</p>
       {:else}
         {@const t = trends.team}
         <p class="lever">
-          {#if t.lever}Biggest lever: <strong>{t.lever.name}</strong>, {bandText(t.lever, 1, 'pp')} a game on average.
+          {#if t.lever}Biggest lever: <strong>{t.lever.name}</strong>, <span class="mono">{bandText(t.lever, 1, 'pp')}</span> a game on average.
           {:else}Biggest lever: no clear pattern yet.{/if}
         </p>
         <div class="parts">
           {#each Object.entries(PART_NAMES) as [key, name]}
-            <div class="part {tone(t.parts[key])}"><span>{name}</span><b>{bandText(t.parts[key], 1, 'pp')}</b></div>
+            <Stat value={signed(t.parts[key].mean, 1)} unit="pp" label={name} tone={tone(t.parts[key])} note={t.parts[key].se != null ? `± ${t.parts[key].se.toFixed(1)}` : ''} />
           {/each}
         </div>
-        <div class="early">
-          <span class="muted small">Early game by part:</span>
-          {#each Object.entries(EARLY_NAMES) as [key, name]}
-            <span class="ep {tone(t.early_parts[key])}">{name} <b>{bandText(t.early_parts[key], 1, 'pp')}</b></span>
-          {/each}
+        <div class="split">
+          <Table dense sticky={false}>
+            <thead><tr><th scope="col">Early game by part</th><th scope="col" class="num">Mean a game</th></tr></thead>
+            <tbody>
+              {#each Object.entries(EARLY_NAMES) as [key, name]}
+                <tr><td>{name}</td><td class="num mono {tone(t.early_parts[key]) ?? ''}">{bandText(t.early_parts[key], 1, 'pp')}</td></tr>
+              {/each}
+            </tbody>
+          </Table>
+          <Table dense sticky={false}>
+            <thead><tr><th scope="col">Verdict</th><th scope="col" class="num">Games</th></tr></thead>
+            <tbody>
+              {#each Object.entries(t.verdicts) as [v, n]}
+                <tr class:zero={!n}><td>{v}</td><td class="num mono">{n}</td></tr>
+              {/each}
+            </tbody>
+          </Table>
         </div>
-        <div class="verdicts">
-          {#each Object.entries(t.verdicts) as [v, n]}
-            <span class="vc" class:zero={!n}>{v} <b>{n}</b></span>
-          {/each}
-        </div>
-        <p class="muted small">Means over the last {t.games} games with execution data, ± one standard error. A lever needs its
-          band clear of 0.</p>
+        <p class="cap">Means over the last {t.games} games with execution data, ± one standard error. A figure is coloured only when its band is clear of 0.</p>
       {/if}
 
       {#if trends}
-        <h3>Per player <small class="muted">mean z against expectation, ± one standard error. Teal is in our favour, amber against
-          (for deaths, fewer is better), grey when the band reaches 0.</small></h3>
+        <h3>Per player <span class="sub">mean z against expectation, ± one standard error; for deaths, fewer is better</span></h3>
         <div class="players">
           {#each trends.roles as r}
             <div class="player">
-              <div class="who"><b>{r.name}</b>{#if r.player} <span class="muted">{r.player}</span>{/if} <span class="muted small">· {r.games} games</span></div>
+              <div class="who"><span class="label-caps">{r.name}</span>{#if r.player} <strong>{r.player}</strong>{/if} <span class="sub"><span class="mono">{r.games}</span> games</span></div>
               {#if r.too_few}
-                <p class="muted small">Too few games for a trend.</p>
+                <p class="none">Too few games for a trend</p>
               {:else}
-                <table>
+                <Table dense sticky={false}>
                   <tbody>
                     {#each r.stats as s}
-                      <tr><td>{statName(s.stat)}</td>
-                        <td class="n {tone(s, s.lower_is_better)}">{bandText(s, 2)}</td></tr>
+                      <tr><td>{statName(s.stat)}</td><td class="num mono {tone(s, s.lower_is_better) ?? ''}">{bandText(s, 2)}</td></tr>
+                    {/each}
+                    {#each r.champions as c}
+                      <tr class="champrow"><td colspan="2"><span class="cname"><Champ champ={c.champ} size={20} /><strong>{c.champ?.name}</strong> <span class="sub"><span class="mono">{c.games}</span> games</span></span></td></tr>
+                      {#each c.stats as s}
+                        <tr><td>{statName(s.stat)}</td><td class="num mono {tone(s, s.lower_is_better) ?? ''}">{bandText(s, 2)}</td></tr>
+                      {/each}
                     {/each}
                   </tbody>
-                </table>
+                </Table>
               {/if}
-              {#each r.champions as c}
-                <div class="champ">
-                  <div class="cname">{#if c.champ?.icon}<img src={c.champ.icon} alt="" width="20" height="20" />{/if}{c.champ?.name} <span class="muted small">· {c.games} games</span></div>
-                  <table>
-                    <tbody>
-                      {#each c.stats as s}
-                        <tr><td>{statName(s.stat)}</td><td class="n {tone(s, s.lower_is_better)}">{bandText(s, 2)}</td></tr>
-                      {/each}
-                    </tbody>
-                  </table>
-                </div>
-              {/each}
             </div>
           {/each}
         </div>
@@ -131,17 +138,26 @@
     </section>
 
     <section>
-      <h2>Style</h2>
-      <div class="styles">
-        {#each Object.entries(data.styles) as [key, s]}
-          <div class="style" class:suggested={data.suggested === key} class:chosen={data.hand_style === key}>
-            <div class="label">{s.label}</div>
-            <div class="nums">{s.games ? `${s.wins}W ${s.games - s.wins}L` : 'no games'}</div>
-            {#if s.games}<div class="muted small">{pct(s.win_rate_adj)} (shrunk)</div>{/if}
-            {#if data.suggested === key}<div class="tag">suggested</div>{/if}
-            {#if data.hand_style === key}<div class="tag mine">our style</div>{/if}
-          </div>
-        {/each}
+      <div class="sechead">
+        <h2>Style</h2>
+        <Field label="Our style (set by hand)" inline width="auto" value={data.hand_style ?? ''} onchange={(e) => setStyle(e.currentTarget.value)}
+               options={[['', 'Not set'], ...Object.entries(data.choices)]} />
+      </div>
+      {#if message}<p class="saved" role="status" use:pulse={{ value: message, ok: !/^(Not|No) |fail|error|couldn/i.test(message) }}>{message}</p>{/if}
+      <div class="stylewrap">
+        <Table dense sticky={false}>
+          <thead><tr><th scope="col">Style</th><th scope="col" class="num">Record</th><th scope="col" class="num" title="Win rate shrunk towards 50%">Win rate, shrunk</th><th scope="col"></th></tr></thead>
+          <tbody>
+            {#each Object.entries(data.styles) as [key, s]}
+              <tr class:zero={!s.games}>
+                <td><strong>{s.label}</strong></td>
+                <td class="num mono">{s.games ? `${s.wins}W ${s.games - s.wins}L` : '—'}</td>
+                <td class="num mono">{s.games ? pct(s.win_rate_adj) : '—'}</td>
+                <td><span class="marks">{#if data.suggested === key}<Tag bare>suggested</Tag>{/if}{#if data.hand_style === key}<Tag bare>our style</Tag>{/if}</span></td>
+              </tr>
+            {/each}
+          </tbody>
+        </Table>
       </div>
       <p class="advice">
         {#if data.suggested}
@@ -150,79 +166,47 @@
           No suggestion yet: {data.suggestion_note}
         {/if}
       </p>
-      <label class="set">
-        Our style (set by hand)
-        <select value={data.hand_style ?? ''} onchange={(e) => setStyle(e.currentTarget.value)}>
-          <option value="">not set</option>
-          {#each Object.entries(data.choices) as [key, label]}<option value={key}>{label}</option>{/each}
-        </select>
-      </label>
-      {#if message}<p class="ok" use:pulse={{ value: message, ok: !/^(Not|No) |fail|error|couldn/i.test(message) }}>{message}</p>{/if}
-      <p class="muted small">
-        Each logged draft is classified like the Live comp panel, from the champions' tags (Champions page): an
+      <p class="cap">
+        Each logged draft is classified like the Live comp panel, from the champions' tags: an
         identity (Engage, Poke, Pick, Protect, Split) needs 35% of the comp and two champions of it, else it is Mixed.
         In a draft, picks are pulled towards the style set here (from our pick 2, full strength at picks 4–5;
-        Settings › Comp style). "Mixed" means no pull; "not set" follows the style our comp is heading for.
+        Settings › Comp style). "Mixed" means no pull; "Not set" follows the style our comp is heading for.
       </p>
     </section>
   {:else}
-    <p class="muted">Loading…</p>
+    <p class="none">Loading…</p>
   {/if}
 </main>
 
 <style>
-  .page { max-width: 900px; margin: 0 auto; padding: 20px 28px 60px; }
-  h1 { font-size: 32px; margin: 8px 0 16px; }
-  h2 { font-size: 20px; margin: 0 0 12px; }
-  h2 small { font-size: 14px; color: var(--muted); font-weight: 400; margin-left: 8px; }
-  section { background: var(--panel); border-radius: 8px; padding: 16px 20px; margin-bottom: 16px; }
-  .form { display: flex; gap: 6px; }
-  .g { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 6px; font-weight: 800; background: var(--panel-3); }
-  .g.win { color: var(--up); }
-  .g.loss { color: #e5737d; }
-  .styles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-  .style { background: var(--panel-2); border: 2px solid transparent; border-radius: 8px; padding: 10px 12px; }
-  .style.suggested { border-color: var(--gold); }
-  .style.chosen { box-shadow: inset 0 0 0 1px var(--blue); }
-  .label { font-weight: 700; }
-  .nums { font-size: 18px; margin-top: 4px; }
-  .tag { display: inline-block; margin-top: 6px; font-size: 12px; color: var(--gold); }
-  .tag.mine { color: var(--blue); margin-left: 6px; }
-  .advice { margin: 14px 0; }
-  .set { display: flex; align-items: center; gap: 10px; }
-  select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font: inherit; }
-  .muted { color: var(--muted); }
-  .small { font-size: 13px; }
-  .ok { color: var(--good); }
-  /* trends: teal / amber as validated (CLAUDE.md); the signed number is always written */
-  .trends h2 { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .windows { display: inline-flex; gap: 4px; margin-left: auto; }
-  .windows button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px;
-                    font: inherit; font-size: 13px; cursor: pointer; }
-  .windows button.on { border-color: var(--gold); }
-  h3 { font-size: 16px; margin: 18px 0 8px; }
-  h3 small { font-weight: 400; font-size: 13px; margin-left: 6px; }
-  .lever { margin: 0 0 10px; }
-  .parts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .part { background: var(--panel-2); border-left: 4px solid var(--muted); border-radius: 4px; padding: 6px 10px; display: grid; }
-  .part span { font-size: 13px; color: var(--text-2); }
-  .part b { font-size: 18px; font-variant-numeric: tabular-nums; }
-  .part.good { border-left-color: var(--up); }
-  .part.bad { border-left-color: var(--down); }
-  .early, .verdicts { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 13px; align-items: baseline; }
-  .ep b, .vc b { font-variant-numeric: tabular-nums; }
-  .ep.good b, td.good { color: var(--up); }
-  .ep.bad b, td.bad { color: var(--down); }
-  .vc { background: var(--panel-2); border-radius: 4px; padding: 2px 8px; }
-  .vc.zero { opacity: 0.55; }
-  .players { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
-  .player { background: var(--panel-2); border-radius: 6px; padding: 8px 10px; }
-  .player p { margin: 6px 0 0; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 4px; }
-  td { padding: 2px 0; }
-  td.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 8px; }
-  .champ { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; }
-  .cname { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; }
-  .cname img { border-radius: 3px; }
-  @media (max-width: 700px) { .parts { grid-template-columns: 1fr; } }
+  section { padding: 20px 0 24px; border-top: 1px solid var(--hairline); }
+  section.first { border-top: 0; padding-top: 0; }
+  h2 { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; margin: 0 0 12px; }
+  h3 { font-size: 14px; font-weight: 650; margin: 28px 0 10px; }
+  .sub { font-size: 12px; font-weight: 400; color: var(--text-3); margin-left: 8px; letter-spacing: 0; text-transform: none; }
+  .sechead { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .sechead h2 { margin: 0 16px 0 0; }
+  .none { margin: 0; font-size: 13px; color: var(--text-3); }
+  .cap { margin: 10px 0 0; font-size: 12px; color: var(--text-3); max-width: 110ch; }
+  /* a win is bright ink, a loss is quiet: the letter says which, so no colour is needed */
+  .form { display: flex; gap: 4px; }
+  .g { width: 28px; height: 28px; display: grid; place-items: center; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; background: var(--surface-1); color: var(--text-3); }
+  .g.win { background: var(--surface-3); color: var(--text-1); }
+  .lever { margin: 0 0 16px; font-size: 14px; color: var(--text-2); }
+  .lever strong { color: var(--text-1); }
+  .parts { display: flex; flex-wrap: wrap; gap: 16px 48px; margin-bottom: 20px; }
+  .split { display: grid; grid-template-columns: repeat(2, minmax(0, 420px)); gap: 20px 48px; }
+  .players { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 24px 32px; align-items: start; }
+  .who { margin-bottom: 4px; font-size: 13px; }
+  .who strong { font-weight: 600; margin-left: 6px; }
+  .player .none { padding: 6px 0; }
+  .cname { display: inline-flex; align-items: center; gap: 8px; }
+  .cname strong { font-weight: 600; }
+  .player :global(tr.champrow td) { padding-top: 10px; height: 38px; }
+  section :global(tr.zero td) { color: var(--text-3); }
+  .stylewrap { max-width: 640px; }
+  .marks { display: inline-flex; gap: 12px; }
+  .advice { margin: 14px 0 0; font-size: 13px; color: var(--text-2); }
+  .saved { margin: 0 0 10px; font-size: 13px; color: var(--text-2); }
+  @media (max-width: 820px) { .split { grid-template-columns: minmax(0, 1fr); } }
 </style>
