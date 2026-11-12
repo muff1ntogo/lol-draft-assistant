@@ -2,6 +2,7 @@
 text import, tier accept and lock. Every change is mirrored to the roster file (Services.save_roster)."""
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Body, HTTPException, Request
@@ -9,7 +10,9 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from draftassist.api.deps import db_of
 from draftassist.data.pools import (
     bench,
+	bench_player,
  create_player,
+	delete_player,
     forget_player,
     import_pools,
     list_players,
@@ -27,6 +30,9 @@ from draftassist.engine.comp import badge
 from draftassist.learning.comfort import accept as accept_tiers
 from draftassist.learning.comfort import set_locked, wr_adj
 from draftassist.learning.execution_comfort import execution_hint, lane_z_by_entry
+from draftassist.learning.profile import WINDOWS, load_inputs, profile, summary
+from sqlmodel import Session, select
+from draftassist.db.models import Player
 
 if TYPE_CHECKING:
     from draftassist.api.main import Services
@@ -145,6 +151,97 @@ def delete_benched(request: Request, riot_id: str) -> dict:
         raise HTTPException(404, "no benched player with that Riot ID")
     svc.save_roster()
     return _pools_payload(svc)
+
+
+def _player(svc: Services, riot_id: str) -> Player | None:
+ with Session(db_of(svc)) as session:
+  return next((p for p in session.exec(select(Player)).all() if p.riot_id.lower() == riot_id.lower()), None)
+
+
+def _profile_payload(svc: Services, player: Player, window: str = "60d") -> dict:
+ inputs = load_inputs(db_of(svc), player.puuid)
+ body = profile(inputs.games, inputs.pool, inputs.execution, player.role, inputs.mastery, inputs.rank, window)
+ lane_z = lane_z_by_entry(db_of(svc)) if get_engine_settings(db_of(svc))["execution_comfort"] else {}
+ from draftassist.engine.blind import blind_safety
+ for group in body["pools"]:
+  for row in group["pool"]:
+   row["champ"] = svc.catalog.card(row["champ_id"])
+   row["execution_hint"] = execution_hint(wr_adj(row["tier"], row["games"], row["wins"]), lane_z.get((group["role"], row["champ_id"]), [])) if lane_z else None
+   row["blind_safety"] = round(blind_safety(svc.engine, row["champ_id"], group["role"]), 2)
+  for row in group["not_in_pool"]:
+   row["champ"] = svc.catalog.card(row["champ_id"])
+ body.update(riot_id=player.riot_id, active=player.active, bracket=player.bracket,
+             active_since=player.active_since.isoformat() if player.active_since else None,
+             health=pool_health(svc.engine, player.role))
+ return body
+
+
+@router.get("/api/roster")
+def get_roster(request: Request) -> dict:
+ svc: Services = request.app.state.services
+ db = db_of(svc)
+ with Session(db) as session:
+  players = session.exec(select(Player)).all()
+
+ def item(p: Player) -> dict:
+  inputs = load_inputs(db, p.puuid)
+  row = summary(inputs.games, inputs.pool, inputs.execution, p.role, inputs.rank)
+  row.update(riot_id=p.riot_id, active=p.active, bracket=p.bracket,
+   active_since=p.active_since.isoformat() if p.active_since else None,
+   health=pool_health(svc.engine, p.role) if p.active and p.riot_id else None)
+  row["pool"]["champs"] = [{**entry, "champ": svc.catalog.card(entry["champ_id"])}
+   for entry in row["pool"]["champs"]]
+  return row
+
+ active = {p.role: item(p) for p in players if p.active and p.riot_id}
+ return {"lineup": [active.get(role, {"role": role, "riot_id": "", "active": False})
+  for role in ("top", "jungle", "mid", "adc", "support")],
+  "bench": [item(p) for p in players if not p.active and p.riot_id]}
+
+
+@router.get("/api/players/{riot_id}/profile")
+def get_player_profile(request: Request, riot_id: str, window: str = "60d") -> dict:
+ if window not in WINDOWS:
+  raise HTTPException(422, "window must be 20 or 60d")
+ svc: Services = request.app.state.services
+ player = _player(svc, riot_id)
+ if player is None:
+  raise HTTPException(404, "no player with that Riot ID")
+ return _profile_payload(svc, player, window)
+
+
+@router.post("/api/players/{riot_id}/bench")
+def post_bench_player(request: Request, riot_id: str) -> dict:
+ svc: Services = request.app.state.services
+ if not bench_player(db_of(svc), riot_id):
+  raise HTTPException(404, "no active player with that Riot ID")
+ _roster_changed(svc)
+ return get_roster(request)
+
+
+@router.post("/api/players/{riot_id}/activate")
+def post_activate_player(request: Request, riot_id: str, role: str = Body(..., embed=True)) -> dict:
+ svc: Services = request.app.state.services
+ previous = next((p["riot_id"] for p in list_players(db_of(svc)) if p["role"] == role), "")
+ try:
+  swap_player(db_of(svc), role, riot_id, _resolver(svc))
+ except ValueError as e:
+  raise HTTPException(422, str(e)) from None
+ _roster_changed(svc)
+ svc.learn()
+ return {"roster": get_roster(request), "undo": {"riot_id": previous, "role": role} if previous else None}
+
+
+@router.delete("/api/players/{riot_id}")
+def delete_player_route(request: Request, riot_id: str, confirm: str) -> dict:
+ if confirm.lower() != riot_id.lower():
+  raise HTTPException(422, "confirm must repeat the Riot ID")
+ svc: Services = request.app.state.services
+ if not delete_player(db_of(svc), riot_id):
+  raise HTTPException(404, "no player with that Riot ID")
+ _roster_changed(svc)
+ return get_roster(request)
+
 
 @router.get("/api/pools")
 def get_pools(request: Request) -> dict:

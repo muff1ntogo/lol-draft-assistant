@@ -23,6 +23,7 @@ import logging
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import Engine
@@ -194,37 +195,38 @@ def _resolve(s: Session, player: Player, resolver) -> Player:
 
 
 def _swap_in(s: Session, role: str, riot_id: str, resolver=None, bracket: str | None = None) -> Player:
-    """Make `riot_id` the role's active player: a benched player comes back with their pool, someone new starts with
-    an empty one. The current player goes to the bench."""
-    current = player_for_role(s, role)
-    known = _by_riot_id(s, riot_id)
-    if known is not None and known.active and known.role != role:
-        raise ValueError(f"{known.riot_id} is our {known.role}: swap them out there first")
-    if current is not None and (known is None or known.puuid != current.puuid):
-        _bench(s, current)
-    if known is None:
-        return _resolve(s, _new_player(s, role, riot_id, bracket), resolver)
-    known.active, known.role = True, role  # their pool entries keep their own roles: an old role's pool waits there
-    s.add(known)
-    s.flush()
-    return known
+ """Make `riot_id` the role's active player: a benched player comes back with their pool, someone new starts with
+ an empty one. The current player goes to the bench."""
+ current = player_for_role(s, role)
+ known = _by_riot_id(s, riot_id)
+ if known is not None and known.active and known.role != role:
+  raise ValueError(f"{known.riot_id} is our {known.role}: swap them out there first")
+ if current is not None and (known is None or known.puuid != current.puuid):
+  _bench(s, current)
+ if known is None:
+  return _resolve(s, _new_player(s, role, riot_id, bracket), resolver)
+ known.active, known.role, known.active_since = True, role, datetime.now(UTC)
+ s.add(known)
+ s.flush()
+ return known
 
 
 def _move_player(s: Session, old: Player, new_puuid: str) -> Player:
-    """Re-key a player (e.g. placeholder -> real PUUID), carrying their pool entries along."""
-    if old.puuid == new_puuid:
-        return old
-    new = Player(puuid=new_puuid, riot_id=old.riot_id, role=old.role, rank=old.rank, bracket=old.bracket,
-                 client_puuid=old.client_puuid, api_puuid=old.api_puuid, active=old.active)
-    s.add(new)
-    s.flush()
-    for e in s.exec(select(PoolEntry).where(PoolEntry.puuid == old.puuid)).all():
-        s.add(PoolEntry(**{**e.model_dump(), "puuid": new_puuid}))
-        s.delete(e)
-    s.flush()
-    s.delete(old)
-    s.flush()
-    return new
+ """Re-key a player (e.g. placeholder -> real PUUID), carrying their pool entries along."""
+ if old.puuid == new_puuid:
+  return old
+ new = Player(puuid=new_puuid, riot_id=old.riot_id, role=old.role, rank=old.rank, bracket=old.bracket,
+              client_puuid=old.client_puuid, api_puuid=old.api_puuid, active=old.active, active_since=old.active_since,
+              rank_json=old.rank_json, mastery_json=old.mastery_json, profile_fetched_at=old.profile_fetched_at)
+ s.add(new)
+ s.flush()
+ for e in s.exec(select(PoolEntry).where(PoolEntry.puuid == old.puuid)).all():
+  s.add(PoolEntry(**{**e.model_dump(), "puuid": new_puuid}))
+  s.delete(e)
+ s.flush()
+ s.delete(old)
+ s.flush()
+ return new
 
 
 def _check_riot_id(riot_id: str) -> str:
@@ -348,6 +350,38 @@ def forget_player(db: Engine, riot_id: str) -> bool:
         s.delete(p)
         s.commit()
     return True
+
+
+def bench_player(db: Engine, riot_id: str) -> bool:
+ """Move one active, named player to the bench while retaining their pools and history."""
+ with Session(db) as s:
+  p = _by_riot_id(s, riot_id)
+  if p is None or not p.active:
+   return False
+  _bench(s, p)
+  s.commit()
+  return True
+
+
+def delete_player(db: Engine, riot_id: str) -> bool:
+ """Permanently remove a player, pools and fetched games; team-logged games keep their historic owner/name."""
+ with Session(db) as s:
+  p = _by_riot_id(s, riot_id)
+  if p is None:
+   return False
+  s.exec(delete(PoolEntry).where(PoolEntry.puuid == p.puuid))
+  s.exec(delete(PlayerGame).where(PlayerGame.puuid == p.puuid, PlayerGame.source != "logged"))
+  if p.active:
+   # Keep the role explicitly empty rather than creating an unnamed placeholder.
+   p.riot_id = ""
+   p.rank_json = p.mastery_json = None
+   p.api_puuid = p.client_puuid = None
+   p.active_since = datetime.now(UTC)
+   s.add(p)
+  else:
+   s.delete(p)
+  s.commit()
+  return True
 
 
 def resolve_from_session(db: Engine, members: list[dict]) -> int:

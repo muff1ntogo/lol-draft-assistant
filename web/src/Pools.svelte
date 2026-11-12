@@ -1,341 +1,48 @@
 <script>
-  import { pulse } from './motion.js';
-  import Champ from './Champ.svelte';
+import Champ from './Champ.svelte';
+import PageHeader from './ui/PageHeader.svelte';
+import Panel from './ui/Panel.svelte';
+import Button from './ui/Button.svelte';
+import Field from './ui/Field.svelte';
+import Stat from './ui/Stat.svelte';
 
-  const LABELS = { top: 'Top', jungle: 'Jungle', mid: 'Mid', adc: 'ADC', support: 'Support' };
-  const EXAMPLE = "TOP\nK'Sante: main\nRumble: comfortable\nGnar: learning\n\nJUNGLE\nSejuani: main";
-
-  let data = $state(null);
-  let players = $state([]);
-  let text = $state('');
-  let importErrors = $state([]);
-  let message = $state('');
-  const TIERS = ['main', 'comfortable', 'learning'];
-  let adding = $state(Object.fromEntries(Object.keys(LABELS).map((r) => [r, { name: '', tier: 'learning' }])));
-
-  async function editPool(method, role, champId, body) {
-    const res = await fetch(`/api/pools/${role}/${champId}`, {
-      method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
-    });
-    const r = await res.json();
-    if (!res.ok) { message = `Not saved: ${r.detail}`; return false; }
-    data = { ...data, pools: r.pools };
-    message = r.applied ? 'Pool saved.' : 'Pool saved: suggestions use it after this draft.';
-    return true;
-  }
-
-  async function addChamp(role) {
-    const name = adding[role].name.trim().toLowerCase();
-    const champ = data.champions.find((c) => c.name.toLowerCase() === name);
-    if (!champ) { message = `No champion called "${adding[role].name}".`; return; }
-    if (await editPool('PUT', role, champ.id, { tier: adding[role].tier })) adding[role].name = '';
-  }
-
-  const setTier = (role, champId, tier) => editPool('PUT', role, champId, { tier });
-  const removeChamp = (role, e) => editPool('DELETE', role, e.champ.id);
-
-  async function load() {
-    data = await (await fetch('/api/pools')).json();
-    players = data.players.map((p) => ({ ...p }));
-  }
-
-  async function post(url, body) {
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    return res.json();
-  }
-
-  async function acceptTier(role, champ_id = null) {
-    const r = await post('/api/pools/accept', { role, champ_id });
-    message = `${r.changed} tier${r.changed === 1 ? '' : 's'} updated.`;
-    await load();
-  }
-
-  async function toggleLock(role, e) {
-    await post('/api/pools/lock', { role, champ_id: e.champ.id, locked: !e.tier_locked });
-    await load();
-  }
-
-  async function learn() {
-    message = '';
-    await post('/api/learning/run', {});
-    await load();
-    const poll = setInterval(async () => {
-      const state = await (await fetch('/api/learning')).json();
-      if (!state.running) {
-        clearInterval(poll);
-        await load();
-        const s = state.summary ?? {};
-        message = s.error ?? `Updated from games: ${s.proposals ?? 0} tier change${s.proposals === 1 ? '' : 's'} to review` +
-          (s.history_error ? ` (match history unavailable: ${s.history_error})` : '');
-      }
-    }, 2000);
-  }
-
-  const record = (e) => (e.games ? `${e.wins}W ${e.games - e.wins}L` : 'no games');
-  const proposals = (entries) => entries.filter((e) => e.proposal).length;
-
-  // The bench (docs/player-roster.md): one active player per role; a swapped-out player keeps their pool
-  let sub = $state({ role: 'top', riot_id: '' });
-
-  async function swap(role, riot_id) {
-    message = '';
-    const res = await fetch('/api/players/swap', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role, riot_id }),
-    });
-    const body = await res.json();
-    if (!res.ok) { message = `Not swapped: ${body.detail}`; return; }
-    await load();
-    sub.riot_id = '';
-    message = `${riot_id.split('#')[0]} is our ${LABELS[role]} now` +
-      (body.applied ? '.' : ': suggestions use their pool after this draft.');
-  }
-
-  async function forget(p) {
-    if (!confirm(`Forget ${p.riot_id || 'this player'} and their pool for good?`)) return;
-    const res = await fetch(`/api/players/bench?riot_id=${encodeURIComponent(p.riot_id)}`, { method: 'DELETE' });
-    if (res.ok) { await load(); message = `${p.riot_id} forgotten.`; }
-  }
-
-  const poolSize = (p) => Object.values(p.pools).reduce((n, champs) => n + champs.length, 0);
-
-  async function savePlayers() {
-    message = '';
-    const res = await fetch('/api/players', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ players }),
-    });
-    const body = await res.json();
-    message = res.ok ? 'Players saved.' : `Not saved: ${body.detail}`;
-    if (res.ok) await load();
-  }
-
-  async function importPools() {
-    importErrors = [];
-    message = '';
-    const res = await fetch('/api/pools/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
-    const body = await res.json();
-    if (res.ok) {
-      message = 'Imported: ' + Object.entries(body.imported).map(([r, n]) => `${LABELS[r]} ${n}`).join(', ');
-      text = '';
-      await load();
-    } else {
-      importErrors = body.detail?.errors ?? [String(body.detail)];
-    }
-  }
-
-  load();
+const ROLES = ['top', 'jungle', 'mid', 'adc', 'support'];
+const LABELS = { top: 'Top', jungle: 'Jungle', mid: 'Mid', adc: 'ADC', support: 'Support' };
+const TAG = { main: 'MN', comfortable: 'CF', learning: 'LN' };
+let roster = $state(null), profile = $state(null), error = $state(''), note = $state(''), busy = $state(false);
+let swap = $state(null), deleting = $state(null), adding = $state(null);
+let riotId = $state(''), role = $state('top'), active = $state(true), pool = $state([]), step = $state(1), job = $state(null), timer;
+const api = async (url, options = {}) => { const r = await fetch(url, options); const b = await r.json().catch(() => ({})); if (!r.ok) throw new Error(typeof b.detail === 'string' ? b.detail : 'Request failed'); return b; };
+const json = (body) => ({ method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+const pct = (n) => n == null ? '—' : `${Math.round(n * 100)}%`;
+const since = (s) => s ? `${Math.max(0, Math.floor((Date.now() - new Date(s)) / 86400000))}d` : '—';
+const rank = (r) => r ? `${r.tier ?? ''} ${r.rank ?? ''}${r.lp != null ? ` · ${r.lp} LP` : ''}`.trim() : 'No rank data';
+const safety = (h) => !h ? '' : h.blind?.ok ? `Blind: ${h.blind.name}` : '⚠ No blind pick';
+async function load() { try { roster = await api('/api/roster'); } catch (e) { error = e.message; } }
+async function show(id, window = '60d') { try { profile = await api(`/api/players/${encodeURIComponent(id)}/profile?window=${window}`); } catch (e) { error = e.message; } }
+async function run(fn, message) { busy = true; error = ''; try { await fn(); await load(); note = message; } catch (e) { error = e.message; } finally { busy = false; } }
+async function bench(p) { await run(() => api(`/api/players/${encodeURIComponent(p.riot_id)}/bench`, {method:'POST'}), `${p.riot_id} moved to bench.`); }
+async function activate(p, r) { await run(() => api(`/api/players/${encodeURIComponent(p.riot_id)}/activate`, json({role:r})), `${p.riot_id} is now ${LABELS[r]}.`); swap = null; }
+async function remove() { const p = deleting; await run(() => api(`/api/players/${encodeURIComponent(p.riot_id)}?confirm=${encodeURIComponent(p.riot_id)}`, {method:'DELETE'}), `${p.riot_id} deleted.`); deleting = null; profile = null; }
+function openAdd(r = 'top') { adding = true; role = r; riotId = ''; active = true; pool = []; step = 1; job = null; }
+async function onboard() { try { const b = await api('/api/players/onboard', json({riot_id:riotId, role})); step = 2; timer = setInterval(async () => { try { job = await api(`/api/players/onboard/${b.job}`); if (job.status !== 'reading') { clearInterval(timer); if (job.status === 'done') { pool = job.proposal.map((p) => ({...p, include:true})); step = 3; } } } catch (e) { clearInterval(timer); error = e.message; } }, 800); } catch (e) { error = e.message; } }
+async function create() { const entries = pool.filter((p) => p.include && p.champ_id).map((p) => ({champ_id:+p.champ_id, role, tier:p.tier})); await run(() => api('/api/players', json({riot_id:riotId, role, active, pool:entries})), `${riotId} added.`); adding = null; }
+$effect(() => { load(); return () => clearInterval(timer); });
 </script>
 
 <main class="page">
-  <h1>Roster <small class="h1sub">players, subs and champion pools</small></h1>
-  {#if message}<p class="ok" use:pulse={{ value: message, ok: !/^(Not|No) |fail|error|couldn/i.test(message) }}>{message}</p>{/if}
-
-  <section>
-    <h2>Players</h2>
-    <table class="players">
-      <thead><tr><th>Role</th><th>Riot ID</th><th>Rank</th><th>Stats bracket</th><th></th></tr></thead>
-      <tbody>
-        {#each players as p}
-          <tr>
-            <td>{LABELS[p.role]}</td>
-            <td><input bind:value={p.riot_id} placeholder="Name#EUW" /></td>
-            <td><input bind:value={p.rank} placeholder="Gold II" /></td>
-            <td>
-              <select bind:value={p.bracket}>
-                {#each ['iron', 'bronze', 'silver', 'gold', 'platinum', 'emerald', 'diamond'] as b}<option value={b}>{b}</option>{/each}
-              </select>
-            </td>
-            <td class="muted">{p.resolved ? '✓ linked' : p.riot_id ? 'links at next champ select' : ''}</td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
-    <button class="primary" onclick={savePlayers}>Save players</button>
-    <p class="muted small">
-      A linked player whose Riot ID you change goes to the bench with their pool; one never linked is just renamed.
-    </p>
-
-    <h3 class="subhead">Swap in a sub</h3>
-    <form class="swap" onsubmit={(ev) => { ev.preventDefault(); swap(sub.role, sub.riot_id.trim()); }}>
-      <select bind:value={sub.role}>{#each Object.entries(LABELS) as [r, l]}<option value={r}>{l}</option>{/each}</select>
-      <input list="bench-ids" bind:value={sub.riot_id} placeholder="Sub#EUW (new, or from the bench)" />
-      <datalist id="bench-ids">{#each data?.bench ?? [] as b}{#if b.riot_id}<option value={b.riot_id}></option>{/if}{/each}</datalist>
-      <button type="submit" disabled={!sub.riot_id.includes('#')}>Swap in</button>
-    </form>
-
-    {#if data?.bench?.length}
-      <h3 class="subhead">Bench</h3>
-      <div class="bench">
-        {#each data.bench as b}
-          <div class="benched">
-            <div class="who">
-              <strong>{b.riot_id || '(no Riot ID)'}</strong>
-              <span class="muted">{LABELS[b.role]}{b.rank ? ` · ${b.rank}` : ''} · {poolSize(b)} champion{poolSize(b) === 1 ? '' : 's'}</span>
-            </div>
-            <div class="chips">
-              {#each Object.entries(b.pools) as [r, champs]}
-                {#each champs.slice(0, 6) as c}<span title="{c.champ.name} ({LABELS[r]}, {c.tier})"><Champ champ={c.champ} size={24} /></span>{/each}
-              {/each}
-            </div>
-            <div class="actions">
-              {#if b.riot_id}<button class="small-btn" onclick={() => swap(b.role, b.riot_id)}>Swap in as {LABELS[b.role]}</button>{/if}
-              <button class="small-btn ghost" onclick={() => forget(b)} disabled={!b.riot_id}>Forget</button>
-            </div>
-          </div>
-        {/each}
-      </div>
-    {/if}
-  </section>
-
-  <section>
-    <div class="poolhead">
-      <h2>Champion pools</h2>
-      <button class="secondary" onclick={learn} disabled={data?.learning?.running}>
-        {data?.learning?.running ? 'Updating from games…' : 'Update from games'}
-      </button>
-    </div>
-    <p class="muted">
-      Tiers are re-scored from each player's last 60 days of ranked games (Solo/Duo, Flex, Ranked 5s) after every
-      logged game. A suggested change waits for you to accept it; a locked tier is never changed.
-    </p>
-    {#if data?.using_placeholder_pools}
-      <p class="warn">No pools imported yet: suggestions use each role's most-picked champions.</p>
-    {/if}
-    <datalist id="champ-names">{#each data?.champions ?? [] as c}<option value={c.name}></option>{/each}</datalist>
-    <div class="roles">
-      {#each Object.entries(data?.pools ?? {}) as [role, entries]}
-        <div class="role">
-          <h3>{LABELS[role]}
-            {#if proposals(entries) > 1}<button class="link" onclick={() => acceptTier(role)}>accept all {proposals(entries)}</button>{/if}
-          </h3>
-          {#if data?.health?.[role]}
-            {@const h = data.health[role]}
-            <div class="health">
-              <div class:missing={!h.blind.ok}>Blind pick: {h.blind.ok ? h.blind.name : `none safe${h.blind.name ? ` (best ${h.blind.name})` : ''}`}</div>
-              {#if h.setup.applies}<div class:missing={!h.setup.ok}>Setup: {h.setup.ok ? h.setup.name : 'none'}</div>{/if}
-              {#if h.counter.main}<div class:missing={!h.counter.ok}
-                title={h.counter.worst.map((w) => `${w.name} ${w.main_pp}pp${w.answered ? `: ${w.answer} ${w.answer_pp}pp` : ': no answer'}`).join(' · ')}>
-                Counters to {h.counter.main}'s worst: {h.counter.worst.filter((w) => w.answered).length} of {h.counter.worst.length}</div>{/if}
-            </div>
-          {/if}
-          {#each entries as e}
-            <div class="entry">
-              <Champ champ={e.champ} size={32} />
-              <span class="name" title={e.champ.name}>{e.champ.name}</span>
-              <select class="tier {e.manual_tier}" value={e.manual_tier} title="Tier (set by hand)"
-                      onchange={(ev) => setTier(role, e.champ.id, ev.currentTarget.value)}>
-                {#each TIERS as t}<option value={t}>{t}</option>{/each}
-              </select>
-              <button class="lock" class:on={e.tier_locked} title={e.tier_locked ? 'Tier locked: click to unlock' : 'Lock this tier'}
-                      onclick={() => toggleLock(role, e)}>{e.tier_locked ? '🔒' : '🔓'}</button>
-              <button class="remove" title="Remove {e.champ.name} from the {LABELS[role]} pool"
-                      onclick={() => removeChamp(role, e)}>×</button>
-              <span class="rec" title="Last 60 days in this role · comfort {e.comfort}">{record(e)} · comfort {e.comfort}</span>
-              {#if e.badge?.text}<span class="badge" title="Comp type and fight style (Champions page)">{e.badge.text}</span>{/if}
-              {#if e.execution_hint}
-                <span class="lanehint {e.execution_hint.kind}" title={e.execution_hint.text}>
-                  {e.execution_hint.kind === 'behind_in_lane' ? 'Wins, behind in lane' : 'Loses, ahead in lane'}</span>
-              {/if}
-              {#if e.proposal}
-                <button class="proposal" title="Scored from recent games: click to accept" onclick={() => acceptTier(role, e.champ.id)}>
-                  → {e.proposal}
-                </button>
-              {/if}
-            </div>
-          {:else}
-            <p class="muted">empty</p>
-          {/each}
-          <form class="add" onsubmit={(ev) => { ev.preventDefault(); addChamp(role); }}>
-            <input list="champ-names" placeholder="Add champion" bind:value={adding[role].name} />
-            <select bind:value={adding[role].tier}>{#each TIERS as t}<option value={t}>{t}</option>{/each}</select>
-            <button type="submit" disabled={!adding[role].name.trim()}>Add</button>
-          </form>
-        </div>
-      {/each}
-    </div>
-  </section>
-
-  <section>
-    <h2>Import pools</h2>
-    <p class="muted">One block per role. Importing a role replaces its pool; roles you leave out stay as they are.</p>
-    <textarea bind:value={text} rows="10" placeholder={EXAMPLE}></textarea>
-    <button class="primary" onclick={importPools} disabled={!text.trim()}>Import</button>
-    {#if importErrors.length}
-      <ul class="errors">{#each importErrors as e}<li>{e}</li>{/each}</ul>
-    {/if}
-  </section>
+ <PageHeader title="Roster" description="Your active lineup, player rotation, and champion comfort.">{#snippet actions()}<Button variant="primary" size="md" onclick={() => openAdd()}>Add player</Button>{/snippet}</PageHeader>
+ {#if error}<p class="message error" role="alert">⚠ {error}</p>{/if}{#if note}<p class="message">{note}</p>{/if}
+ {#if !roster}<Panel><p class="muted">Loading roster…</p></Panel>{:else}
+<Panel title="Lineup" flush><div class="lineup">{#each roster.lineup as p (p.role)}<article class="lineup-row"><div class="role mono">{LABELS[p.role]}</div>{#if p.riot_id}<button class="identity" onclick={() => show(p.riot_id)}><strong>{p.riot_id}</strong><span>{rank(p.rank)} · since {since(p.active_since)}</span></button><div class="strip">{#each p.pool?.champs ?? [] as e}<span><Champ champ={e.champ} size={30}/><i>{TAG[e.tier]}</i></span>{/each}{#if p.pool?.more}<b class="mono">+{p.pool.more}</b>{/if}</div><div class="figures mono">{p.games ?? 0}g · {pct(p.win_rate)} · {p.kda?.toFixed(2) ?? '—'} KDA<br><span class:up={p.execution?.mean_pp > 0} class:down={p.execution?.mean_pp < 0}>{p.execution?.enough ? `${p.execution.mean_pp > 0 ? '+' : ''}${p.execution.mean_pp.toFixed(1)}pp · ${p.execution.label}` : 'Need 5 team games'}</span></div><div class="health">{safety(p.health)}{#if p.pending}<br>{p.pending} tier changes suggested{/if}</div><div class="actions"><Button onclick={() => show(p.riot_id)}>Profile</Button><Button onclick={() => (swap = { role: p.role })}>Swap</Button><Button onclick={() => bench(p)} disabled={busy}>Bench</Button><Button variant="ghost" danger onclick={() => deleting=p}>Delete</Button></div>{:else}<div class="empty"><strong>No player</strong><span>Choose a player for this role.</span></div><Button onclick={() => openAdd(p.role)}>Add player</Button>{/if}</article>{/each}</div></Panel>
+ <Panel title={`Bench · ${roster.bench.length}`}>{#if roster.bench.length}<div class="bench">{#each roster.bench as p (p.riot_id)}<div><strong>{p.riot_id}</strong><span>{LABELS[p.role]} · {rank(p.rank)} · {p.games ?? 0} games</span></div><div class="actions"><Button onclick={() => (swap = { role: p.role, selected: p })}>Swap in</Button><Button onclick={() => show(p.riot_id)}>Profile</Button><Button variant="ghost" danger onclick={() => deleting=p}>Delete</Button></div>{/each}</div>{:else}<p class="muted">No players on the bench.</p>{/if}</Panel>{/if}
+ {#if profile}<section class="sheet"><Panel><div class="head"><div><p class="eyebrow">{profile.active ? 'Active roster' : 'Bench'}</p><h2>{profile.riot_id}</h2><p class="muted">{LABELS[profile.role]} · {rank(profile.rank?.best)} · active since {since(profile.active_since)}</p></div><div class="actions"><Button onclick={() => show(profile.riot_id, profile.window === '60d' ? '20' : '60d')}>{profile.window === '60d' ? 'Last 20 games' : 'Last 60 days'}</Button><Button variant="ghost" onclick={() => profile=null}>Close</Button></div></div><div class="stats"><Stat size="sm" value={profile.tiles.games} label="games"/><Stat size="sm" value={pct(profile.tiles.win_rate)} label="win rate"/><Stat size="sm" value={profile.tiles.kda?.toFixed(2)} label="KDA"/><Stat size="sm" value={profile.tiles.execution.enough ? `${profile.tiles.execution.mean_pp > 0 ? '+' : ''}${profile.tiles.execution.mean_pp.toFixed(1)}pp` : '—'} label={profile.tiles.execution.label}/><Stat size="sm" value={profile.tiles.pool_champs} label="pool champs"/></div><h3>Champion pool</h3>{#each profile.pools as group}<section class="group"><h4>{LABELS[group.role]}</h4>{#each group.pool as row}<div class="champ"><Champ champ={row.champ} size={36}/><strong>{row.champ?.name}</strong><span class="tier">{row.tier}</span><span class="mono">{row.games}g · {pct(row.win_rate)} · {row.kda?.toFixed(2) ?? '—'} KDA</span>{#if row.suggested_tier}<span class="suggest">Suggested {row.suggested_tier}</span>{/if}</div>{/each}{#if group.not_in_pool?.length}<p class="muted">Played but not in pool: {group.not_in_pool.map((r) => r.champ?.name).join(', ')}</p>{/if}</section>{/each}<h3>Pool health</h3><p class="muted">{safety(profile.health)} · {profile.health?.setup?.ok ? `Setup: ${profile.health.setup.name}` : '⚠ No setup champion'}</p></Panel></section>{/if}
+{#if swap}<div class="modal"><Panel title={`Swap ${LABELS[swap.role]}`}><div class="choices">{#each roster.bench as p}<button class:selected={swap.selected?.riot_id === p.riot_id} onclick={() => (swap = { ...swap, selected: p })}><strong>{p.riot_id}</strong><span>{LABELS[p.role]} · {p.pool?.size ?? 0} pool champions</span></button>{/each}</div>{#if !roster.bench.length}<p class="muted">No bench player available.</p>{/if}<div class="actions end"><Button onclick={() => swap=null}>Cancel</Button><Button variant="primary" disabled={!swap.selected || busy} onclick={() => activate(swap.selected,swap.role)}>Confirm swap</Button></div></Panel></div>{/if}
+ {#if deleting}<div class="modal"><Panel title="Delete player"><p>This permanently removes <strong>{deleting.riot_id}</strong>, their pools, and fetched games. Logged team games stay in History.</p><div class="actions end"><Button onclick={() => deleting=null}>Cancel</Button><Button variant="secondary" danger busy={busy} onclick={remove}>Delete {deleting.riot_id}</Button></div></Panel></div>{/if}
+ {#if adding}<div class="modal"><Panel title={`Add player · step ${step} of 4`}><p class="eyebrow">Who → Read games → Review pool → Placement</p>{#if step === 1}<Field label="Riot ID" bind:value={riotId} placeholder="Name#TAG"/><Field label="Role" options={ROLES.map((r)=>[r,LABELS[r]])} bind:value={role}/><div class="actions end"><Button onclick={() => adding=null}>Cancel</Button><Button variant="primary" disabled={!riotId} onclick={onboard}>Continue</Button></div>{:else if step === 2}<p class="muted">Reading ranked games and mastery… {job?.games_read ?? 0} of {job?.games_total ?? 0}</p>{#if job?.error}<p class="error">⚠ {job.error}</p>{/if}<Button onclick={() => step=3}>Skip to manual pool</Button>{:else if step === 3}<p class="muted">Review the automatic pool. Add champion IDs for manual additions.</p><div class="proposal">{#each pool as p}<label><input type="checkbox" bind:checked={p.include}/><input type="number" bind:value={p.champ_id}/><select bind:value={p.tier}><option>main</option><option>comfortable</option><option>learning</option></select><span>{p.games ?? 0}g · {p.source ?? 'manual'}</span></label>{/each}</div><Button onclick={() => pool=[...pool,{champ_id:0,tier:'learning',include:true}]}>Add champion</Button><div class="actions end"><Button onclick={() => step=1}>Back</Button><Button variant="primary" onclick={() => step=4}>Continue</Button></div>{:else}<Field type="checkbox" label={`Make active ${LABELS[role]} player`} bind:checked={active} hint={active ? 'The current player moves to the bench.' : 'They will join the bench.'}/><div class="actions end"><Button onclick={() => step=3}>Back</Button><Button variant="primary" busy={busy} onclick={create}>Add player</Button></div>{/if}</Panel></div>{/if}
 </main>
 
 <style>
-  .h1sub { font-size: 15px; font-weight: 400; color: var(--muted); margin-left: 8px; }
-  .small { font-size: 12px; margin: 6px 0 0; }
-  .subhead { margin: 20px 0 8px; }
-  .swap { display: flex; gap: 8px; align-items: center; max-width: 560px; }
-  .swap select { width: auto; }
-  .swap button { margin: 0; white-space: nowrap; }
-  .bench { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
-  .benched { background: var(--panel); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
-  .who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .who strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .who .muted { font-size: 12px; }
-  .chips { display: flex; flex-wrap: wrap; gap: 4px; min-height: 24px; }
-  .actions { display: flex; gap: 6px; }
-  .small-btn { margin: 0; padding: 4px 10px; font-size: 13px; }
-  .small-btn.ghost { background: var(--panel-2); border: 1px solid var(--line); }
-  .health { font-size: 12px; color: var(--muted); margin: 0 0 8px; display: flex; flex-direction: column; gap: 2px; }
-  .health .missing { color: var(--down-text); }
-  .page { max-width: 1440px; margin: 0 auto; padding: 20px 28px 60px; }
-  h1 { font-size: 32px; margin: 8px 0 16px; }
-  h2 { font-size: 20px; margin: 28px 0 10px; }
-  h3 { font-size: 16px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; }
-  table { border-collapse: collapse; width: 100%; }
-  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 13px; padding: 4px 8px; }
-  td { padding: 4px 8px; }
-  input, select, textarea { background: var(--panel); color: var(--text); border: 1px solid var(--line);
-                            border-radius: 6px; padding: 6px 8px; font: inherit; }
-  input { width: 100%; }
-  textarea { width: 100%; font-family: Consolas, monospace; }
-  button { margin-top: 10px; background: var(--blue-deep); color: var(--text); border: 0; border-radius: 6px;
-           padding: 8px 16px; font: inherit; cursor: pointer; }
-  button:disabled { opacity: 0.5; cursor: default; }
-  button.primary, button[type="submit"] { background: var(--gold); color: var(--on-gold); font-weight: 600; }
-  .roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
-  .role { background: var(--panel); border-radius: 8px; padding: 12px; }
-  .entry { display: grid; grid-template-columns: 32px 1fr auto auto auto; grid-auto-rows: auto; align-items: center; gap: 4px 8px;
-           margin: 8px 0; }
-  .rec { grid-column: 2 / -1; margin-top: -4px; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .badge { grid-column: 2 / -1; justify-self: start; margin-top: -2px; padding: 0 5px; font-size: 11px; color: var(--text-2);
-           background: var(--line); border-radius: 4px; }
-  .lock { background: none; border: 0; padding: 0; margin: 0; cursor: pointer; font-size: 14px; opacity: 0.45; }
-  .lock.on { opacity: 1; }
-  .proposal { grid-column: 2 / -1; justify-self: start; margin: 0; padding: 2px 8px; font-size: 12px; background: var(--gold-bg);
-              color: var(--gold); border: 1px solid var(--gold-line); border-radius: 4px; }
-  .poolhead { display: flex; align-items: center; justify-content: space-between; }
-  .secondary { margin: 0; background: var(--panel-2); border: 1px solid var(--line); }
-  .link { margin: 0 0 0 8px; padding: 0; background: none; color: var(--gold); font-size: 12px; text-transform: none; }
-  .name { font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .tier { font-size: 12px; padding: 2px 4px; border-radius: 4px; background: var(--panel-2); border: 0; width: auto; }
-  .remove { background: none; border: 0; padding: 0 2px; margin: 0; color: var(--muted); font-size: 16px; cursor: pointer; }
-  .remove:hover { color: var(--red); }
-  .add { display: flex; gap: 6px; margin-top: 10px; }
-  .add input { flex: 1; min-width: 0; padding: 4px 6px; font-size: 13px; }
-  .add select { font-size: 12px; padding: 4px; }
-  .add button { margin: 0; padding: 4px 10px; font-size: 13px; }
-  .tier.main { color: var(--good); }
-  .tier.comfortable { color: var(--blue); }
-  .tier.learning { color: var(--warn); }
-  /* docs/draft-vs-execution.md, Stage 6: a hint only. Teal / amber as validated; the text is always written */
-  .lanehint { grid-column: 2 / -1; justify-self: start; margin-top: -2px; font-size: 11px; border-radius: 4px; padding: 0 6px;
-              background: var(--panel-2); }
-  .lanehint.behind_in_lane { color: var(--down); }
-  .lanehint.ahead_in_lane { color: var(--up); }
-  .muted { color: var(--muted); }
-  .warn { color: var(--gold); }
-  .ok { color: var(--good); }
-  .errors { color: var(--red); }
+.page{max-width:1440px;margin:auto;padding:0 24px 56px}.message{font-size:13px;color:var(--text-2)}.error{color:var(--error)}.muted{color:var(--text-3)}.mono,.role,.figures{font-family:var(--font-mono)}.lineup-row{display:grid;grid-template-columns:68px minmax(160px,1fr) 150px minmax(230px,1fr) 130px auto;gap:14px;align-items:center;padding:14px 16px;border-top:1px solid var(--hairline)}.lineup-row:first-child{border:0}.role,.eyebrow{font-size:12px;text-transform:uppercase;color:var(--text-3)}.identity{border:0;background:none;padding:0;color:var(--text-1);text-align:left;cursor:pointer}.identity strong,.bench strong{display:block}.identity span,.bench span{display:block;font-size:12px;color:var(--text-3);margin-top:3px}.strip{display:flex;gap:4px}.strip span{position:relative}.strip i{position:absolute;right:-2px;bottom:-3px;background:var(--bg);font:9px var(--font-mono);font-style:normal}.strip b{align-self:center;color:var(--text-3);font-size:12px}.figures,.health{font-size:12px;color:var(--text-2)}.up{color:var(--up-text)}.down{color:var(--down-text)}.actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.empty{grid-column:span 4;display:grid;gap:3px;color:var(--text-3)}.bench{display:grid;gap:12px}.bench>div{display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:12px;border-top:1px solid var(--hairline)}.sheet{position:fixed;z-index:20;inset:0 0 0 auto;width:min(760px,100%);overflow:auto;padding:24px;background:var(--bg);box-shadow:-16px 0 36px #0005}.head{display:flex;justify-content:space-between;gap:14px}.head h2,h3,h4{margin:0}.head h2{font-size:22px}.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin:24px 0}h3{font-size:14px;margin-top:24px}.group{border-top:1px solid var(--hairline);padding:12px 0}.group h4{font-size:12px;color:var(--text-3);text-transform:uppercase}.champ{display:grid;grid-template-columns:36px minmax(90px,1fr) 90px 1fr auto;gap:8px;align-items:center;min-height:44px;font-size:12px}.suggest{color:var(--signal)}.modal{position:fixed;z-index:30;inset:0;display:grid;place-items:center;padding:20px;background:#0008}.modal :global(.panel){width:min(600px,100%);max-height:calc(100vh - 40px);overflow:auto}.end{justify-content:flex-end;margin-top:18px}.choices{display:grid;gap:6px;margin:16px 0}.choices button{display:flex;justify-content:space-between;text-align:left;padding:10px;color:var(--text-1);background:var(--surface-2);border:1px solid var(--hairline);border-radius:var(--radius-sm);cursor:pointer}.choices button.selected{border-color:var(--signal)}.choices span{font-size:12px;color:var(--text-3)}.proposal{display:grid;gap:6px;margin:12px 0}.proposal label{display:grid;grid-template-columns:20px 80px 130px 1fr;gap:6px;align-items:center;font-size:12px}.proposal input,.proposal select{height:28px;color:var(--text-1);background:var(--surface-2);border:1px solid var(--hairline);border-radius:var(--radius-sm)}
+@media(max-width:1050px){.lineup-row{grid-template-columns:60px 1fr auto}.strip,.figures,.health{grid-column:2}.lineup-row>.actions{grid-column:3;grid-row:1 / span 2;align-self:start}.empty{grid-column:2}.stats{grid-template-columns:repeat(3,1fr)}}@media(max-width:640px){.page{padding:0 12px 40px}.lineup-row{grid-template-columns:50px 1fr;gap:10px}.lineup-row>.actions{grid-column:2;grid-row:auto}.bench>div{display:grid}.bench .actions{justify-content:flex-start}.stats{grid-template-columns:repeat(2,1fr)}.sheet{padding:14px}.head{flex-direction:column}.champ{grid-template-columns:36px 1fr auto}.champ .mono{grid-column:2/-1}.proposal label{grid-template-columns:20px 1fr 1fr}.proposal label span{grid-column:2/-1}}
 </style>

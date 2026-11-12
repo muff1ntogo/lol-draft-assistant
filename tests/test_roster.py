@@ -8,6 +8,8 @@ from sqlmodel import Session, select
 from draftassist.api.main import create_app
 from draftassist.data.pools import (
     bench,
+	bench_player,
+	delete_player,
     forget_player,
     import_pools,
     list_players,
@@ -118,6 +120,30 @@ def test_a_swap_changes_the_stats_version_so_the_engine_reloads_after_the_draft(
     assert stats_version(db) != before
 
 
+def test_bench_activate_and_delete_keep_the_right_player_data(db):
+	"""Stage C: new roster actions preserve pools and logged team history."""
+	with Session(db) as s:
+		main = s.get(Player, "puuid-main")
+		before = main.active_since
+		s.add(PlayerGame(puuid="puuid-main", match_id="fetched", champ_id=897, role="top", win=True,
+			game_start_ms=1, source="match-v5"))
+		s.add(PlayerGame(puuid="puuid-main", match_id="logged", champ_id=897, role="top", win=True,
+			game_start_ms=2, source="logged"))
+		s.commit()
+	assert bench_player(db, "Main#EUW")
+	assert [b["riot_id"] for b in bench(db)] == ["Main#EUW"]
+	swap_player(db, "top", "main#euw")
+	with Session(db) as s:
+		main = s.get(Player, "puuid-main")
+		assert main.active and main.active_since >= before
+	assert delete_player(db, "Main#EUW")
+	with Session(db) as s:
+		assert s.exec(select(PoolEntry).where(PoolEntry.puuid == "puuid-main")).first() is None
+		assert s.get(PlayerGame, ("puuid-main", "fetched")) is None
+		assert s.get(PlayerGame, ("puuid-main", "logged")) is not None
+		assert s.get(Player, "puuid-main").riot_id == ""
+
+
 # ---------- the roster file ----------
 def test_the_file_round_trips_into_an_empty_database(db, tmp_path):
     with Session(db) as s:
@@ -181,3 +207,22 @@ def test_api_swap_bench_and_the_file_follows(make_services, db, tmp_path):
         assert client.delete("/api/players/bench", params={"riot_id": "Nobody#EUW"}).status_code == 404
         assert client.delete("/api/players/bench", params={"riot_id": "Main#EUW"}).json()["bench"] == []
         assert "Main#EUW" not in svc.roster_path.read_text(encoding="utf-8")
+
+
+def test_api_roster_profile_and_actions(make_services, db, tmp_path):
+	svc = make_services(db=db)
+	svc.roster_path = tmp_path / "roster.json"
+	with TestClient(create_app(svc, stats_refresh_s=0)) as client:
+		roster = client.get("/api/roster")
+		assert roster.status_code == 200
+		top = roster.json()["lineup"][0]
+		assert top["riot_id"] == "Main#EUW" and top["active_since"]
+		assert top["pool"]["champs"][0]["champ"]["name"] in {"Rumble", "K'Sante"}
+		profile = client.get("/api/players/Main%23EUW/profile", params={"window": "60d"})
+		assert profile.status_code == 200 and profile.json()["riot_id"] == "Main#EUW"
+		assert client.get("/api/players/Main%23EUW/profile", params={"window": "bad"}).status_code == 422
+		assert client.delete("/api/players/Main%23EUW", params={"confirm": "wrong"}).status_code == 422
+		assert client.post("/api/players/Main%23EUW/bench").status_code == 200
+		activated = client.post("/api/players/Main%23EUW/activate", json={"role": "top"})
+		assert activated.status_code == 200 and activated.json()["roster"]["lineup"][0]["riot_id"] == "Main#EUW"
+		assert client.delete("/api/players/Main%23EUW", params={"confirm": "Main#EUW"}).status_code == 200
