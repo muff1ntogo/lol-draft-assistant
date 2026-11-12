@@ -10,6 +10,7 @@ on:
     paths-ignore:
       - "docs/**"
       - "**/*.md"
+      - ".claude/**"  # agent skills (demos included): not part of the app, so no release or update for them
   workflow_dispatch:
 
 permissions:

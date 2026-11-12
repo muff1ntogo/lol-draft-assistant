@@ -46,6 +46,14 @@ def test_nothing_private_is_bundled():
         assert not src.endswith((".sqlite", ".env")) and "cache" not in src and "recorded" not in src, src
 
 
+def test_agent_skills_never_reach_the_app():
+    """.claude/skills (MengTo/Skills, demos included) is for Claude Code only: never bundled, and a push that only
+    changes it publishes no release, so installed apps are offered no update for it."""
+    assert not any(src.startswith(".claude") for src in bundled())
+    ignored = RELEASE.split("paths-ignore:", 1)[1].split("workflow_dispatch", 1)[0]
+    assert '".claude/**"' in ignored
+
+
 def test_the_installer_ships_both_programs_from_the_bundle_folder():
     names = re.findall(r'name="([^"]+)"', SPEC)
     assert names == ["DraftAssistant", "draftassist-cli", "DraftAssistant"]  # the two programs, then the folder
