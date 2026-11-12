@@ -138,13 +138,13 @@ graph, a long synergy table, three columns of ban lists, a patch overview at the
   labels in `MUTED`. Run the dataviz validator for any new series set (see "Colour").
 - Team trends: `PageHeader` + `Segmented` window (10 / 20 / all) + charts.
 
-### Step 5: Roster (`Pools.svelte`)
+### Step 5: Roster: profiles, adding players, bench and delete (`Pools.svelte` and new pages)
 
-- Players as a `Table` with inline `Field`s (Role, Riot ID, Rank, Stats bracket), "Save players" as the primary.
-- Swap in a sub: one row, secondary button.
-- Champion pools: five columns (one per role), each a list of champions with their tier as a quiet tag; the "Add"
-  controls in one row under each list; "Update from games" secondary in the section header.
-- Import pools: collapsed under the pools (a `details`), monospace textarea.
+A feature as well as a restyle, with its own task doc: **`docs/roster-profiles.md`** (decisions, flows, API, data and
+five stages A–E). In short: the lineup as five profile summaries (pool strip, games, win rate, KDA, lane execution,
+pool health) with Profile / Swap / Bench / Delete; a bench table with Swap in; a four-step Add player sheet (Riot ID →
+read their games → review the proposed pool, add champions → active or bench); and a profile page per player (summary
+tiles, champion pool with editing, roles, lane execution, mastery). Build its stages in order; they replace this step.
 
 ### Step 6: Crawl (`Crawl.svelte`)
 
