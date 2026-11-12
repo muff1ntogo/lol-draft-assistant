@@ -6,8 +6,10 @@ match-v5 history of the last 60 days (Solo/Duo, Flex and Ranked 5s). match-v5 wi
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
+from datetime import UTC, datetime
 
 import httpx
 from sqlalchemy import Engine
@@ -22,6 +24,15 @@ log = logging.getLogger(__name__)
 
 MIN_DURATION_S = 300  # remakes don't count
 MAX_MATCHES_PER_PLAYER = 100
+PROFILE_TTL_S = 86_400  # rank and mastery are read again at most once a day
+
+
+def game_stats(me: dict, info: dict) -> dict:
+    """What a player did in a match, as the player_games columns (docs/roster-profiles.md)."""
+    return {"kills": me.get("kills"), "deaths": me.get("deaths"), "assists": me.get("assists"),
+            "cs": (me.get("totalMinionsKilled") or 0) + (me.get("neutralMinionsKilled") or 0)
+                  if me.get("totalMinionsKilled") is not None else None,
+            "vision": me.get("visionScore"), "duration_s": info.get("gameDuration")}
 
 
 def _upsert(s: Session, game: PlayerGame) -> bool:
@@ -129,6 +140,68 @@ def _fetch_player(db: Engine, riot: RiotClient, p: Player, since: int) -> int:
             added += _upsert(s, PlayerGame(puuid=p.puuid, match_id=match_id, champ_id=me["championId"],
                                            role=POSITIONS.get(me.get("teamPosition") or ""), win=bool(me["win"]),
                                            queue_id=info.get("queueId"), game_start_ms=info.get("gameStartTimestamp", 0),
-                                           source="match-v5"))
+                                           source="match-v5", **game_stats(me, info)))
         s.commit()
     return added
+
+
+def backfill_game_stats(db: Engine, riot: RiotClient) -> int:
+    """KDA, CS, vision and length for games stored before those columns existed, from matches already in the Riot
+    cache: no API calls. Games whose match isn't cached (or was never a match) stay without them. Returns rows filled."""
+    filled = 0
+    with Session(db) as s:
+        api = {p.puuid: p.api_puuid for p in s.exec(select(Player)).all() if p.api_puuid}
+        rows = s.exec(select(PlayerGame).where(PlayerGame.kills.is_(None))).all()  # type: ignore[union-attr]
+        for g in rows:
+            if g.puuid not in api or g.match_id.startswith("draft-"):
+                continue
+            match = riot.match_cached(g.match_id)
+            me = next((x for x in (match or {}).get("info", {}).get("participants", []) if x.get("puuid") == api[g.puuid]), None)
+            if me is None:
+                continue
+            for k, v in game_stats(me, match["info"]).items():
+                setattr(g, k, v)
+            s.add(g)
+            filled += 1
+        s.commit()
+    return filled
+
+
+def _epoch(dt: datetime | None) -> float | None:
+    """SQLite hands datetimes back without their zone: ours are stored as UTC."""
+    if dt is None:
+        return None
+    return (dt if dt.tzinfo else dt.replace(tzinfo=UTC)).timestamp()
+
+
+def mastery_rows(masteries: list[dict]) -> list[list[int]]:
+    """champion-mastery-v4 -> [[champ_id, points, last_played_ms], ...], highest first."""
+    rows = [[m["championId"], m.get("championPoints", 0), m.get("lastPlayTime", 0)] for m in masteries if m.get("championId")]
+    return sorted(rows, key=lambda r: -r[1])
+
+
+def refresh_profiles(db: Engine, riot: RiotClient, now: float | None = None, only: str | None = None) -> int:
+    """Rank and mastery for every linked player (the bench too: two requests each), at most once a day.
+    `only`: just this player's key, whatever its age (a player being added). Returns players refreshed."""
+    now = now if now is not None else time.time()
+    done = 0
+    with Session(db) as s:
+        for p in s.exec(select(Player)).all():
+            if not p.api_puuid or (only is not None and p.puuid != only):
+                continue
+            fetched = _epoch(p.profile_fetched_at)
+            if only is None and fetched is not None and now - fetched < PROFILE_TTL_S:
+                continue
+            try:
+                p.rank_json = json.dumps(riot.ranks(p.api_puuid))
+                p.mastery_json = json.dumps(mastery_rows(riot.mastery_all(p.api_puuid)))
+            except RiotAuthError:
+                raise
+            except Exception:  # one player's trouble doesn't stop the others
+                log.exception("profile for %s failed", p.role)
+                continue
+            p.profile_fetched_at = datetime.fromtimestamp(now, UTC)
+            s.add(p)
+            done += 1
+        s.commit()
+    return done

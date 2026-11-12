@@ -16,7 +16,12 @@ from draftassist.data.pools import backfill_player_ids, list_players, set_player
 from draftassist.data.riot import RiotAuthError, RiotClient
 from draftassist.learning.comfort import TierChange, rescore
 from draftassist.learning.execution import refresh_executions
-from draftassist.learning.history import collect_logged, fetch_history
+from draftassist.learning.history import (
+    backfill_game_stats,
+    collect_logged,
+    fetch_history,
+    refresh_profiles,
+)
 
 log = logging.getLogger(__name__)
 _lock = threading.Lock()  # one learning run at a time
@@ -41,6 +46,15 @@ def run_learning(db: Engine, make_riot: Callable[[], RiotClient] | None = None) 
                 if unlinked:
                     set_players(db, unlinked, riot.account_puuid)
                 result.history_games = fetch_history(db, riot)
+                # docs/roster-profiles.md: figures for games stored before they were kept (from the cache, no requests),
+                # then rank and mastery, at most once a day
+                try:
+                    backfill_game_stats(db, riot)
+                    refresh_profiles(db, riot)
+                except RiotAuthError:
+                    raise
+                except Exception:  # the profile waits; the history above is already stored
+                    log.exception("profile data failed")
             except RiotAuthError as e:
                 result.history_error = str(e)
             except Exception as e:  # network trouble: still learn from our own logs

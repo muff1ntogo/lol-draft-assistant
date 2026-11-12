@@ -114,6 +114,11 @@ class Player(SQLModel, table=True):
     api_puuid: str | None = None
     # One active player per role; a swapped-out player stays on the bench with their pool (docs/player-roster.md)
     active: bool = True
+    # Profile data from the Riot API (docs/roster-profiles.md): fetched when a player is added, refreshed by the
+    # learning job at most once a day. Not mirrored to roster.json (it is fetched again).
+    rank_json: str | None = None  # JSON: the league-v4 entries (queue, tier, division, LP, wins, losses)
+    mastery_json: str | None = None  # JSON: [[champ_id, points, last_played_ms], ...], highest first
+    profile_fetched_at: datetime | None = None  # timezone-aware (UTC)
 
     @property
     def resolved(self) -> bool:
@@ -440,6 +445,13 @@ class PlayerGame(SQLModel, table=True):
     queue_id: int | None = None
     game_start_ms: int  # epoch ms
     source: str  # match-v5 | logged
+    # What they did in it (docs/roster-profiles.md), from the match: None for a logged game whose match we never read
+    kills: int | None = None
+    deaths: int | None = None
+    assists: int | None = None
+    cs: int | None = None  # lane + jungle minions
+    vision: int | None = None  # vision score
+    duration_s: int | None = None
 
 
 class ScoutPlayer(SQLModel, table=True):

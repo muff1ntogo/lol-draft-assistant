@@ -178,6 +178,25 @@ Each stage: tests with it, `uv run pytest`, screenshots in demo mode at 1440 × 
 | D | The Roster page: lineup summaries, bench, swap sheet, Add player sheet | screenshots of each step of Add player, the swap with its undo toast, an empty role; keyboard-only run through Add player |
 | E | The profile page | screenshots of an active and a benched profile, a player with no team games, a player with no key data |
 
+## Built
+
+**Stage A (12 Nov 2026).** `player_games` and `players` have the new columns (added to older databases at start).
+`learning/history.py`: `game_stats` fills them from each match `_fetch_player` reads; `backfill_game_stats` fills older
+rows from matches already in the Riot cache (`RiotClient.match_cached`, which never calls the API);
+`refresh_profiles` stores rank and mastery for every linked player, the bench too, at most once a day. The learning
+job runs both after the history fetch. `learning/profile.py` has the figures (`summary` for a Roster row, `profile` for
+the page) and `load_inputs`, which reads one player's rows. Tests: `tests/test_profile.py`. Choices made here:
+
+- **KDA** is (kills + assists) / deaths summed over the games that have them, not a mean of each game's ratio.
+- **Lane execution** is shown in pp of a win, as on the Team page (`+5.0pp`, not `+0.05`). Its label is "Wins lane" or
+  "Loses lane" only when the mean's band (± one standard error) is clear of 0, else "Even". The trend arrow compares the
+  newer 5 of the last 10 team games with the older 5; under 1pp is flat.
+- **Comfort-weighted pool size**: main 1, comfortable 0.5, learning 0.25, summed over the role's pool.
+- **"Last 20 games"** are the last 20 inside the 60 days, in any role; the tiles then read the ones in the player's role.
+- **Not in this stage**: "since" (days active in the role) needs a date the database doesn't keep yet; it comes with
+  the roster actions in Stage C (`players.active_since`). Blind safety, pool health and the execution hint need the
+  engine, so the API adds them in Stages C and E.
+
 ## Not in scope
 
 - A list of recent games on the profile (not chosen; History has the team's games).

@@ -222,6 +222,11 @@ class RiotClient:
     def match(self, match_id: str) -> dict | None:
         return self.get(REGION, match_path(match_id))
 
+    def match_cached(self, match_id: str) -> dict | None:
+        """A match if this key already fetched it, else None. Never calls the API (backfills read what is there)."""
+        entry = self._store.get(REGION, match_path(match_id), None)
+        return entry.body if entry is not None and entry.key_id == self.key_id else None
+
     def timeline(self, match_id: str) -> dict | None:
         """The minute-by-minute frames of a match, about 800 KB each: not cached (data/timelines.py)."""
         return self.get(REGION, match_path(match_id) + "/timeline", cache_body=False)
