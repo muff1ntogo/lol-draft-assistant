@@ -5,6 +5,7 @@
 
   let {
     value, label, unit = '', delta = null, deltaDigits = 1, deltaUnit = '', note = '', size = 'md', title = null,
+    tone = null, // 'up' | 'down': only when the value itself is a signed figure ("+0.6")
   } = $props();
   const missing = $derived(value == null || value === '');
   const deltaText = $derived(delta == null ? '' : signed(delta, deltaDigits));
@@ -12,7 +13,7 @@
 
 <div class="stat {size}" {title}>
   <div class="line">
-    <span class="value mono" class:missing>{missing ? '—' : value}{#if unit && !missing}<small>{unit}</small>{/if}</span>
+    <span class="value mono" class:missing class:up={tone === 'up'} class:down={tone === 'down'}>{missing ? '—' : value}{#if unit && !missing}<small>{unit}</small>{/if}</span>
     {#if delta != null}
       <span class="delta mono" class:up={deltaText.startsWith('+')} class:down={deltaText.startsWith('−')}>{deltaText}{deltaUnit}</span>
     {/if}
@@ -28,6 +29,8 @@
   .sm .value { font-size: 20px; letter-spacing: -0.02em; }
   .value small { font-size: 0.55em; font-weight: 500; color: var(--text-3); margin-left: 1px; letter-spacing: 0; }
   .value.missing { color: var(--text-3); }
+  .value.up { color: var(--up-text); }
+  .value.down { color: var(--down-text); }
   .delta { font-size: 13px; font-weight: 600; color: var(--text-3); }
   .delta.up { color: var(--up-text); }
   .delta.down { color: var(--down-text); }

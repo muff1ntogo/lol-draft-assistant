@@ -2,7 +2,11 @@
   // Prep page, bottom half (docs/synergy-v2.md, Stage 5): bans and picks for the current plan (the locks above),
   // for our side and the draft format. Ban lists: Win lane (each plan champion is its role's only answer),
   // Win teamfights (enemy champions that hurt our plan's team model), Combined (ban value + teamfights).
+  // Pinning the plan is Prep.svelte's (the page header's primary action).
   import Champ from './Champ.svelte';
+  import Segmented from './ui/Segmented.svelte';
+  import Table from './ui/Table.svelte';
+  import Tag from './ui/Tag.svelte';
 
   let { locks = {} } = $props();
 
@@ -13,25 +17,6 @@
   let data = $state(null);
   let error = $state(null);
   let loading = $state(false);
-  let pinned = $state(null);
-  let pinMsg = $state('');
-  fetch('/api/plan/pin').then((r) => r.json()).then((d) => (pinned = d.pinned));
-  const sameAsPinned = $derived(pinned && JSON.stringify(Object.entries(pinned.locks).sort())
-                                         === JSON.stringify(Object.entries(locks).map(([r, c]) => [r, c]).sort()));
-  async function pin() {
-    pinMsg = '';
-    const r = await fetch('/api/plan/pin', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                              body: JSON.stringify({ locks }) });
-    const body = await r.json();
-    if (!r.ok) { pinMsg = typeof body.detail === 'string' ? body.detail : 'Could not pin'; return; }
-    pinned = body.pinned;
-    pinMsg = 'Pinned: the Live screen follows this plan in the next champ select.';
-  }
-  async function unpin() {
-    await fetch('/api/plan/pin', { method: 'DELETE' });
-    pinned = null;
-    pinMsg = '';
-  }
 
   $effect(() => {
     try { localStorage.setItem('prep-bans', JSON.stringify({ side, format })); } catch { /* not remembered */ }
@@ -66,7 +51,7 @@
   }
 
   const signed = (x, d = 1) => (x == null ? '—' : `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(x).toFixed(d)}`);
-  const cls = (v) => (v > 0.5 ? 'pos' : v < -0.5 ? 'neg' : '');
+  const cls = (v) => (v > 0.5 ? 'up' : v < -0.5 ? 'down' : '');
   const pct = (x) => `${Math.round(x * 100)}%`;
   const LISTS = [
     ['lane', 'Win lane', 'Bans that protect each plan champion\'s lane (roles without a plan use the pool).'],
@@ -75,144 +60,151 @@
   ];
 </script>
 
-<section class="half">
+<section class="half" aria-busy={loading}>
   <div class="head">
-    <h2>Plan: bans and picks</h2>
-    <div class="group" role="group" aria-label="Side">
-      <button class="blue" class:on={side === 'blue'} onclick={() => (side = 'blue')}>Blue</button>
-      <button class="red" class:on={side === 'red'} onclick={() => (side = 'red')}>Red</button>
-    </div>
-    <div class="group" role="group" aria-label="Format">
-      <button class:on={format === 'tournament'} onclick={() => (format = 'tournament')}>Ranked 5s (tournament)</button>
-      <button class:on={format === 'flex'} onclick={() => (format = 'flex')}>Flex</button>
-    </div>
-    {#if loading}<span class="muted small">updating…</span>{/if}
-    <span class="pin">
-      {#if pinned && sameAsPinned}<span class="pinned">📌 Pinned for next game</span>
-      {:else}<button class="pinbtn" disabled={!Object.keys(locks).length} onclick={pin}>
-        📌 {pinned ? 'Pin this plan instead' : 'Pin for next game'}</button>{/if}
-      {#if pinned}<button onclick={unpin}>Unpin</button>{/if}
-    </span>
+    <h2>Bans and picks for the plan</h2>
+    <span class="label-caps">Side</span>
+    <Segmented label="Our side" bind:value={side} options={[['blue', 'Blue'], ['red', 'Red']]} />
+    <span class="label-caps">Format</span>
+    <Segmented label="Draft format" bind:value={format} options={[['tournament', 'Ranked 5s'], ['flex', 'Flex']]} />
+    {#if loading}<span class="note">Updating…</span>{/if}
   </div>
-  {#if pinMsg}<p class="muted small">{pinMsg}</p>{/if}
-  {#if error}<p class="error">{typeof error === 'string' ? error : JSON.stringify(error)}</p>{/if}
+  {#if error}<p class="error" role="alert">⚠ {typeof error === 'string' ? error : JSON.stringify(error)}</p>{/if}
   {#if data}
-    {#if data.empty}<p class="muted">Lock champions above to build a plan. Until then the lists use each player's whole pool.</p>{/if}
-    <div class="bans">
+    {#if data.empty}<p class="note lead">No plan yet: the lists use each player's whole pool until champions are locked in above.</p>{/if}
+    <div class="three">
       {#each LISTS as [k, title, hint]}
         <div class="col">
           <h3>{title}</h3>
-          <p class="muted small">{hint}</p>
-          <ol>
-            {#each data.bans[k] as b}
-              <li>
-                <Champ champ={b.champ} size={34} />
-                <div class="txt">
-                  <strong>{b.champ.name}{#if b.owner}<span class="owner">{LABELS[b.owner]}</span>{/if}</strong>
-                  <span>{b.reason}</span>
-                  {#each b.warnings as w}<span class="warn">{w}</span>{/each}
-                </div>
-                <span class="val" title="Ban value, pp of win chance">{signed(b.value_pp, 2)}</span>
-              </li>
-            {:else}<li class="muted small">No useful ban.</li>{/each}
-          </ol>
+          <p class="hint">{hint}</p>
+          <Table sticky={false}>
+            <thead><tr><th scope="col">Ban</th><th scope="col" class="num" title="Ban value, pp of win chance">Value</th></tr></thead>
+            <tbody>
+              {#each data.bans[k] as b}
+                <tr>
+                  <td><div class="who"><Champ champ={b.champ} size={28} />
+                    <div class="txt"><strong>{b.champ.name}{#if b.owner} <Tag>{LABELS[b.owner]}</Tag>{/if}</strong>
+                      <span>{b.reason}</span>
+                      {#each b.warnings as w}<span class="warn">⚠ {w}</span>{/each}</div></div></td>
+                  <td class="num mono">{signed(b.value_pp, 2)}</td>
+                </tr>
+              {:else}<tr><td colspan="2" class="none">No useful ban</td></tr>{/each}
+            </tbody>
+          </Table>
         </div>
       {/each}
     </div>
 
-    <div class="picks">
+    <div class="three picks">
       <div class="col">
-        <h3>Pick order <small>{side} side · {format === 'flex' ? 'Flex' : 'tournament'}</small></h3>
-        {#each data.picks.order as o}
-          <div class="order">
-            <span class="slot {side}">{o.slot}</span>
-            <Champ champ={o.champ} size={30} />
-            <div class="txt"><span>{o.line}</span>
-              <span class="muted small">contest {pct(o.contest)} · loss if gone {signed(o.loss_pp)}pp · counter cost {signed(o.counter_pp)}pp · priority {signed(o.priority_pp)}</span></div>
-          </div>
-        {:else}<p class="muted small">No plan champions to schedule.</p>{/each}
-        <p class="muted small">Slots are chosen to minimise the expected loss: being banned or taken before our slot
+        <h3>Pick order <span class="sub">{side} side · {format === 'flex' ? 'Flex' : 'Ranked 5s'}</span></h3>
+        <!-- the side is the list's edge; the slot code itself stays neutral (colour rule 2) -->
+        <div class="orderlist {side}">
+          {#each data.picks.order as o}
+            <div class="order">
+              <span class="slot mono">{o.slot}</span>
+              <Champ champ={o.champ} size={28} />
+              <div class="txt"><span class="line">{o.line}</span>
+                <span class="figs">contest <span class="mono">{pct(o.contest)}</span> · loss if gone <span class="mono">{signed(o.loss_pp)}pp</span> · counter cost <span class="mono">{signed(o.counter_pp)}pp</span> · priority <span class="mono">{signed(o.priority_pp)}</span></span></div>
+            </div>
+          {:else}<p class="none">No plan champions to schedule</p>{/each}
+        </div>
+        <p class="hint">Slots are chosen to minimise the expected loss: being banned or taken before our slot
           (× what the backup costs), the best open counter (× enemy picks left after it), minus the value of hiding a flex pick.</p>
       </div>
 
       <div class="col">
         <h3>Fill the other roles</h3>
-        {#each Object.entries(data.picks.fill) as [role, rows]}
-          <h4>{LABELS[role]}</h4>
-          {#each rows as s}
-            <div class="fill">
-              <Champ champ={s.champ} size={26} />
-              <span class="name">{s.champ.name}</span>
-              <span class="num {cls(s.gain_pp)}" title="Overall gain with the plan">{signed(s.gain_pp)}</span>
-              <span class="muted small">Stat {signed(s.stat_total_pp)} · Style {signed(s.style_total_pp)} · Team {signed(s.team_weighted_pp)}</span>
-            </div>
-          {:else}<p class="muted small">Nobody available in the pool.</p>{/each}
-        {:else}<p class="muted small">Every role is in the plan.</p>{/each}
+        <Table dense sticky={false}>
+          <thead><tr><th scope="col">Champion</th><th scope="col" class="num" title="Overall gain with the plan, pp">Gain</th>
+            <th scope="col" class="num">Stat</th><th scope="col" class="num">Style</th><th scope="col" class="num">Team</th></tr></thead>
+          <tbody>
+            {#each Object.entries(data.picks.fill) as [role, rows]}
+              <tr class="grouprow"><th colspan="5" scope="colgroup">{LABELS[role]}</th></tr>
+              {#each rows as s}
+                <tr>
+                  <td><span class="who"><Champ champ={s.champ} size={20} /><strong>{s.champ.name}</strong></span></td>
+                  <td class="num mono {cls(s.gain_pp)}">{signed(s.gain_pp)}</td>
+                  <td class="num mono">{signed(s.stat_total_pp)}</td><td class="num mono">{signed(s.style_total_pp)}</td>
+                  <td class="num mono">{signed(s.team_weighted_pp)}</td>
+                </tr>
+              {:else}<tr><td colspan="5" class="none">Nobody available in the pool</td></tr>{/each}
+            {:else}<tr><td colspan="5" class="none">Every role is in the plan</td></tr>{/each}
+          </tbody>
+        </Table>
       </div>
 
       <div class="col">
         <h3>Plan risks</h3>
-        <h4>Enemy champions that hurt the plan most</h4>
-        {#each data.picks.risks.champions as r}
-          <div class="fill"><Champ champ={r.champ} size={26} /><span class="name">{r.champ.name}</span>
-            <span class="num neg">{signed(r.delta_pp)}</span><span class="muted small">{r.rule ?? ''}</span></div>
-        {:else}<p class="muted small">Nothing stands out.</p>{/each}
-        <h4>Enemy comps</h4>
-        {#each data.picks.risks.identities as r}
-          <div class="fill"><span class="name">{r.name}</span><span class="num neg">{signed(r.delta_pp)}</span>
-            <span class="icons">{#each r.champs as c}<Champ champ={c} size={20} />{/each}</span></div>
-        {:else}<p class="muted small">No comp identity hurts this plan.</p>{/each}
-        <h4>Backups</h4>
-        {#each Object.entries(data.picks.backups) as [role, b]}
-          <div class="fill"><span class="role">{LABELS[role]}</span>
-            {#if b}<Champ champ={b.champ} size={22} /><span class="name">{b.champ.name}</span>
-              <span class="num {cls(b.change_pp)}" title="Overall change with the backup">{signed(b.change_pp)}</span>
-            {:else}<span class="muted small">no one left in the pool</span>{/if}</div>
-        {/each}
+        <Table dense sticky={false}>
+          <thead><tr><th scope="col">Enemy champions that hurt the plan most</th><th scope="col" class="num">Change</th></tr></thead>
+          <tbody>
+            {#each data.picks.risks.champions as r}
+              <tr><td><span class="who"><Champ champ={r.champ} size={20} /><strong>{r.champ.name}</strong><span class="why">{r.rule ?? ''}</span></span></td>
+                <td class="num mono down">{signed(r.delta_pp)}</td></tr>
+            {:else}<tr><td colspan="2" class="none">Nothing stands out</td></tr>{/each}
+          </tbody>
+          <thead><tr><th scope="col">Enemy comps</th><th scope="col" class="num">Change</th></tr></thead>
+          <tbody>
+            {#each data.picks.risks.identities as r}
+              <tr><td><span class="who"><strong>{r.name}</strong><span class="icons">{#each r.champs as c}<Champ champ={c} size={20} />{/each}</span></span></td>
+                <td class="num mono down">{signed(r.delta_pp)}</td></tr>
+            {:else}<tr><td colspan="2" class="none">No comp identity hurts this plan</td></tr>{/each}
+          </tbody>
+          <thead><tr><th scope="col">Backups</th><th scope="col" class="num" title="Overall change with the backup, pp">Change</th></tr></thead>
+          <tbody>
+            {#each Object.entries(data.picks.backups) as [role, b]}
+              <tr><td><span class="who"><span class="role mono">{LABELS[role]}</span>
+                {#if b}<Champ champ={b.champ} size={20} /><strong>{b.champ.name}</strong>{:else}<span class="why">no one left in the pool</span>{/if}</span></td>
+                <td class="num mono {b ? cls(b.change_pp) : ''}">{b ? signed(b.change_pp) : '—'}</td></tr>
+            {:else}<tr><td colspan="2" class="none">No plan champions to back up</td></tr>{/each}
+          </tbody>
+        </Table>
       </div>
     </div>
   {:else if !error}
-    <p class="muted">Loading…</p>
+    <p class="note">Loading…</p>
   {/if}
 </section>
 
 <style>
-  .half { margin-top: 16px; background: var(--panel); border-radius: 8px; padding: 12px 14px; }
-  .head { display: flex; align-items: center; gap: 16px; margin-bottom: 6px; }
-  h2 { font-size: 19px; margin: 0; }
-  h3 { font-size: 16px; margin: 0 0 2px; }
-  h3 small { color: var(--muted); font-weight: 400; font-size: 13px; }
-  h4 { font-size: 13px; margin: 10px 0 4px; color: var(--text-2); }
-  .group { display: inline-flex; gap: 4px; }
-  .pin { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }
-  .pinbtn { background: var(--gold); border-color: var(--gold); color: var(--on-gold); font-weight: 600; }
-  .pinbtn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .pinned { color: var(--link); font-size: 13px; }
-  button { font: inherit; font-size: 13px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
-  button.on { background: var(--gold-bg); border-color: var(--gold); color: var(--gold); }
-  button.blue.on { background: var(--side-blue-bg); border-color: var(--side-blue); color: var(--link); }
-  button.red.on { background: var(--side-red-bg); border-color: var(--side-red); color: var(--side-red-text); }
-  .bans, .picks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 8px; }
-  .picks { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 12px; }
+  .half { margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--hairline); }
+  .head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  h2 { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; margin: 0 16px 0 0; }
+  .head .label-caps:not(:first-of-type) { margin-left: 12px; }
+  h3 { font-size: 14px; font-weight: 650; margin: 0 0 2px; }
+  .sub { font-size: 12px; font-weight: 400; color: var(--text-3); margin-left: 6px; }
+  .note { font-size: 13px; color: var(--text-3); margin: 0; }
+  .note.lead { margin-bottom: 12px; }
+  .hint { font-size: 12px; color: var(--text-3); margin: 0 0 8px; min-height: 32px; }
+  .picks .hint { min-height: 0; margin-top: 8px; }
+  .error { color: var(--error); font-size: 13px; margin: 0 0 12px; }
+
+  .three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px 32px; }
+  .three.picks { margin-top: 28px; }
+  @media (max-width: 1180px) { .three { grid-template-columns: minmax(0, 1fr); } .hint { min-height: 0; } }
   .col { min-width: 0; }
-  ol { margin: 6px 0 0; padding-left: 18px; }
-  li { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
-  .txt { display: flex; flex-direction: column; min-width: 0; flex: 1; font-size: 13px; }
-  .txt span { color: var(--text-2); }
-  .val, .num { font-variant-numeric: tabular-nums; font-size: 13px; }
-  .owner { font-size: 11px; font-weight: 400; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; margin-left: 6px; }
-  .warn { color: var(--warn); font-size: 12px; }
-  .order { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
-  .slot { flex: none; width: 30px; text-align: center; font-weight: 700; font-size: 13px; border-radius: 4px; padding: 2px 0; }
-  .slot.blue { background: var(--side-blue-bg); color: var(--link); }
-  .slot.red { background: var(--side-red-bg); color: var(--side-red-text); }
-  .fill { display: flex; align-items: center; gap: 8px; margin: 3px 0; font-size: 13px; }
-  .fill .name { min-width: 92px; }
-  .fill .role { min-width: 56px; color: var(--muted); }
+
+  .who { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  td .who { padding: 4px 0; }
+  .who strong { font-weight: 600; white-space: nowrap; }
+  .txt { display: flex; flex-direction: column; min-width: 0; font-size: 12px; line-height: 16px; color: var(--text-2); }
+  .txt strong { font-size: 14px; color: var(--text-1); }
+  .warn { color: var(--warn); }
+  .why { font-size: 12px; color: var(--text-3); white-space: normal; }
   .icons { display: inline-flex; gap: 2px; }
-  .pos { color: var(--up-text); }
-  .neg { color: var(--down-text); }
-  .muted { color: var(--muted); }
-  .small { font-size: 12px; }
-  .error { color: var(--red); }
+  .role { width: 56px; font-size: 11px; text-transform: uppercase; color: var(--text-3); }
+  .none { color: var(--text-3); }
+  p.none { margin: 0; padding: 8px 12px; font-size: 13px; }
+  .half :global(tr.grouprow th) { height: 24px; padding-top: 6px; box-shadow: none; background: none; color: var(--text-2); }
+  .half :global(tbody + thead th) { padding-top: 12px; height: 40px; vertical-align: bottom; padding-bottom: 6px; }
+
+  .orderlist { border-top: 1px solid var(--hairline); margin-top: 6px; }
+  .orderlist.blue { box-shadow: inset 3px 0 0 var(--side-blue); }
+  .orderlist.red { box-shadow: inset 3px 0 0 var(--side-red); }
+  .order { display: flex; align-items: center; gap: 10px; padding: 6px 0 6px 12px; border-bottom: 1px solid var(--hairline); }
+  .slot { flex: none; width: 24px; font-size: 12.5px; font-weight: 600; color: var(--text-1); }
+  .line { font-size: 13px; color: var(--text-1); }
+  .figs { color: var(--text-3); }
+  .figs .mono { color: var(--text-2); font-size: 11.5px; }
 </style>

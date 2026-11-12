@@ -8,13 +8,21 @@
   import { ringLayout } from './ringLayout.js';
   import { arcMove } from './motion.js';
   import { DOWN, LINE_STRONG, UP } from './palette.js';
+  import Toolbar from './ui/Toolbar.svelte';
+  import ToolGroup from './ui/ToolGroup.svelte';
+  import Segmented from './ui/Segmented.svelte';
+  import Button from './ui/Button.svelte';
+  import Field from './ui/Field.svelte';
+  import Table from './ui/Table.svelte';
+  import Stat from './ui/Stat.svelte';
+  import Tag from './ui/Tag.svelte';
 
   let { locks = $bindable({}), onplan = () => {} } = $props();
 
   const ROLES = ['top', 'jungle', 'mid', 'adc', 'support'];
   const LABELS = { top: 'Top', jungle: 'Jungle', mid: 'Mid', adc: 'ADC', support: 'Support' };
   const BRACKETS = ['all', 'iron', 'bronze', 'silver', 'gold', 'platinum', 'emerald'];
-  const ROW_H = 46, CARD_W = 178, ICON = 34, HEAD_H = 40, FOOT_H = 36, PAD = 8;
+  const ROW_H = 46, ICON = 34, HEAD_H = 40, FOOT_H = 36, PAD = 8;
   const NEUTRAL = 0.5;
 
   const saved = (() => { try { return JSON.parse(localStorage.getItem('prep-synergy') || '{}'); } catch { return {}; } })();
@@ -28,8 +36,7 @@
   let hovered = $state(null);
   let width = $state(1100);
   let adding = $state({});
-  let sortKey = $state('overall_pp');
-  let sortDir = $state(-1);
+  let sort = $state({ key: 'overall_pp', dir: 'desc' });
   let showAll = $state(false);
 
   $effect(() => {
@@ -62,6 +69,7 @@
   const draftLocked = (role) => data?.draft?.locks?.[role] != null;
   const colour = (v) => (v > NEUTRAL ? UP : v < -NEUTRAL ? DOWN : LINE_STRONG);
   const cls = (v) => (v > NEUTRAL ? 'pos' : v < -NEUTRAL ? 'neg' : '');
+  const tone = (v) => (v > NEUTRAL ? 'up' : v < -NEUTRAL ? 'down' : null);
 
   function toggleLock(role, id) {
     if (draftLocked(role)) return;
@@ -98,6 +106,8 @@
   const maxRows = $derived(Math.max(1, ...cols.map((c) => c.nodes.length)));
   const ring = $derived(data?.scope === 'teamfight' ? ringLayout(cols, width) : null);
   const graphH = $derived(ring ? ring.height : HEAD_H + maxRows * ROW_H + FOOT_H);
+  // in-lane cards share the width, leaving room between columns for the lines
+  const CARD_W = $derived(Math.max(104, Math.min(178, (width - 2 * PAD) / ROLES.length - 36)));
   const colX = (i) => PAD + (i * (width - CARD_W - 2 * PAD)) / (ROLES.length - 1);
   const positions = $derived.by(() => {
     if (ring) return ring.nodes;
@@ -161,342 +171,322 @@
     return lines.join('\n');
   };
 
-  // ---------- table ----------
-  const SORTS = { combo: (r) => `${r.a.name}${r.b.name}`, stat_pp: (r) => r.stat_pp, style_pp: (r) => r.style_pp,
-                  overall_pp: (r) => r.overall_pp, games: (r) => r.games };
-  const tableRows = $derived.by(() => {
-    const rows = [...(data?.table.pairs ?? [])];
-    const f = SORTS[sortKey];
-    rows.sort((x, y) => {
-      const a = f(x), b = f(y);
-      return (a > b ? 1 : a < b ? -1 : 0) * sortDir;
-    });
-    return showAll ? rows : rows.slice(0, 20);
-  });
-  function sortBy(k) {
-    if (sortKey === k) sortDir = -sortDir;
-    else { sortKey = k; sortDir = k === 'combo' ? 1 : -1; }
-  }
+  // ---------- tables ----------
+  const num = (key, label, extra = {}) => ({ key, label, num: true, width: '72px', format: (v) => signed(v), ...extra });
+  const COMPLETION_COLUMNS = [
+    { key: 'add', label: 'Add', value: (r) => r.champ.name },
+    num('gain_pp', 'Gain', { tone, title: 'Overall gain if added to the plan, pp' }), num('stat_pp', 'Stat'), num('style_pp', 'Style'),
+    num('team_pp', 'Team'), num('overall_pp', 'Overall'), { key: 'why', label: 'Why' },
+  ];
+  const PAIR_COLUMNS = [
+    { key: 'combo', label: 'Combo', sortable: true, value: (r) => `${r.a.name} + ${r.b.name}` },
+    num('stat_pp', 'Stat', { sortable: true, format: (v, r) => `${signed(v)}${r.low_data ? '*' : ''}` }),
+    num('style_pp', 'Style', { sortable: true }), num('overall_pp', 'Overall', { sortable: true, tone }),
+    num('games', 'Games', { sortable: true, format: (v) => v.toLocaleString() }), { key: 'why', label: 'Why' },
+  ];
   const plan = $derived(data?.plan);
   const pct = (x) => `${Math.round(x * 100)}%`;
   const BARS = [['engage', 'Engage'], ['frontline', 'Frontline'], ['peel', 'Peel'], ['poke', 'Poke'], ['scaling', 'Scaling']];
 </script>
 
-<div class="controls">
-  <div class="group" role="group" aria-label="Scope">
-    <span class="lbl">Scope</span>
-    <button class:on={scope === 'lane'} onclick={() => (scope = 'lane')}>In-lane</button>
-    <button class:on={scope === 'teamfight'} onclick={() => (scope = 'teamfight')}>Teamfight</button>
-  </div>
-  <div class="group" role="group" aria-label="View">
-    <span class="lbl">View</span>
-    {#each [['overall', 'Overall'], ['stat', 'Stat'], ['style', 'Style'], ['team', 'Team']] as [k, l]}
-      <button class:on={view === k} onclick={() => (view = k)}>{l}</button>
-    {/each}
-  </div>
-  <label class="slider">Threshold <strong>{signed(threshold)}pp</strong>
-    <input type="range" min="0" max="3" step="0.1" bind:value={threshold} /></label>
-  <label><input type="checkbox" bind:checked={useDraft} /> Use current draft
-    {#if useDraft}<span class="muted">({data?.draft?.live ? 'live' : 'no champ select'})</span>{/if}</label>
-  <label>Data
-    <select value={data?.synergy_bracket ?? 'all'} onchange={(e) => setBracket(e.target.value)}>
-      {#each BRACKETS as b}<option value={b}>{b === 'all' ? 'All brackets' : b[0].toUpperCase() + b.slice(1)}</option>{/each}
-    </select></label>
-  <button class="reset" onclick={reset}>Reset plan and columns</button>
-</div>
-{#if error}<p class="error">{typeof error === 'string' ? error : JSON.stringify(error)}</p>{/if}
+<Toolbar label="Plan options">
+  <ToolGroup label="Scope"><Segmented label="Scope" bind:value={scope} options={[['lane', 'In-lane'], ['teamfight', 'Teamfight']]} /></ToolGroup>
+  <ToolGroup label="View"><Segmented label="View" bind:value={view} options={[['overall', 'Overall'], ['stat', 'Stat'], ['style', 'Style'], ['team', 'Team']]} /></ToolGroup>
+  <ToolGroup label="Threshold">
+    <input class="range" type="range" min="0" max="3" step="0.1" bind:value={threshold} aria-label="Threshold: hide lines weaker than this" />
+    <span class="mono val">{signed(threshold)}pp</span>
+  </ToolGroup>
+  <ToolGroup label="Data">
+    <Field label="Synergy data bracket" hideLabel width="132px" value={data?.synergy_bracket ?? 'all'} onchange={(e) => setBracket(e.target.value)}
+           options={BRACKETS.map((b) => [b, b === 'all' ? 'All brackets' : b[0].toUpperCase() + b.slice(1)])} />
+  </ToolGroup>
+  <ToolGroup><Field type="checkbox" label={useDraft ? `Use current draft (${data?.draft?.live ? 'live' : 'no champ select'})` : 'Use current draft'} bind:checked={useDraft} /></ToolGroup>
+  <ToolGroup end><Button variant="ghost" onclick={reset} title="Unlock every champion and restore the pools' columns">Reset</Button></ToolGroup>
+</Toolbar>
+{#if error}<p class="error" role="alert">⚠ {typeof error === 'string' ? error : JSON.stringify(error)}</p>{/if}
 
 {#if data}
-  <div class="top">
-    <div class="left">
-      <div class="graph" bind:clientWidth={width} style="height:{graphH}px">
-        <svg width={width} height={graphH} aria-label="Pair synergy edges">
-          {#each edges as e (e.k)}
-            <path d={e.d} fill="none" stroke={colour(e.value_pp)} stroke-width={e.w} stroke-dasharray={e.low_data ? '5 4' : null}
-                  stroke-opacity={opacity(e)} stroke-linecap="round" />
-            <path d={e.d} class="hit" fill="none" stroke="transparent" stroke-width="9"><title>{tip(e)}</title></path>
-          {/each}
-        </svg>
-        {#if view === 'team'}<p class="teamnote muted">Team has no edges: it is in the plan panel.</p>{/if}
-        {#snippet addBox(col)}
-          <input list="prep-champ-names" placeholder="+ add champion" bind:value={adding[col.role]} onchange={() => add(col.role)} />
-        {/snippet}
-        {#if ring}
-          {#each cols as col (col.role)}
-            {@const h = ring.heads[col.role]}
-            <div class="ringhead {h.place}" style="left:{h.x}px; top:{h.y}px">
-              <div><strong>{col.label}</strong>{#if col.player} <span>{col.player.split('#')[0]}</span>{/if}</div>
-              {#if !locks[col.role] && !draftLocked(col.role) && col.nodes.length < 15}
-                <form onsubmit={(e) => { e.preventDefault(); add(col.role); }}>{@render addBox(col)}</form>
-              {/if}
-            </div>
-            {#each col.nodes as n (n.id)}
-              {@const p = positions[key(col.role, n.id)]}
-              <div class="ringnode" class:locked={n.locked} class:unavailable={n.unavailable} class:isolated-out={isolatedOut(col.role, n.id)}
-                   class:hot={hovered && hovered.role === col.role && hovered.id === n.id}
-                   style="left:{p.x}px; top:{p.y}px" role="button" tabindex="0" aria-label={ringTitle(n)}
-                   use:arcMove={{ x: p.x, y: p.y, cx: ring.cx, cy: ring.cy, width, base: 'translate(-50%, -50%)' }}
-                   onclick={() => !n.unavailable && toggleLock(col.role, n.id)}
-                   onkeydown={(e) => e.key === 'Enter' && !n.unavailable && toggleLock(col.role, n.id)}
-                   onmouseenter={() => (hovered = { role: col.role, id: n.id })} onmouseleave={() => (hovered = null)}
-                   title={ringTitle(n)}>
-                <Champ champ={n} size={ring.icon} banned={n.unavailable} />
-                {#if n.tier}<span class="tier {n.tier}" title={n.tier}>{n.tier[0].toUpperCase()}</span>{/if}
-                {#if n.gain_pp != null}<span class="chip gain {cls(n.gain_pp)}" title="Overall gain if added to the plan">{signed(n.gain_pp)}</span>{/if}
-                {#if !n.locked}<button class="x" title="Remove {n.name}" onclick={(e) => remove(n, e)}>×</button>{/if}
-              </div>
-            {/each}
-          {/each}
-        {:else}
-        {#each cols as col, i (col.role)}
-          <div class="colhead" style="left:{colX(i)}px; width:{CARD_W}px">
-            <strong>{col.label}</strong>{#if col.player}<span>{col.player.split('#')[0]}</span>{/if}
+  <div class="top" class:lane={!ring}>
+    <div class="graph" bind:clientWidth={width} style="height:{graphH}px">
+      <svg width={width} height={graphH} aria-label="Pair synergy edges">
+        {#each edges as e (e.k)}
+          <path d={e.d} fill="none" stroke={colour(e.value_pp)} stroke-width={e.w} stroke-dasharray={e.low_data ? '5 4' : null}
+                stroke-opacity={opacity(e)} stroke-linecap="round" />
+          <path d={e.d} class="hit" fill="none" stroke="transparent" stroke-width="9"><title>{tip(e)}</title></path>
+        {/each}
+      </svg>
+      {#if view === 'team'}<p class="teamnote">Team has no lines: it is in the plan.</p>{/if}
+      {#snippet addBox(col)}
+        <input list="prep-champ-names" placeholder="+ add champion" aria-label="Add a champion to {col.label}" bind:value={adding[col.role]} onchange={() => add(col.role)} />
+      {/snippet}
+      {#if ring}
+        {#each cols as col (col.role)}
+          {@const h = ring.heads[col.role]}
+          <div class="ringhead {h.place}" style="left:{h.x}px; top:{h.y}px">
+            <div><strong>{col.label}</strong>{#if col.player} <span>{col.player.split('#')[0]}</span>{/if}</div>
+            {#if !locks[col.role] && !draftLocked(col.role) && col.nodes.length < 15}
+              <form onsubmit={(e) => { e.preventDefault(); add(col.role); }}>{@render addBox(col)}</form>
+            {/if}
           </div>
           {#each col.nodes as n (n.id)}
             {@const p = positions[key(col.role, n.id)]}
-            <div class="node" class:locked={n.locked} class:unavailable={n.unavailable} class:isolated-out={isolatedOut(col.role, n.id)}
+            <div class="ringnode" class:locked={n.locked} class:unavailable={n.unavailable} class:isolated-out={isolatedOut(col.role, n.id)}
                  class:hot={hovered && hovered.role === col.role && hovered.id === n.id}
-                 style="left:{p.x}px; top:{p.y - ROW_H / 2 + 3}px; width:{CARD_W}px; height:{ROW_H - 6}px"
-                 use:arcMove={{ x: p.x, y: p.y, width, bow: 0 }}
-                 role="button" tabindex="0" onclick={() => !n.unavailable && toggleLock(col.role, n.id)}
+                 style="left:{p.x}px; top:{p.y}px" role="button" tabindex="0" aria-label={ringTitle(n)} aria-pressed={n.locked}
+                 use:arcMove={{ x: p.x, y: p.y, cx: ring.cx, cy: ring.cy, width, base: 'translate(-50%, -50%)' }}
+                 onclick={() => !n.unavailable && toggleLock(col.role, n.id)}
                  onkeydown={(e) => e.key === 'Enter' && !n.unavailable && toggleLock(col.role, n.id)}
                  onmouseenter={() => (hovered = { role: col.role, id: n.id })} onmouseleave={() => (hovered = null)}
-                 title={(n.unavailable ? `${n.name}: banned or picked` : n.locked ? 'Click to unlock' : `Lock ${n.name} into the plan`)
-                        + (n.badge?.text ? `\n${n.badge.text}` : '')}>
-              <span class="icon"><Champ champ={n} size={ICON} banned={n.unavailable} />
-                {#if n.tier}<span class="tier {n.tier}" title={n.tier}>{n.tier[0].toUpperCase()}</span>{/if}</span>
-              <span class="meta">
-                <span class="name">{n.locked ? '🔒 ' : ''}{n.name}</span>
-                <span class="chips">
-                  {#if n.gain_pp != null}<span class="chip {cls(n.gain_pp)}" title="Overall gain if added to the plan">{signed(n.gain_pp)}</span>{/if}
-                  {#if n.untagged}<span class="chip untagged" title="No judgement tags: measured traits only">untagged</span>{/if}
-                  {#if !n.tier && !n.locked}<span class="muted small">off-pool</span>{/if}
-                </span>
-              </span>
-              {#if !n.locked}<button class="x" title="Remove from this column" onclick={(e) => remove(n, e)}>×</button>{/if}
+                 title={ringTitle(n)}>
+              <Champ champ={n} size={ring.icon} banned={n.unavailable} />
+              {#if n.tier}<span class="tier mono {n.tier}" title={n.tier}>{n.tier[0].toUpperCase()}</span>{/if}
+              {#if n.gain_pp != null}<span class="gain mono {cls(n.gain_pp)}" title="Overall gain if added to the plan">{signed(n.gain_pp)}</span>{/if}
+              {#if !n.locked}<button class="x" title="Remove {n.name}" aria-label="Remove {n.name} from {col.label}" onclick={(e) => remove(n, e)}>×</button>{/if}
             </div>
           {/each}
-          {#if !locks[col.role] && !draftLocked(col.role) && col.nodes.length < 15}
-            <form class="add" style="left:{colX(i)}px; top:{graphH - FOOT_H + 4}px; width:{CARD_W}px"
-                  onsubmit={(e) => { e.preventDefault(); add(col.role); }}>
-              {@render addBox(col)}
-            </form>
-          {/if}
         {/each}
+      {:else}
+      {#each cols as col, i (col.role)}
+        <div class="colhead" style="left:{colX(i)}px; width:{CARD_W}px">
+          <strong>{col.label}</strong>{#if col.player}<span>{col.player.split('#')[0]}</span>{/if}
+        </div>
+        {#each col.nodes as n (n.id)}
+          {@const p = positions[key(col.role, n.id)]}
+          <div class="node" class:locked={n.locked} class:unavailable={n.unavailable} class:isolated-out={isolatedOut(col.role, n.id)}
+               class:hot={hovered && hovered.role === col.role && hovered.id === n.id}
+               style="left:{p.x}px; top:{p.y - ROW_H / 2 + 3}px; width:{CARD_W}px; height:{ROW_H - 6}px"
+               use:arcMove={{ x: p.x, y: p.y, width, bow: 0 }}
+               role="button" tabindex="0" aria-pressed={n.locked} onclick={() => !n.unavailable && toggleLock(col.role, n.id)}
+               onkeydown={(e) => e.key === 'Enter' && !n.unavailable && toggleLock(col.role, n.id)}
+               onmouseenter={() => (hovered = { role: col.role, id: n.id })} onmouseleave={() => (hovered = null)}
+               title={(n.unavailable ? `${n.name}: banned or picked` : n.locked ? 'Click to unlock' : `Lock ${n.name} into the plan`)
+                      + (n.badge?.text ? `\n${n.badge.text}` : '')}>
+            <span class="icon"><Champ champ={n} size={ICON} banned={n.unavailable} />
+              {#if n.tier}<span class="tier mono {n.tier}" title={n.tier}>{n.tier[0].toUpperCase()}</span>{/if}</span>
+            <span class="meta">
+              <span class="name">{n.name}</span>
+              <span class="chips">
+                {#if n.locked}<Tag bare>in plan</Tag>{/if}
+                {#if n.gain_pp != null}<span class="gain mono {cls(n.gain_pp)}" title="Overall gain if added to the plan">{signed(n.gain_pp)}</span>{/if}
+                {#if n.untagged}<Tag bare warn title="No judgement tags: measured traits only">untagged</Tag>{/if}
+                {#if !n.tier && !n.locked}<Tag bare>off-pool</Tag>{/if}
+              </span>
+            </span>
+            {#if !n.locked}<button class="x" title="Remove from this column" aria-label="Remove {n.name} from {col.label}" onclick={(e) => remove(n, e)}>×</button>{/if}
+          </div>
+        {/each}
+        {#if !locks[col.role] && !draftLocked(col.role) && col.nodes.length < 15}
+          <form class="add" style="left:{colX(i)}px; top:{graphH - FOOT_H + 4}px; width:{CARD_W}px"
+                onsubmit={(e) => { e.preventDefault(); add(col.role); }}>
+            {@render addBox(col)}
+          </form>
         {/if}
-        <datalist id="prep-champ-names">{#each data.champions as c}<option value={c.name}></option>{/each}</datalist>
-      </div>
-
-      <section class="table">
-        <h2>Synergy table <small>click a row to lock it into the plan</small></h2>
-        {#if data.table.completions.length}
-          <h3>Best completions of the plan</h3>
-          <table>
-            <thead><tr><th>Add</th><th class="num">Gain</th><th class="num">Stat</th><th class="num">Style</th>
-              <th class="num">Team</th><th class="num">Overall</th><th>Why</th></tr></thead>
-            <tbody>
-              {#each data.table.completions as c}
-                <tr onclick={() => lockRow(c)}>
-                  <td class="combo"><Champ champ={c.champ} size={22} /> {c.champ.name} <span class="muted small">{LABELS[c.role]}</span></td>
-                  <td class="num {cls(c.gain_pp)}">{signed(c.gain_pp)}</td><td class="num">{signed(c.stat_pp)}</td>
-                  <td class="num">{signed(c.style_pp)}</td><td class="num">{signed(c.team_pp)}</td>
-                  <td class="num">{signed(c.overall_pp)}</td><td class="why">{c.why ?? ''}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-          <h3>Core pairs</h3>
-        {/if}
-        <table>
-          <thead><tr>
-            {#each [['combo', 'Combo'], ['stat_pp', 'Stat'], ['style_pp', 'Style'], ['overall_pp', 'Overall'], ['games', 'Games']] as [k, l]}
-              <th class:num={k !== 'combo'} class="sortable" onclick={() => sortBy(k)}>{l}{sortKey === k ? (sortDir < 0 ? ' ▾' : ' ▴') : ''}</th>
-            {/each}
-            <th>Why</th>
-          </tr></thead>
-          <tbody>
-            {#each tableRows as r}
-              <tr onclick={() => lockRow(r)}>
-                <td class="combo"><Champ champ={r.a} size={22} /><Champ champ={r.b} size={22} /> {r.a.name} + {r.b.name}
-                  <span class="muted small">{r.pair}</span></td>
-                <td class="num">{signed(r.stat_pp)}{r.low_data ? '*' : ''}</td><td class="num">{signed(r.style_pp)}</td>
-                <td class="num {cls(r.overall_pp)}">{signed(r.overall_pp)}</td><td class="num">{r.games}</td>
-                <td class="why">{r.why ?? ''}</td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-        <p class="muted small">Overall = the pair's part of Overall (its Stat weight moves to Style while it has few games together).
-          * = under {data.low_data_games} games.
-          {#if data.table.pairs.length > 20}<button class="linkbtn" onclick={() => (showAll = !showAll)}>
-            {showAll ? 'Show the top 20' : `Show all ${data.table.pairs.length}`}</button>{/if}</p>
-      </section>
+      {/each}
+      {/if}
+      <datalist id="prep-champ-names">{#each data.champions as c}<option value={c.name}></option>{/each}</datalist>
+      <p class="legend">
+        <span class="sw pos"></span>positive <span class="sw neg"></span>negative <span class="sw"></span>within ±0.5pp ·
+        dashed = low data · tier M / C / L · {data.synergy_bracket === 'all' ? 'all brackets' : data.synergy_bracket}, patch {patchLabel(data.window) ?? '—'}
+      </p>
     </div>
 
-    <aside class="panel">
+    <aside class="plan" aria-label="Plan">
       <h2>Plan</h2>
       {#if plan.champs.length}
+        <div class="plancols"><div>
         <div class="locked">
           {#each plan.champs as c}
             <button class="lockchip" title="Unlock {c.name}" onclick={() => toggleLock(c.role, c.id)}>
-              <Champ champ={c} size={28} /> <span>{c.name}<small>{LABELS[c.role]}</small></span></button>
+              <Champ champ={c} size={28} /> <span>{c.name}<small>{LABELS[c.role]}</small></span><span class="un" aria-hidden="true">×</span></button>
           {/each}
         </div>
         <div class="numbers">
-          <div><span>Stat</span><strong class={cls(plan.team.stat_total_pp)}>{signed(plan.team.stat_total_pp)}</strong></div>
-          <div><span>Style</span><strong class={cls(plan.team.style_total_pp)}>{signed(plan.team.style_total_pp)}</strong></div>
-          <div><span>Team</span>{#if plan.team.show_team}<strong class={cls(plan.team.team_weighted_pp)}>{signed(plan.team.team_weighted_pp)}</strong>
-            {:else}<em class="muted small">from 3 roles</em>{/if}</div>
-          <div class="overall"><span>Overall</span><strong class={cls(plan.team.overall_pp)}>{signed(plan.team.overall_pp)}</strong></div>
+          <Stat value={signed(plan.team.overall_pp)} unit="pp" label="Overall" tone={tone(plan.team.overall_pp)} />
+          <Stat size="sm" value={signed(plan.team.stat_total_pp)} label="Stat" tone={tone(plan.team.stat_total_pp)} />
+          <Stat size="sm" value={signed(plan.team.style_total_pp)} label="Style" tone={tone(plan.team.style_total_pp)} />
+          <Stat size="sm" value={plan.team.show_team ? signed(plan.team.team_weighted_pp) : null} label="Team"
+                tone={plan.team.show_team ? tone(plan.team.team_weighted_pp) : null} note={plan.team.show_team ? '' : 'from 3 roles'} />
         </div>
-        <p class="muted small">pp of win chance; they add up to Overall. Team is shown at its Overall weight
-          (team model {signed(plan.team.team_pp)}pp vs an average comp).</p>
+        <p class="cap">pp of win chance; Stat, Style and Team add up to Overall. Team is shown at its Overall weight
+          (team model <span class="mono">{signed(plan.team.team_pp)}pp</span> vs an average comp).</p>
         {#if plan.team.identity.label}
-          <p class="ident">Identity: <strong>{plan.team.identity.name}</strong> {pct(plan.team.identity.coherence)}</p>
+          <p class="ident"><span class="label-caps">Identity</span> <strong>{plan.team.identity.name}</strong> <span class="mono">{pct(plan.team.identity.coherence)}</span></p>
         {/if}
+        </div><div>
         <div class="dmg">
-          <div class="dmgbar" title="Physical {pct(plan.team.damage.physical)} · Magic {pct(plan.team.damage.magic)} · True {pct(plan.team.damage.true)}">
+          <div class="dmgbar" role="img" aria-label="Damage: physical {pct(plan.team.damage.physical)}, magic {pct(plan.team.damage.magic)}, true {pct(plan.team.damage.true)}">
             <span class="phys" style="flex-grow:{plan.team.damage.physical}"></span><span class="magic" style="flex-grow:{plan.team.damage.magic}"></span><span class="true" style="flex-grow:{plan.team.damage.true}"></span>
           </div>
-          <div class="dmglegend"><span><i class="phys"></i>{pct(plan.team.damage.physical)} AD</span><span><i class="magic"></i>{pct(plan.team.damage.magic)} AP</span><span><i class="true"></i>{pct(plan.team.damage.true)} true</span></div>
+          <div class="dmglegend"><span><i class="phys"></i><span class="mono">{pct(plan.team.damage.physical)}</span> AD</span><span><i class="magic"></i><span class="mono">{pct(plan.team.damage.magic)}</span> AP</span><span><i class="true"></i><span class="mono">{pct(plan.team.damage.true)}</span> true</span></div>
         </div>
         <div class="bars">
           {#each BARS as [k, l]}
-            <div class="bar"><span>{l}</span><span class="track"><span style="width:{pct(plan.team.bars[k] ?? 0)}"></span></span></div>
+            <div class="bar"><span>{l}</span><span class="track"><span style="width:{pct(plan.team.bars[k] ?? 0)}"></span></span><span class="mono">{pct(plan.team.bars[k] ?? 0)}</span></div>
           {/each}
         </div>
         {#if plan.team.show_team && plan.team.team_rules.length}
-          <h3>Team model</h3>
-          {#each plan.team.team_rules as r}<div class="rule"><span>{r.note}</span><span class={cls(r.pp)}>{signed(r.pp)}</span></div>{/each}
+          <h3 class="label-caps">Team model</h3>
+          <div class="rules">{#each plan.team.team_rules as r}<div class="rule"><span>{r.note}</span><span class="mono {cls(r.pp)}">{signed(r.pp)}</span></div>{/each}</div>
         {/if}
         {#if plan.pairs.length}
-          <h3>Pairs</h3>
-          {#each plan.pairs as p}
-            <div class="rule" title={p.rules.map((r) => r.label).join('\n')}>
-              <span>{p.champs[0].name} + {p.champs[1].name}{#if p.core}<span class="lane">lane</span>{/if}</span>
-              <span class={cls(p.overall_pp)}>{signed(p.overall_pp)}</span>
-            </div>
-          {/each}
+          <h3 class="label-caps">Pairs</h3>
+          <div class="rules">
+            {#each plan.pairs as p}
+              <div class="rule" title={p.rules.map((r) => r.label).join('\n')}>
+                <span class="pairname">{p.champs[0].name} + {p.champs[1].name}{#if p.core}<Tag>lane</Tag>{/if}</span>
+                <span class="mono {cls(p.overall_pp)}">{signed(p.overall_pp)}</span>
+              </div>
+            {/each}
+          </div>
         {/if}
+        </div></div>
       {:else}
-        <p class="muted">Click champions in the graph (or rows in the table) to lock them into a plan.</p>
+        <p class="emptyplan">No champions in the plan yet. Click a champion in the graph, or a row in the synergy table, to lock it in.</p>
       {/if}
-      <p class="muted small legend">
-        <span class="sw pos"></span>positive <span class="sw neg"></span>negative <span class="sw"></span>within ±0.5pp ·
-        dashed = low data · tier M / C / L · data {data.synergy_bracket === 'all' ? 'all brackets' : data.synergy_bracket}, patch {patchLabel(data.window) ?? '—'}
-      </p>
     </aside>
   </div>
+
+  <section class="tables">
+    <h2>Synergy table <span class="sub">click a row to lock it into the plan</span></h2>
+    {#if data.table.completions.length}
+      <h3 class="label-caps">Best completions of the plan</h3>
+      <Table dense sticky={false} columns={COMPLETION_COLUMNS} rows={data.table.completions} key={(r) => `${r.role}:${r.champ.id}`} onrowclick={lockRow}>
+        {#snippet cell(row, col, i, text)}
+          {#if col.key === 'add'}<span class="combo"><Champ champ={row.champ} size={20} /><strong>{row.champ.name}</strong><span class="pairrole">{LABELS[row.role]}</span></span>
+          {:else if col.key === 'why'}<span class="why">{row.why ?? ''}</span>
+          {:else}{text(row, col)}{/if}
+        {/snippet}
+      </Table>
+      <h3 class="label-caps second">Core pairs</h3>
+    {/if}
+    <Table dense sticky={false} columns={PAIR_COLUMNS} rows={data.table.pairs} key={(r) => `${r.pair}:${r.a.id}:${r.b.id}`} bind:sort
+           limit={showAll ? null : 20} onrowclick={lockRow} empty="No pairs above the threshold: lower it, or add champions to the columns">
+      {#snippet cell(row, col, i, text)}
+        {#if col.key === 'combo'}<span class="combo"><Champ champ={row.a} size={20} /><Champ champ={row.b} size={20} /><strong>{row.a.name} + {row.b.name}</strong><span class="pairrole">{row.pair}</span></span>
+        {:else if col.key === 'why'}<span class="why">{row.why ?? ''}</span>
+        {:else}{text(row, col)}{/if}
+      {/snippet}
+    </Table>
+    <p class="cap">Overall = the pair's part of Overall (its Stat weight moves to Style while it has few games together).
+      * = under {data.low_data_games} games.
+      {#if data.table.pairs.length > 20}<Button variant="ghost" onclick={() => (showAll = !showAll)}>
+        {showAll ? 'Show the top 20' : `Show all ${data.table.pairs.length}`}</Button>{/if}</p>
+  </section>
 {:else if !error}
-  <p class="muted">Loading…</p>
+  <p class="emptyplan">Loading…</p>
 {/if}
 
 <style>
-  .controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; font-size: 14px; }
-  .group { display: inline-flex; gap: 4px; align-items: center; }
-  .lbl { color: var(--muted); margin-right: 2px; }
-  button { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
-  button.on { background: var(--gold-bg); border-color: var(--gold); color: var(--gold); }
-  .slider { display: inline-flex; align-items: center; gap: 8px; }
-  .slider strong { min-width: 52px; font-variant-numeric: tabular-nums; }
-  label { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); }
-  select, input:not([type]) { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
-  .reset { margin-left: auto; }
-  .error { color: var(--red); }
-  .muted { color: var(--muted); }
-  .small { font-size: 12px; }
+  .range { width: 120px; }
+  .val { font-size: 12.5px; color: var(--text-1); min-width: 52px; }
+  .error { color: var(--error); font-size: 13px; margin: 0 0 12px; }
+  .cap { margin: 8px 0 0; font-size: 12px; color: var(--text-3); }
+  .sub { font-size: 12px; font-weight: 400; color: var(--text-3); margin-left: 8px; letter-spacing: 0; }
 
-  .top { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
-  .left { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-  .graph { position: relative; background: var(--panel); border-radius: 8px; overflow: hidden; }
+  /* the ring takes 60%, the plan 40%; one column on narrow windows */
+  .top { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 32px; align-items: start; }
+  /* in-lane columns need the full width: the plan goes under them, in two columns */
+  .top.lane { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .top.lane .plancols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; }
+  .plancols > div + div { margin-top: 16px; }
+  .top.lane .plancols > div + div { margin-top: 0; }
+  @media (max-width: 1180px) { .top.lane .plancols { grid-template-columns: minmax(0, 1fr); } .top.lane .plancols > div + div { margin-top: 16px; } .top { grid-template-columns: minmax(0, 1fr); gap: 20px; } }
+  .graph { position: relative; background: var(--surface-1); border-radius: var(--radius); overflow: hidden; margin-bottom: 28px; }
   svg { position: absolute; inset: 0; }
   .hit { pointer-events: stroke; cursor: help; }
-  .teamnote { position: absolute; left: 0; right: 0; bottom: 4px; text-align: center; font-size: 13px; margin: 0; }
-  .colhead { position: absolute; top: 9px; display: flex; gap: 8px; align-items: baseline; font-size: 15px; }
-  .colhead span { color: var(--muted); font-size: 13px; }
-  .node { position: absolute; display: flex; align-items: center; gap: 7px; padding: 0 6px; background: var(--panel-2);
-          border: 1px solid var(--line); border-radius: 8px; cursor: pointer; user-select: none; }
-  .node:hover, .node.hot { border-color: var(--gold); }
-  .node.locked { border-color: var(--gold); background: var(--gold-bg); }
-  .node.unavailable { opacity: 0.45; cursor: not-allowed; }
+  .teamnote { position: absolute; left: 0; right: 0; bottom: 6px; text-align: center; font-size: 12px; margin: 0; color: var(--text-3); }
+  .legend { position: absolute; left: 0; right: 0; top: 100%; margin: 0; }
+  .graph { overflow: visible; }
+  .legend { padding-top: 6px; font-size: 11px; color: var(--text-3); }
+  .sw { display: inline-block; width: 14px; height: 3px; background: var(--hairline-strong); vertical-align: middle; margin: 0 4px 0 6px; }
+  .sw:first-child { margin-left: 0; }
+  .sw.pos { background: var(--up); }
+  .sw.neg { background: var(--down); }
+
+  .colhead { position: absolute; top: 10px; display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+  .colhead strong, .ringhead strong { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }
+  .colhead span, .ringhead span { color: var(--text-3); font-size: 12px; }
+  .node { position: absolute; display: flex; align-items: center; gap: 8px; padding: 0 6px; background: var(--surface-2);
+          border: 1px solid var(--hairline); border-radius: var(--radius-sm); cursor: pointer; user-select: none; }
+  .node:hover, .node.hot { border-color: var(--text-3); }
+  /* in the plan is a state, not a call to act: light ink, never lime */
+  .node.locked { border-color: var(--text-1); background: var(--surface-3); }
+  .node.locked .name { font-weight: 600; }
+  .node.unavailable, .ringnode.unavailable { opacity: 0.45; cursor: not-allowed; }
   .icon { position: relative; flex: none; }
-  .tier { position: absolute; right: -4px; bottom: -4px; width: 15px; height: 15px; border-radius: 50%; font-size: 9px; font-weight: 700;
-          display: grid; place-items: center; background: var(--bg); border: 1px solid var(--line); }
-  .tier.main { color: var(--gold); border-color: var(--gold); }
-  .tier.comfortable { color: var(--text-2); }
-  .tier.learning { color: var(--muted); }
+  .tier { position: absolute; right: -3px; bottom: -3px; min-width: 13px; padding: 0 2px; font-size: 11px; font-weight: 600; line-height: 13px;
+          text-align: center; background: var(--surface-1); border-radius: 2px; color: var(--text-2); }
+  .tier.main { color: var(--text-1); }
+  .tier.learning { color: var(--text-3); }
   .meta { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
   .name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .chips { display: flex; gap: 3px; }
-  .chip { font-size: 11px; padding: 0 4px; border-radius: 4px; background: var(--line); color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .chip.pos { background: var(--up-bg); color: var(--up-text); }
-  .chip.neg { background: var(--down-bg); color: var(--down-text); }
-  .chip.untagged { background: var(--down-bg); color: var(--down-text); }
-  .x { position: absolute; right: 3px; top: 1px; padding: 0 5px; line-height: 16px; font-size: 14px; background: none; border: none; color: var(--muted); visibility: hidden; }
-  .node:hover .x { visibility: visible; }
+  .chips { display: flex; align-items: baseline; gap: 6px; }
+  .gain { font-size: 11px; color: var(--text-2); white-space: nowrap; }
+  .pos { color: var(--up-text); }
+  .neg { color: var(--down-text); }
+  .x { position: absolute; right: 3px; top: 1px; padding: 0 5px; line-height: 16px; font-size: 14px; background: none; border: none; color: var(--text-3); visibility: hidden; }
+  .x:hover { color: var(--text-1); }
+  .node:hover .x, .ringnode:hover .x, .node:focus-within .x, .ringnode:focus-within .x { visibility: visible; }
   .add { position: absolute; margin: 0; }
-  .add input { width: 100%; font-size: 13px; box-sizing: border-box; }
+  .graph input { width: 100%; height: 24px; padding: 0 6px; font-size: 12px; color: var(--text-1); background: var(--surface-2);
+                 border: 1px solid var(--hairline); border-radius: var(--radius-sm); }
+  .graph input::placeholder { color: var(--text-3); }
+  .graph input:focus-visible { outline: none; border-color: var(--signal); }
 
-  .ringhead { position: absolute; width: 134px; font-size: 15px; }
+  .ringhead { position: absolute; width: 134px; }
   .ringhead.above { transform: translate(-50%, -100%); text-align: center; }
   .ringhead.left { transform: translate(-100%, -50%); text-align: right; }
   .ringhead.right { transform: translateY(-50%); }
-  .ringhead span { color: var(--muted); font-size: 13px; margin-left: 6px; }
-  .ringhead form { margin: 3px 0 0; }
-  .ringhead input { width: 100%; font-size: 12px; box-sizing: border-box; }
-  .ringnode { position: absolute; transform: translate(-50%, -50%); display: grid; place-items: center; border-radius: 6px;
-              background: var(--panel); cursor: pointer; user-select: none; }
-  .ringnode:hover, .ringnode.hot { outline: 2px solid var(--gold); z-index: 2; }
-  .ringnode.locked { outline: 2px solid var(--gold); }
-  .ringnode.unavailable { opacity: 0.45; cursor: not-allowed; }
-  .ringnode .chip.gain { position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%); line-height: 13px; font-size: 10px; }
-  .ringnode:hover .x { visibility: visible; }
+  .ringhead span { margin-left: 6px; }
+  .ringhead form { margin: 4px 0 0; }
+  .ringnode { position: absolute; transform: translate(-50%, -50%); display: grid; place-items: center; border-radius: var(--radius);
+              background: var(--surface-1); cursor: pointer; user-select: none; }
+  .ringnode:hover, .ringnode.hot { outline: 1px solid var(--text-3); outline-offset: 1px; z-index: 2; }
+  .ringnode.locked { outline: 2px solid var(--text-1); outline-offset: 1px; }
+  .ringnode:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; z-index: 2; }
+  .ringnode .gain { position: absolute; left: 50%; top: 100%; transform: translate(-50%, -6px); padding: 0 3px; line-height: 13px; font-size: 10px;
+                    background: var(--surface-1); border-radius: 2px; }
   .node.isolated-out, .ringnode.isolated-out { opacity: 0.25; }
-  .ringnode .x { right: -9px; top: -9px; width: 16px; height: 16px; padding: 0; line-height: 14px; background: var(--bg); border: 1px solid var(--line); border-radius: 50%; }
+  .ringnode .x { right: -9px; top: -9px; width: 16px; height: 16px; padding: 0; line-height: 14px; background: var(--surface-2);
+                 border: 1px solid var(--hairline-strong); border-radius: 50%; }
 
-  section.table, .panel { background: var(--panel); border-radius: 8px; padding: 12px 14px; }
-  h2 { font-size: 17px; margin: 0 0 8px; }
-  h2 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
-  h3 { font-size: 14px; margin: 10px 0 4px; color: var(--text-2); }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-  th.sortable { cursor: pointer; }
-  td { padding: 3px 6px; border-bottom: 1px solid var(--panel-2); }
-  tbody tr { cursor: pointer; }
-  tbody tr:hover td { background: var(--panel-2); }
-  .combo { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
-  .num { text-align: right; font-variant-numeric: tabular-nums; }
-  .why { color: var(--muted); font-size: 12px; }
-  .pos { color: var(--up-text); }
-  .neg { color: var(--down-text); }
+  h2 { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; margin: 0 0 12px; }
+  h3 { margin: 20px 0 6px; }
+  .tables { margin-top: 28px; }
+  .tables h3 { margin: 0 0 4px; }
+  .tables h3.second { margin-top: 24px; }
+  .combo { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .combo strong { font-weight: 600; }
+  .pairrole { font-size: 12px; color: var(--text-3); }
+  .why { color: var(--text-3); font-size: 12px; }
 
-  .panel { position: sticky; top: 8px; }
-  .locked { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-  .lockchip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px 3px 3px; border-color: var(--gold); }
-  .lockchip span { display: flex; flex-direction: column; align-items: flex-start; font-size: 13px; line-height: 1.1; }
-  .lockchip small { color: var(--muted); font-size: 11px; }
-  .numbers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-  .numbers div { background: var(--panel-2); border-radius: 6px; padding: 6px 8px; display: flex; flex-direction: column; }
-  .numbers span { color: var(--muted); font-size: 12px; }
-  .numbers strong { font-size: 20px; font-variant-numeric: tabular-nums; }
-  .numbers .overall { outline: 1px solid var(--gold); }
-  .ident { margin: 8px 0 4px; }
-  .dmgbar { display: flex; height: 12px; border-radius: 4px; overflow: hidden; gap: 2px; }
-  .phys { background: #d95926; }
-  .magic { background: #3987e5; }
-  .true { background: #199e70; }
-  .dmglegend { display: flex; gap: 12px; font-size: 12px; color: var(--text-2); margin: 4px 0 8px; }
-  .dmglegend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; }
-  .bars { display: flex; flex-direction: column; gap: 4px; }
-  .bar { display: grid; grid-template-columns: 72px 1fr; align-items: center; font-size: 12px; color: var(--text-2); }
-  .track { height: 7px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
-  .track span { display: block; height: 100%; background: #3987e5; }
-  .rule { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding: 2px 0; }
-  .rule span:last-child { font-variant-numeric: tabular-nums; }
-  .legend { margin-top: 10px; line-height: 1.6; }
-  .lane { font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; margin-left: 5px; }
-  .linkbtn { background: none; border: none; color: var(--gold); padding: 0 4px; font-size: 12px; }
-  .sw { display: inline-block; width: 14px; height: 3px; background: var(--line-strong); vertical-align: middle; margin: 0 3px 0 6px; }
-  .sw.pos { background: var(--up); }
-  .sw.neg { background: var(--down); }
+  .plan { min-width: 0; }
+  .locked { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px; }
+  .lockchip { display: inline-flex; align-items: center; gap: 8px; padding: 3px 8px 3px 3px; background: var(--surface-2);
+              border: 1px solid var(--hairline); color: var(--text-1); }
+  .lockchip:hover { border-color: var(--hairline-strong); background: var(--surface-3); filter: none; }
+  .lockchip > span:not(.un) { display: flex; flex-direction: column; align-items: flex-start; font-size: 13px; font-weight: 600; line-height: 1.15; }
+  .lockchip small { color: var(--text-3); font-size: 11px; font-weight: 400; }
+  .un { color: var(--text-3); font-size: 14px; }
+  .numbers { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 32px; }
+  .ident { margin: 16px 0 8px; font-size: 14px; }
+  .ident strong { margin: 0 4px; }
+  .dmgbar { display: flex; height: 8px; border-radius: 2px; overflow: hidden; gap: 2px; }
+  .phys { background: var(--viz-matchup); }
+  .magic { background: var(--viz-threat); }
+  .true { background: var(--viz-comp); }
+  .dmglegend { display: flex; gap: 14px; font-size: 11px; color: var(--text-2); margin: 6px 0 14px; }
+  .dmglegend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+  .bars { display: flex; flex-direction: column; gap: 6px; }
+  .bar { display: grid; grid-template-columns: 72px 1fr 36px; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); }
+  .bar .mono { text-align: right; font-size: 11.5px; color: var(--text-3); }
+  .track { height: 4px; background: var(--surface-2); border-radius: 2px; overflow: hidden; }
+  .track span { display: block; height: 100%; background: var(--text-2); transition: width var(--dur-enter) var(--ease-out); }
+  .rules { border-top: 1px solid var(--hairline); }
+  .rule { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 13px; padding: 5px 0; border-bottom: 1px solid var(--hairline); }
+  .pairname { display: inline-flex; align-items: baseline; gap: 6px; }
+  .rule .mono { font-size: 12.5px; color: var(--text-2); }
+  .rule .mono.pos { color: var(--up-text); }
+  .rule .mono.neg { color: var(--down-text); }
+  .emptyplan { margin: 0; font-size: 13px; color: var(--text-3); max-width: 44ch; }
 </style>

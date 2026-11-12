@@ -3,16 +3,18 @@
   // 32px rows (28px dense), a header that stays in view.
   //
   // Two ways to use it:
-  //   <Table columns={[{ key, label, num?, sortable?, value?, format?, width?, align?, title? }]} rows={...} />
+  //   <Table columns={[{ key, label, num?, sortable?, value?, format?, tone?, width?, align?, title? }]} rows={...} />
   //     draws the cells itself; pass a `cell(row, col, i)` snippet to draw some yourself (return nothing for the rest
   //     by checking col.key and falling back to `text(row, col)`, which the snippet gets as its 4th argument).
+  //     `tone(value, row)` returns 'up' or 'down' to colour a signed figure (colour rule 3: the text carries + or −).
+  //     `limit` shows the first N rows after sorting.
   //   <Table> <thead>…</thead><tbody>…</tbody> </Table>
   //     for tables with their own structure (grouped or expanding rows): the same look, your markup.
   // On a Panel the header and the row hover take the panel's surface (--table-bg / --table-hover).
   let {
     columns = null, rows = [], key = null, dense = false, sticky = true, maxHeight = null, scrollX = false,
     sort = $bindable(null), // { key, dir: 'asc' | 'desc' } or null: the rows' own order
-    loading = false, error = '', empty = 'Nothing here yet', caption = '',
+    loading = false, error = '', empty = 'Nothing here yet', caption = '', limit = null,
     selected = null, onrowclick = null, cell = null, children = null,
   } = $props();
 
@@ -24,14 +26,18 @@
   };
   const shown = $derived.by(() => {
     const col = sort && columns?.find((c) => c.key === sort.key);
-    if (!col) return rows;
-    const dir = sort.dir === 'desc' ? -1 : 1;
-    return [...rows].sort((a, b) => {
-      const x = raw(a, col), y = raw(b, col);
-      if (x == null || y == null) return (x == null) - (y == null); // missing values last, whichever way
-      return dir * (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y)));
-    });
+    let out = rows;
+    if (col) {
+      const dir = sort.dir === 'desc' ? -1 : 1;
+      out = [...rows].sort((a, b) => {
+        const x = raw(a, col), y = raw(b, col);
+        if (x == null || y == null) return (x == null) - (y == null); // missing values last, whichever way
+        return dir * (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y)));
+      });
+    }
+    return limit == null ? out : out.slice(0, limit);
   });
+  const tone = (row, col) => (col.tone ? col.tone(raw(row, col), row) : null);
   // first click: figures from the top, words from A; then the other way; then back to the rows' own order
   function sortBy(col) {
     const first = col.num ? 'desc' : 'asc';
@@ -65,7 +71,7 @@
       </thead>
       <tbody>
         {#if error}
-          <tr class="state"><td colspan={columns.length} class="err" role="alert">⚠ {error}</td></tr>
+          <tr class="state"><td colspan={columns.length} class="err"><span role="alert">⚠ {error}</span></td></tr>
         {:else if loading && !rows.length}
           <tr class="state"><td colspan={columns.length} aria-busy="true">Loading…</td></tr>
         {:else}
@@ -74,7 +80,7 @@
                 tabindex={onrowclick ? 0 : undefined} onclick={onrowclick ? () => onrowclick(row) : undefined}
                 onkeydown={onrowclick ? (e) => rowKey(e, row) : undefined}>
               {#each columns as col}
-                <td class:num={col.num} class:mono={col.num || col.mono} class={col.align}>
+                <td class:num={col.num} class:mono={col.num || col.mono} class={[col.align, tone(row, col)]}>
                   {#if cell}{@render cell(row, col, i, text)}{:else}{text(row, col)}{/if}
                 </td>
               {/each}
@@ -110,6 +116,8 @@
   .t :global(th.num), .t :global(td.num), .t :global(.right) { text-align: right; }
   .t :global(.center) { text-align: center; }
   .t :global(td.num) { font-size: 12.5px; }
+  .t :global(td.up), .t :global(td .up) { color: var(--up-text); }
+  .t :global(td.down), .t :global(td .down) { color: var(--down-text); }
   .t :global(tbody tr:hover > td) { background: var(--table-hover, var(--surface-1)); }
   .t :global(tbody tr.sel > td) { background: var(--surface-2); }
 

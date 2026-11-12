@@ -152,6 +152,23 @@ graph, a long synergy table, three columns of ban lists, a patch overview at the
   order / Fill / Risks. The "Pin for next game" button is the page's one primary action.
 - Patch overview stays collapsed at the bottom.
 
+**Built (12 Nov 2026).** As above, with these choices:
+
+- "Pin for next game" moved from the bans-and-picks section into the page header (`Prep.svelte` owns the pin now);
+  "Pinned for next game" is the same button, disabled.
+- In the **In-lane** scope the five columns need the width, so the graph spans the page and the plan sits under it in
+  two columns; the 60 / 40 split is the Teamfight ring's.
+- A champion in the plan is marked with light ink (outline on the ring, "in plan" on a card), not lime: being in the
+  plan is a state. Trait bars are neutral grey (they were blue, which is a side colour).
+- Side and Format belong to the bans-and-picks section, so they sit in its heading rather than in the page's toolbar.
+  The side colours the edge of the pick-order list; slot codes (B1, R2) stay neutral.
+- Matchup tree: pool cover is written out ("skirmisher: covered", "tank: thin"); a gap is a ⚠ tag you can open. The
+  red chips and red archetype names are gone (red is a side).
+- `Table` gained `limit` and a per-column `tone`; `Stat` gained `tone` for a value that is itself a signed figure.
+  `--viz-threat` / `--viz-matchup` / `--viz-comp` are the validated series colours (the plan's damage split reuses them).
+- Not seen with real data here: the demo database has no crawled matches, so the Matchup tree's rows were checked
+  against a made-up response.
+
 ### Step 4: Review: History and Team trends (`History.svelte`, `HistoryCharts.svelte`, `ExecutionStrip.svelte`, `Team.svelte`, `Timeline.svelte`)
 
 - History: the Overview band as `Stat`s + one chart row; the game list as a `Table` (date, result, our five, their

@@ -51,6 +51,11 @@
   --up-text: #4fd1a1;
   --down: #e0702e;
   --down-text: #f2a35e;
+  /* ---------- data series (validated together on --surface-1): the three ban components; the plan's damage split
+     reuses them. Never for sides or favourability. palette.js COMPONENT has the same values. ---------- */
+  --viz-threat: #3987e5;
+  --viz-matchup: #d95926;
+  --viz-comp: #199e70;
   /* ---------- status: with an icon or a word, never colour alone ---------- */
   --warn: #f0b429;
   --error: #ff6b6b;
