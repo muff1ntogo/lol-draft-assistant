@@ -128,6 +128,10 @@ h1, h2, h3 { font-family: var(--font-ui); letter-spacing: -0.01em; }
 /* Section labels in the console: small caps-like, quiet, never a pill */
 .label-caps { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
 
+/* The console pages' content column: full width, 24px gutters (16px on narrow windows). Every analysis page's <main>. */
+.console { padding: 0 24px 48px; min-width: 0; }
+@media (max-width: 1180px) { .console { padding: 0 16px 32px; } }
+
 /* Thin scrollbars that sit back until hovered */
 ::-webkit-scrollbar { width: 12px; height: 12px; }
 ::-webkit-scrollbar-track { background: transparent; }

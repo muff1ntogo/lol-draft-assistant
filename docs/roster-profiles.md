@@ -17,6 +17,8 @@ per role, the bench, `roster.json`); read that first.
 | 3 | Profile shape | A **brief version with summaries on the Roster page**, and **detailed stats on an expanded page** |
 | 4 | Automatic pool | **Games, then mastery**: ranked games of the last 60 days in the role set the tiers; mastery fills in when there are few games; the user reviews the proposal before saving and can add or remove champions afterwards |
 | 5 | Removing | **Bench is one button, delete is another** (delete asks for confirmation: it can't be undone) |
+| 6 | What delete removes | The player, their pools and their **fetched** games (solo, flex). **Team history stays**: drafts in History, the games logged from them (`player_games` with `source = "logged"`) and the execution rows keep the old name |
+| 7 | Checking the Add-player flow | Tests use a fake Riot client; in Stage B one real lookup and fetch is allowed, with a Riot ID the user gives, on a scratch database, nothing kept |
 
 ## What exists to build on
 
@@ -141,7 +143,7 @@ All under `api/pool_routes.py` (or a new `api/roster_routes.py`). Players are ad
 | `POST /api/players {riot_id, role, active, pool: [{champ_id, role, tier}]}` | creates the player and their pool in one transaction |
 | `POST /api/players/{riot_id}/bench` | benches an active player |
 | `POST /api/players/{riot_id}/activate {role}` | swaps them in for the role (the current player goes to the bench); returns what to undo |
-| `DELETE /api/players/{riot_id}?confirm={riot_id}` | deletes the player, their pools and their stored games (active or benched; `confirm` must repeat the Riot ID) |
+| `DELETE /api/players/{riot_id}?confirm={riot_id}` | deletes the player, their pools and their fetched games, not the team's logged games (decision 6; active or benched; `confirm` must repeat the Riot ID) |
 | `GET /api/players/{riot_id}/profile?window=20\|60d` | the detailed profile (every section above) |
 
 The old `PUT /api/players`, `POST /api/players/swap` and `DELETE /api/players/bench` keep working until the old page
@@ -172,7 +174,7 @@ Each stage: tests with it, `uv run pytest`, screenshots in demo mode at 1440 × 
 | --- | --- | --- |
 | A | Data: the new columns, their filling and the backfill from the cache; `learning/profile.py` (pure: summary and profile figures from games, pool entries, execution rows, mastery, rank) | unit tests on planted games; a backfilled database gives the same figures as freshly fetched games |
 | B | `learning/pool_proposal.py` and the onboarding API (lookup, start, status, create) with a fake Riot client | proposal tests for each rule (games only, mastery fill, caps, never main from mastery); the whole flow against the fake client; no key → empty proposal |
-| C | Roster actions (bench, activate with undo, delete with confirm) and `GET /api/roster` | tests: bench keeps the pool, activate brings the role's pool back, delete removes pool and games, a wrong `confirm` is refused, `roster.json` follows every change |
+| C | Roster actions (bench, activate with undo, delete with confirm) and `GET /api/roster` | tests: bench keeps the pool, activate brings the role's pool back, delete removes pool and fetched games and keeps logged team games, a wrong `confirm` is refused, `roster.json` follows every change |
 | D | The Roster page: lineup summaries, bench, swap sheet, Add player sheet | screenshots of each step of Add player, the swap with its undo toast, an empty role; keyboard-only run through Add player |
 | E | The profile page | screenshots of an active and a benched profile, a player with no team games, a player with no key data |
 

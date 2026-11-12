@@ -19,6 +19,8 @@ Fable to build, page by page, following this doc. Read `CLAUDE.md` and `docs/SPE
 | 8 | Live motion | **Broadcast moments only**: lock-in, ban, turn change, timer. Nothing ambient |
 | 9 | Navigation | **Slim left rail**, folding to icons during champ select |
 | 10 | Deliverable before handoff | The design system and the Live prototype, plus this doc |
+| 11 | The `#/kit` sample page | **Removed in step 9** (not kept behind Settings > About) |
+| 12 | Notice order | offline > error > **setup and first-run** > **update** > fixture note. The update still never shows as installable from champ select to the end of the game |
 
 ## The ideology
 
@@ -107,6 +109,21 @@ components with scoped styles reading the tokens; no component library):
 
 Acceptance: the components exist with a one-page sample in demo mode (a hidden `#/kit` page is fine; remove it at the
 end or keep it behind Settings > About).
+
+**Built (12 Nov 2026).** `web/src/ui/`: the ten components plus `ToolGroup` (a labelled set of controls inside a
+`Toolbar`). `web/src/Kit.svelte` at `#/kit` shows each in every state: its own lazy chunk, no rail item, not preloaded.
+`.console` in `app.css` is the content column every analysis page's `<main>` takes (24px gutters, 16px under 1180px).
+What to know when using them:
+
+- `Table` draws cells from `columns` (`num` = right-aligned mono, `sortable`, `format`, a `cell` snippet for custom
+  cells), or wraps your own `<thead>` / `<tbody>` for tables with their own structure. It has loading, empty and
+  error rows. On a `Panel` its header and hover take the panel's surface (`--table-bg`, `--table-hover`).
+- `Panel` inside a `Panel` turns into a section under a hairline rule by itself.
+- `Segmented` is a radio group: one tab stop, arrow keys move the choice.
+- `Field` draws inputs, selects, textareas and checkboxes; other controls (a slider with its value) go in as children.
+  A ticked checkbox is light grey, not lime (being on is a state, not a call to act); the focused control's border is lime.
+- `Button` has `danger` for what can't be undone (red text with its word) and `href` to render a link.
+- `Notice` takes a list of items and shows the most urgent (`NOTICE_ORDER`, decision 12); `compact` is Live's one line.
 
 ### Step 2: Notices and the shell
 
