@@ -1,60 +1,116 @@
+/* Design system (docs/ui-redesign.md): graphite surfaces, one acid-lime signal, blue and red only for the two sides.
+   Two moods on one system: the console pages (Prep, Review, Roster, Crawl, Settings) are dense and quiet; Live is a
+   broadcast desk. Both share these tokens, the type scale and the motion vocabulary (motion.js). */
+
+@font-face {
+  font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap;
+  src: url("./fonts/inter-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap;
+  src: url("./fonts/inter-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "JetBrains Mono"; font-style: normal; font-weight: 100 800; font-display: swap;
+  src: url("./fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "JetBrains Mono"; font-style: normal; font-weight: 100 800; font-display: swap;
+  src: url("./fonts/jetbrains-mono-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 :root {
-  /* Colour identity: two quiet blues and one bright yellow.
-     Midnight blue for the surfaces (bg → nav → panels → lines), an analogous azure for quiet accents (links,
-     secondary buttons, our side), and yellow for what must stand out: highlights, the selected tab, main actions.
-     Chart colours are in palette.js too (ECharts can't read these), validated on --panel. */
-  --bg: #0a1122;
-  --nav: #070d1a; /* the window's title bar takes this colour too (window_chrome.py) */
-  --panel: #101a30;
-  --panel-2: #18243e;
-  --panel-3: #1e2c4a;
-  --line: #26355a;
-  --line-strong: #3a4c74;
-  --text: #e9eef8;
-  --text-2: #c6d1e6;
-  --muted: #8d9cba;
-  --blue: #5b8de8;        /* the analogous blue: quiet accents */
-  --blue-deep: #1b3260;   /* its fill for secondary buttons and selections */
-  --link: #9dbcf6;
-  --gold: #ffd23f;        /* the bright yellow: highlights and main actions */
-  --gold-bg: #2a2814;
-  --gold-line: #6a5a1c;
-  --on-gold: #0a1122;     /* text on yellow */
-  --red: #ff6b6b;
-  --good: #3fb950;
-  --warn: #f0883e;
-  /* favourability (validated pair): teal ahead, orange behind; never yellow, which means "look here" */
+  /* ---------- surfaces: neutral graphite, no blue tint, each step a little lighter ---------- */
+  --bg: #0b0c0e;          /* the window; the title bar takes --rail (window_chrome.py) */
+  --rail: #08090b;        /* the left rail */
+  --surface-1: #141519;   /* panels; the surface every chart colour is validated on */
+  --surface-2: #1b1d22;   /* raised: hover rows, selected segments, inputs */
+  --surface-3: #23262c;   /* pressed / active fills */
+  --hairline: #2a2d34;    /* rules and borders: 1px, never thicker in the console */
+  --hairline-strong: #3a3e47;
+  /* ---------- ink ---------- */
+  --text-1: #ececee;      /* primary: names, values */
+  --text-2: #b4b8c1;      /* secondary: reasons, body */
+  --text-3: #858a95;      /* tertiary: labels, units, captions (5.3:1 on --surface-1) */
+  /* ---------- the one signal: "act on this" (your turn, the top pick, the main action, focus). Never a data colour. */
+  --signal: #c8f135;
+  --signal-ink: #0b0c0e;  /* text on lime */
+  --signal-soft: rgba(200, 241, 53, 0.12); /* the top pick's wash, selected nav item */
+  --signal-line: rgba(200, 241, 53, 0.45);
+  /* ---------- sides: structure only (rails, edges, the side tag). Never on numbers. ---------- */
+  --side-blue: #4a8ee0;
+  --side-blue-soft: rgba(74, 142, 224, 0.14);
+  --side-red: #e0564c;
+  --side-red-soft: rgba(224, 86, 76, 0.14);
+  /* ---------- favourability: signed numbers and bars only, always with + / − (validated pair on --surface-1) ---------- */
   --up: #1baf7a;
   --up-text: #4fd1a1;
-  --up-bg: #0f3a33;
   --down: #e0702e;
   --down-text: #f2a35e;
-  --down-bg: #3a2416;
-  /* sides (validated pair) */
-  --side-blue: #4a8ee0;
-  --side-blue-bg: #142d55;
-  --side-red: #d0574e;
-  --side-red-bg: #3d1a1c;
-  --side-red-text: #ff9b94;
-  --radius: 8px;
-  /* Motion (src/motion.js has the same values for Svelte transitions): entrances ease out, on-screen movement eases
-     in and out, exits are ~20% shorter than entrances, no spring bounce. */
+  /* ---------- status: with an icon or a word, never colour alone ---------- */
+  --warn: #f0b429;
+  --error: #ff6b6b;
+
+  /* ---------- type ---------- */
+  --font-ui: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  /* console scale (px): 11 label · 12 caption · 13 body-sm · 14 body · 16 h3 · 20 h2 · 24 h1 */
+  /* broadcast scale (Live): 13 tag · 15 meta · 20 reason · 28 name · 40 headline · 56 timer */
+
+  /* ---------- space and shape: a 4px grid ---------- */
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px; --s-6: 32px; --s-7: 48px;
+  --radius-sm: 4px;       /* chips, inputs, buttons */
+  --radius: 6px;          /* panels */
+  --rail-w: 200px;
+  --rail-w-collapsed: 56px;
+
+  /* ---------- motion (motion.js has the same values) ---------- */
   --ease-out: cubic-bezier(0.25, 1, 0.5, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --ease-in: cubic-bezier(0.32, 0, 0.67, 0);
   --dur-enter: 220ms;
   --dur-exit: 176ms;
-  --dur-page-exit: 160ms; /* motion.js DUR.exitPage */
-  --dur-menu: 200ms; /* dropdowns and reveals: 150-250 ms */
+  --dur-page-exit: 160ms;
+  --dur-menu: 200ms;
   --stagger: 30ms;
   --ease: 140ms var(--ease-out);
-  /* Windows 11's own type (Segoe UI Variable), then Windows 10's */
-  font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
-  color: var(--text);
+
+  /* ---------- aliases: the names every page used before the redesign, mapped onto the new system so pages not yet
+     redesigned render in it. Remove each once no file reads it (docs/ui-redesign.md, step 9). ---------- */
+  --nav: var(--rail);
+  --panel: var(--surface-1);
+  --panel-2: var(--surface-2);
+  --panel-3: var(--surface-3);
+  --line: var(--hairline);
+  --line-strong: var(--hairline-strong);
+  --text: var(--text-1);
+  --muted: var(--text-3);
+  --blue: #8a9bb3;              /* was the quiet accent; now a neutral steel so it can't read as the blue side */
+  --blue-deep: var(--surface-3);
+  --link: #c9d3e3;
+  --gold: var(--signal);
+  --gold-bg: var(--surface-2);
+  --gold-line: var(--hairline-strong);
+  --on-gold: var(--signal-ink);
+  --red: var(--error);
+  --good: var(--up-text);
+  --side-blue-bg: var(--side-blue-soft);
+  --side-red-bg: var(--side-red-soft);
+  --side-red-text: #ff9b94;
+  --up-bg: rgba(27, 175, 122, 0.14);
+  --down-bg: rgba(224, 112, 46, 0.14);
+
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-feature-settings: "cv11", "ss01"; /* Inter: single-storey a off, open digits */
+  color: var(--text-1);
   background: var(--bg);
-  /* native controls (scrollbars, inputs, selects, number spinners) in dark, as WebView2 draws them */
   color-scheme: dark;
-  accent-color: var(--blue);
+  accent-color: var(--signal);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -62,41 +118,44 @@
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100vh; }
 img { display: block; }
-h1, h2, h3 { font-family: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif; }
+h1, h2, h3 { font-family: var(--font-ui); letter-spacing: -0.01em; }
 
-::selection { background: rgba(255, 210, 63, 0.3); }
+::selection { background: rgba(200, 241, 53, 0.28); }
 
-/* Thin scrollbars that sit back until hovered, like Windows 11's */
+/* Numbers line up in every table and stat; the mono face is for figures that are compared, not for prose */
+.num, td, .tabular { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+/* Section labels in the console: small caps-like, quiet, never a pill */
+.label-caps { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
+
+/* Thin scrollbars that sit back until hovered */
 ::-webkit-scrollbar { width: 12px; height: 12px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; border: 3px solid transparent; background-clip: padding-box; }
-::-webkit-scrollbar-thumb:hover { background: var(--line-strong); border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb { background: var(--hairline); border-radius: 6px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--hairline-strong); border: 3px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-corner { background: transparent; }
 
-/* Controls: the same rounding and a quiet transition everywhere */
-button, input, select, textarea { font: inherit; border-radius: 6px; }
+/* ---------- controls: one rounding, one height family, a quiet transition everywhere ---------- */
+button, input, select, textarea { font: inherit; border-radius: var(--radius-sm); }
 button, a, input, select, textarea, .card, .chip, .part {
   transition: background-color var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease),
               opacity var(--ease), transform 160ms var(--ease-out);
 }
 button:not(:disabled) { cursor: pointer; }
 button:not(:disabled):hover { filter: brightness(1.12); }
-/* pressed buttons give a little (0.97), and come back on the same ease-out curve */
 button:not(:disabled):active { filter: brightness(0.95); transform: scale(0.97); transition-duration: 140ms, 140ms, 140ms, 140ms, 140ms, 90ms; }
+button:disabled { cursor: default; opacity: 0.45; }
 
-/* Sliders: a round knob that stretches 12% along the track while it is held. The knob follows the pointer exactly
-   (no tween on its position); only the stretch animates. */
 input[type="range"] { -webkit-appearance: none; appearance: none; height: 18px; background: transparent; }
-input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line); }
+input[type="range"]::-webkit-slider-runnable-track { height: 2px; border-radius: 1px; background: var(--hairline-strong); }
 input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none; appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 7px;
-  background: var(--blue); border: 2px solid var(--panel); transition: transform 160ms var(--ease-out);
+  -webkit-appearance: none; appearance: none; width: 12px; height: 12px; margin-top: -5px; border-radius: 6px;
+  background: var(--text-1); border: 2px solid var(--surface-1); transition: transform 160ms var(--ease-out);
 }
 input[type="range"]:not(:disabled):active::-webkit-slider-thumb { transform: scaleX(1.12); }
-input[type="range"]:disabled::-webkit-slider-thumb { background: var(--muted); }
+input[type="range"]:disabled::-webkit-slider-thumb { background: var(--text-3); }
 
-/* <details>: the content is uncovered by a mask from the summary down, and its parts settle one after another */
-details[open] > :not(summary) { animation: reveal-down var(--dur-menu) var(--ease-out) backwards; /* no fill afterwards: the mask would clip focus rings */ }
+details[open] > :not(summary) { animation: reveal-down var(--dur-menu) var(--ease-out) backwards; }
 details[open] > :not(summary):nth-child(3) { animation-delay: var(--stagger); }
 details[open] > :not(summary):nth-child(4) { animation-delay: calc(2 * var(--stagger)); }
 details[open] > :not(summary):nth-child(n + 5) { animation-delay: calc(3 * var(--stagger)); }
@@ -105,18 +164,19 @@ details[open] > :not(summary):nth-child(n + 5) { animation-delay: calc(3 * var(-
   to { clip-path: inset(0 0 0 0); opacity: 1; transform: none; }
 }
 summary { transition: color var(--ease); }
-input:hover, select:hover, textarea:hover { border-color: var(--line-strong); }
-input:focus, select:focus, textarea:focus { outline: none; border-color: var(--blue); }
+input:hover, select:hover, textarea:hover { border-color: var(--hairline-strong); }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--text-3); }
 
-/* A visible focus ring for the keyboard only */
-:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 :focus:not(:focus-visible) { outline: none; }
 
-a { color: var(--link); }
+a { color: var(--link); text-decoration-color: var(--hairline-strong); text-underline-offset: 3px; }
+a:hover { text-decoration-color: currentColor; }
 
-/* Main actions are yellow with midnight text; everything else stays in the quiet blues */
-button.primary, button[type="submit"] { background: var(--gold); border-color: var(--gold); color: var(--on-gold); font-weight: 600; }
-button.primary:disabled, button[type="submit"]:disabled { background: var(--gold-bg); border-color: var(--gold-line); color: var(--muted); }
+/* One primary action per view: lime with dark ink. Everything else is a quiet neutral. A disabled primary is grey,
+   never a muddy lime: the signal only ever means "you can act on this now". */
+button.primary, button[type="submit"] { background: var(--signal); border: 1px solid var(--signal); color: var(--signal-ink); font-weight: 600; }
+button.primary:disabled, button[type="submit"]:disabled { background: var(--surface-2); border-color: var(--hairline); color: var(--text-3); opacity: 1; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }

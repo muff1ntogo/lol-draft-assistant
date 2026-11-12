@@ -16,9 +16,9 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-BACKGROUND = "#0a1122"  # web/src/app.css --bg
-CAPTION = "#070d1a"  # the nav bar (web/src/app.css --nav)
-BORDER = "#26355a"  # --line
+BACKGROUND = "#0b0c0e"  # web/src/app.css --bg
+CAPTION = "#08090b"  # the left rail (web/src/app.css --rail)
+BORDER = "#2a2d34"  # --hairline
 DEFAULT_SIZE = (1600, 960)
 MIN_SIZE = (1000, 700)
 GEOMETRY_FILE = "window.json"

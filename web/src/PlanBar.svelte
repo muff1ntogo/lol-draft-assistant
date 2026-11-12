@@ -79,7 +79,7 @@
 {/if}
 
 <style>
-  .planbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; align-items: center; gap: 22px;
+  .planbar { position: fixed; left: var(--rail-w-collapsed); right: 0; bottom: 0; z-index: 20; display: flex; align-items: center; gap: 22px;
              padding: 6px 20px; min-height: 64px; background: var(--nav); border-top: 2px solid var(--side-blue); }
   .planbar.at_risk { border-top-color: var(--down); background: var(--nav); }
   .planbar.broken { border-top-color: var(--side-red); background: var(--nav); }

@@ -118,11 +118,12 @@ def test_the_handle_comes_from_pywebviews_form():
     assert chrome.native_handle(SimpleNamespace()) is None
 
 
-def test_the_caption_matches_the_pages_nav_bar():
+def test_the_caption_matches_the_left_rail():
     from draftassist.config import PROJECT_ROOT
 
     css = (PROJECT_ROOT / "web" / "src" / "app.css").read_text(encoding="utf-8")
-    assert f"--nav: {chrome.CAPTION}" in css and f"--bg: {chrome.BACKGROUND}" in css
+    assert f"--rail: {chrome.CAPTION}" in css and f"--bg: {chrome.BACKGROUND}" in css
+    assert f"--hairline: {chrome.BORDER}" in css
 
 
 def test_off_windows_nothing_is_touched():

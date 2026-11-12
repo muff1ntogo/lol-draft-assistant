@@ -162,3 +162,26 @@ export function arcMove(node, params) {
     destroy() { anim?.cancel(); },
   };
 }
+
+// ---------- Live's broadcast moments (docs/ui-redesign.md): only events animate on Live, never ambient decoration ----
+// A lock-in: the champion is wiped in from the team's edge (side = 'left' for the rail on the left), with a short
+// bright edge that travels with the wipe. Use as in: on the element that appears when a champion locks.
+export function lockIn(node, { side = 'left', duration = 360 } = {}, { direction } = {}) {
+  const from = side === 'left';
+  return {
+    ...timing(duration, direction),
+    css: (t, u) => {
+      const cut = (u * 100).toFixed(2);
+      return `clip-path: ${from ? `inset(0 ${cut}% 0 0)` : `inset(0 0 0 ${cut}%)`};` +
+             `filter: brightness(${(1 + 0.8 * Math.sin(Math.PI * t)).toFixed(3)});`;
+    },
+  };
+}
+
+// A ban: the icon lands like a stamp (from 1.25 to 1, quick), then sits greyed with its slash.
+export function banStamp(node, { duration = 240 } = {}, { direction } = {}) {
+  return {
+    ...timing(duration, direction),
+    css: (t) => `opacity: ${Math.min(1, t * 2)}; transform: scale(${(1.25 - 0.25 * t).toFixed(4)});`,
+  };
+}

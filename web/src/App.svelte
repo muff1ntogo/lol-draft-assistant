@@ -105,34 +105,49 @@
   connect();
   setInterval(() => (now = performance.now()), 200);
 
+  // Live gets the full width while a draft is on; the rail opens again on hover (CSS)
+  const railFolded = $derived(page === 'live' && view.status === 'champ_select');
+
   const secondsLeft = $derived(
     view.seconds_left == null ? null : Math.max(0, view.seconds_left - (now - receivedAt) / 1000),
   );
 </script>
 
-<nav>
+<!-- The left rail (docs/ui-redesign.md): the four pages people use, then Crawl and Settings at the foot. It folds to
+     icons during champ select so Live gets the width, and opens again on hover. -->
+<nav class="rail" class:folded={railFolded} aria-label="Pages">
+  <div class="brand" aria-hidden="true"><span class="mark"></span><span class="word">Draft</span></div>
   {#each TABS as [key, label]}
-    <a href={`#/${key}`} class:active={navKey(page) === key} onpointerenter={() => loadPage(key).catch(() => {})}>{label}{#if navKey(page) === key}{@render underline()}{/if}</a>
+    <a href={`#/${key}`} class:active={navKey(page) === key} aria-current={navKey(page) === key ? 'page' : undefined}
+       title={label} onpointerenter={() => loadPage(key).catch(() => {})}>
+      {@render icon(key)}<span class="lbl">{label}</span>
+      {#if key === 'live' && view.status === 'champ_select'}<span class="live-dot" title="Champ select is on"></span>{/if}
+      {#if navKey(page) === key}{@render marker()}{/if}
+    </a>
   {/each}
-  {#if view.status === 'champ_select' && page !== 'live'}
-    <a href="#/live" class="alert" in:rise={{ y: -4 }}>Champ select live →</a>
-  {/if}
-  <span class="icons" class:pushed={!(view.status === 'champ_select' && page !== 'live')}>
-    {#each ICONS as [key, label]}
-      <a href={`#/${key}`} class="icon" class:active={navKey(page) === key} title={label} aria-label={label}
-         onpointerenter={() => loadPage(key).catch(() => {})}>
-        {#if key === 'crawl'}
-          <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
-        {:else}
-          <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="6.3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
-        {/if}
-        {#if navKey(page) === key}{@render underline()}{/if}
-      </a>
-    {/each}
-  </span>
+  <span class="grow"></span>
+  {#each ICONS as [key, label]}
+    <a href={`#/${key}`} class:active={navKey(page) === key} aria-current={navKey(page) === key ? 'page' : undefined}
+       title={label} onpointerenter={() => loadPage(key).catch(() => {})}>
+      {@render icon(key)}<span class="lbl">{key === 'crawl' ? 'Crawl' : 'Settings'}</span>
+      {#if navKey(page) === key}{@render marker()}{/if}
+    </a>
+  {/each}
 </nav>
-<!-- One underline, one key: it slides from the old tab to the new one instead of blinking out and in -->
-{#snippet underline()}<span class="underline" in:receiveShared={{ key: 'nav' }} out:sendShared={{ key: 'nav' }}></span>{/snippet}
+<!-- One marker, one key: it slides from the old item to the new one instead of blinking out and in -->
+{#snippet marker()}<span class="marker" in:receiveShared={{ key: 'nav' }} out:sendShared={{ key: 'nav' }}></span>{/snippet}
+{#snippet icon(key)}
+  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    {#if key === 'live'}<circle cx="12" cy="12" r="3"/><path d="M6.3 6.3a8 8 0 0 0 0 11.4M17.7 6.3a8 8 0 0 1 0 11.4"/>
+    {:else if key === 'prep'}<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>
+    {:else if key === 'history'}<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>
+    {:else if key === 'pools'}<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3.2 3.2 0 0 1 0 6.3M18 14.2c1.9.8 3 2.8 3 5.8"/>
+    {:else if key === 'crawl'}<ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/>
+    {:else}<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5"/>{/if}
+  </svg>
+{/snippet}
+
+<div class="content" class:folded={railFolded}>
 {#if page === 'history' || page === 'team'}
   <div class="subnav" transition:reveal>
     {#each [['history', 'History'], ['team', 'Team trends']] as [key, label]}
@@ -181,23 +196,41 @@
 {#if page === 'live' && view.plan}
   {#key view.plan.text}<PlanBar bar={view.plan} />{/key}
 {/if}
+</div>
 
 <style>
-  /* the nav runs on from the window's title bar (same colour), so it gets no top border of its own */
-  nav { display: flex; gap: 2px; padding: 4px 16px 0; background: var(--nav); border-bottom: 1px solid var(--line);
-        position: sticky; top: 0; z-index: 10; }
-  nav a { position: relative; padding: 9px 14px 11px; color: var(--muted); text-decoration: none; font-size: 14.5px;
-          border-radius: 6px 6px 0 0; }
-  nav a:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
-  nav a.active { color: var(--text); font-weight: 600; }
-  .underline { position: absolute; left: 14px; right: 14px; bottom: -1px; height: 3px;
-               border-radius: 3px 3px 0 0; background: var(--gold); }
-  nav a.alert { margin-left: auto; color: var(--gold); }
-  .icons { display: flex; gap: 2px; }
-  .icons.pushed { margin-left: auto; }
-  nav a.icon { display: flex; align-items: center; padding: 9px 11px 11px; }
-  nav a.icon .underline { left: 8px; right: 8px; }
-  .subnav { display: flex; gap: 4px; padding: 8px 24px 0; }
+  /* ---------- the left rail ---------- */
+  .rail { position: fixed; inset: 0 auto 0 0; z-index: 20; width: var(--rail-w); display: flex; flex-direction: column;
+          gap: 2px; padding: 12px 10px; background: var(--rail); border-right: 1px solid var(--hairline);
+          transition: width var(--dur-enter) var(--ease-in-out); overflow: hidden; }
+  .rail.folded { width: var(--rail-w-collapsed); }
+  .rail.folded:hover, .rail.folded:focus-within { width: var(--rail-w); box-shadow: 8px 0 24px rgba(0, 0, 0, 0.45); }
+  .brand { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 8px; margin-bottom: 14px; }
+  .mark { flex: none; width: 18px; height: 18px; border-radius: 4px; background: var(--signal);
+          clip-path: polygon(0 0, 100% 0, 100% 62%, 62% 100%, 0 100%); }
+  .word { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; white-space: nowrap; }
+  .rail a { position: relative; display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 10px;
+            border-radius: var(--radius-sm); color: var(--text-3); text-decoration: none; font-size: 14px; white-space: nowrap; }
+  .rail a svg { flex: none; }
+  .rail a:hover { color: var(--text-1); background: var(--surface-1); }
+  .rail a.active { color: var(--text-1); font-weight: 600; }
+  .marker { position: absolute; inset: 0; border-radius: var(--radius-sm); background: var(--surface-2);
+            box-shadow: inset 2px 0 0 var(--signal); z-index: -1; }
+  .rail a { isolation: isolate; }
+  .lbl { transition: opacity var(--dur-enter) var(--ease-out); }
+  .rail.folded:not(:hover):not(:focus-within) .lbl, .rail.folded:not(:hover):not(:focus-within) .word { opacity: 0; }
+  .live-dot { position: absolute; left: 24px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--signal);
+              box-shadow: 0 0 0 2px var(--rail); animation: pulse 1.6s var(--ease-in-out) infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  .grow { flex: 1; }
+  .content { margin-left: var(--rail-w); min-height: 100vh; transition: margin-left var(--dur-enter) var(--ease-in-out); }
+  .content.folded { margin-left: var(--rail-w-collapsed); }
+  @media (max-width: 900px) {
+    .rail:not(:hover):not(:focus-within) { width: var(--rail-w-collapsed); }
+    .rail:not(:hover):not(:focus-within) .lbl, .rail:not(:hover):not(:focus-within) .word { opacity: 0; }
+    .content { margin-left: var(--rail-w-collapsed); }
+  }
+  .subnav { display: flex; gap: 4px; padding: 12px 24px 0; }
   .subnav a { position: relative; color: var(--muted); text-decoration: none; font-size: 14px; padding: 5px 12px; border-radius: 6px; }
   .subnav a:hover { color: var(--text); }
   .subnav a.active { color: var(--text); font-weight: 600; }
@@ -208,11 +241,11 @@
   .stage > .page.waiting { opacity: 0; pointer-events: none; }
   .stage > .page.leaving { opacity: 0; pointer-events: none; transition: opacity var(--dur-page-exit) var(--ease-in); }
   .banner { padding: 6px 16px; font-size: 14px; text-align: center; }
-  .offline { background: #6e2a2a; }
-  .fixture { background: var(--gold-bg); color: var(--gold); }
+  .offline { background: rgba(255, 107, 107, 0.16); color: #ffb3b3; }
+  .fixture { background: var(--surface-1); color: var(--text-2); border-bottom: 1px solid var(--hairline); }
   .idle { display: grid; place-items: center; align-content: center; min-height: 80vh; gap: 4px; color: var(--muted); }
-  .idle h1 { color: var(--text); font-size: 40px; font-weight: 600; margin: 0; }
-  .idle p { font-size: 20px; margin: 4px; }
+  .idle h1 { color: var(--text); font-size: 32px; font-weight: 650; letter-spacing: -0.02em; margin: 0; }
+  .idle p { font-size: 16px; margin: 4px; }
   .scoutwrap { margin-top: 28px; display: flex; justify-content: center; width: 100%; }
   .error { color: var(--red); }
 </style>
