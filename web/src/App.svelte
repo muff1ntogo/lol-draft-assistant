@@ -4,7 +4,8 @@
   import Live from './Live.svelte';
   import PlanBar from './PlanBar.svelte';
   import ScoutBox from './ScoutBox.svelte';
-  import AppStatus from './AppStatus.svelte';
+  import Notice from './ui/Notice.svelte';
+  import { appStatus } from './appStatus.svelte.js';
   import { DUR, CSS_EASE, receiveShared, reducedMotion, reveal, rise, sendShared } from './motion.js';
   import { settled } from './loading.js';
 
@@ -109,6 +110,17 @@
   // Live gets the full width while a draft is on; the rail opens again on hover (CSS)
   const railFolded = $derived(page === 'live' && view.status === 'champ_select');
 
+  // Everything the app has to tell the user, as one strip (docs/ui-redesign.md, step 2): the most urgent shows, the
+  // rest wait behind a count. During a draft the scorebar stays flush to the top, so Live shows the strip itself, as
+  // one line under its Draft / Strategy switch.
+  const status = appStatus();
+  const inDraft = $derived(view.status === 'champ_select');
+  const notices = $derived([
+    ...(connected ? [] : [{ id: 'offline', kind: 'offline', text: 'Reconnecting to the assistant…' }]),
+    ...status.items(inDraft),
+    ...(view.note ? [{ id: 'fixture', kind: 'fixture', text: view.note }] : []),
+  ]);
+
   const secondsLeft = $derived(
     view.seconds_left == null ? null : Math.max(0, view.seconds_left - (now - receivedAt) / 1000),
   );
@@ -149,6 +161,7 @@
 {/snippet}
 
 <div class="content" class:folded={railFolded}>
+{#if !railFolded}<Notice items={notices} />{/if}
 {#if page === 'history' || page === 'team'}
   <div class="subnav" transition:reveal>
     {#each [['history', 'History'], ['team', 'Team trends']] as [key, label]}
@@ -160,14 +173,6 @@
   </div>
 {/if}
 
-{#if !connected}
-  <div class="banner offline" transition:reveal>Reconnecting to the assistant…</div>
-{/if}
-<AppStatus inDraft={view.status === 'champ_select'} />
-{#if view.note}
-  <div class="banner fixture">{view.note}</div>
-{/if}
-
 <!-- Pages share one grid cell, so the new page comes in while the old one leaves -->
 {#snippet pageView(entry)}
 {#if entry.Comp}
@@ -175,7 +180,7 @@
 {:else if LOADERS[entry.key]}
   <main class="idle"><h1>Couldn't load this page</h1><p class="error">Check the connection to the app, then reload.</p></main>
 {:else if view.status === 'champ_select'}
-  <Live {view} {secondsLeft} />
+  <Live {view} {secondsLeft} {notices} />
 {:else}
   <main class="idle">
     <h1>{view.status === 'error' ? 'Something went wrong' : view.message}</h1>
@@ -241,9 +246,6 @@
   .stage > .page { grid-area: 1 / 1; min-width: 0; }
   .stage > .page.waiting { opacity: 0; pointer-events: none; }
   .stage > .page.leaving { opacity: 0; pointer-events: none; transition: opacity var(--dur-page-exit) var(--ease-in); }
-  .banner { padding: 6px 16px; font-size: 14px; text-align: center; }
-  .offline { background: rgba(255, 107, 107, 0.16); color: #ffb3b3; }
-  .fixture { background: var(--surface-1); color: var(--text-2); border-bottom: 1px solid var(--hairline); }
   .idle { display: grid; place-items: center; align-content: center; min-height: 80vh; gap: 4px; color: var(--muted); }
   .idle h1 { color: var(--text); font-size: 32px; font-weight: 650; letter-spacing: -0.02em; margin: 0; }
   .idle p { font-size: 16px; margin: 4px; }

@@ -9,8 +9,9 @@
   import CompPanel from './CompPanel.svelte';
   import ScoutBox from './ScoutBox.svelte';
   import StrategyView from './StrategyView.svelte';
+  import Notice from './ui/Notice.svelte';
 
-  let { view, secondsLeft } = $props();
+  let { view, secondsLeft, notices = [] } = $props();
   const center = $derived(view.center);
   const pct = (p) => (p < 0.005 ? '<1%' : `${Math.round(p * 100)}%`);
   const pp = (x) => `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.abs(x).toFixed(1)}pp`;
@@ -67,6 +68,8 @@
   <button role="tab" aria-selected={tab === 'strategy'} class:on={tab === 'strategy'} onclick={() => show('strategy')} title="Strategy (S)">
     Strategy{#if view.strategy?.players?.length} <span class="count mono">{view.strategy.players.length}</span>{/if} <kbd>S</kbd></button>
 </div>
+<!-- the app's messages, one line: the scorebar stays flush to the top during a draft -->
+{#if notices.length}<div class="appnotice"><Notice compact items={notices} /></div>{/if}
 
 {#if tab === 'strategy'}
 <StrategyView strategy={view.strategy} />
@@ -346,6 +349,8 @@
   .views button { display: inline-flex; align-items: center; gap: 8px; background: none; border: 0; color: var(--text-3);
                   font-size: 13px; font-weight: 600; padding: 6px 10px; border-radius: var(--radius-sm); }
   .views button.on { color: var(--text-1); background: var(--surface-2); }
+  .appnotice { padding: 4px 24px 0; }
+  @media (max-width: 1180px) { .appnotice { padding: 4px 16px 0; } }
   kbd { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); border: 1px solid var(--hairline-strong);
         border-radius: 3px; padding: 0 4px; line-height: 15px; }
   .count { font-size: 11px; color: var(--text-2); }

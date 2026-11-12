@@ -131,6 +131,12 @@ Replace the banner stack above every page with `Notice` (the API-key prompt, the
 `AppStatus`'s update and first-run messages). Live keeps the scorebar flush to the top during champ select: notices
 there go below the Draft / Strategy switch, one line. Keep the update-not-during-champ-select rule (`updates.py`).
 
+**Built (12 Nov 2026).** `web/src/appStatus.svelte.js` (was `AppStatus.svelte`) turns the update, first-run and
+Riot-key states into notice items; `App.svelte` adds "offline" and the demo-data note and shows one `Notice` at the top
+of the content column (above Review's sub-navigation). While Live is in champ select the strip isn't drawn at the top:
+`Live.svelte` gets the same items and shows them as one line under the switch. From champ select to the end of the game
+the Update button is disabled and says so. A failed install is an error notice with the reason.
+
 ### Step 3: Prep (`Prep.svelte`, `PlanSynergy.svelte`, `PlanBansPicks.svelte`, `MatchupTree.svelte`)
 
 The heaviest page and the clearest console. Today: Tags → / Rules → links in the header, two toggle rows, a ring
