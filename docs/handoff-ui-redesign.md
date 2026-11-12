@@ -9,9 +9,9 @@ remaining steps well, not to be the last line of defence**. Leave clear notes (s
 1. `CLAUDE.md`: the project rules. The ones that bite here: the League client is read-only (no UI may offer to hover,
    pick, lock or accept), no new npm or Python dependencies without asking the user, never commit databases,
    recordings or screenshots.
-2. `docs/ui-redesign.md`: the design system, the three colour rules, the plan (steps 1–9) and a "Built" note under
+2. `docs/ui-redesign.md`: the design system, the three colour rules, the plan (steps 1??) and a "Built" note under
    each finished step with the choices made. Read those notes: they are the precedents to follow.
-3. `docs/roster-profiles.md`: step 5 of the plan, a feature in five stages (A–E), with its decisions, API, data and a
+3. `docs/roster-profiles.md`: step 5 of the plan, a feature in five stages (A?), with its decisions, API, data and a
    "Built" section for Stage A.
 
 Use `web/src/Live.svelte` as the reference for the look, `web/src/Prep.svelte` and `web/src/History.svelte` as the
@@ -39,7 +39,7 @@ reference for a finished console page, and `#/kit` (`web/src/Kit.svelte`) to see
 | 3 Prep | Done | `4607ec4` |
 | 4 Review: History and Team trends | Done | `94c5b4e` |
 | 5 Roster, Stage A (data and profile figures) | Done | `f30c2c5` |
-| 5 Roster, Stage B (pool proposal and onboarding API) | Done | pending commit |
+| 5 Roster, Stage B (pool proposal and onboarding API) | Done | d90850b |
 | 5 Roster, Stages C, D, E | **To do** | |
 | 6 Crawl | **To do** | |
 | 7 Settings, Tags, Rules | **To do** | |
@@ -66,7 +66,7 @@ Each file starts with a comment saying what it is for and how to call it. In sho
 | `Stat` | a figure with its label | `tone` colours a value that is itself signed; `delta` is the signed change beside it |
 | `Notice` | the app's messages | the shell owns it (`App.svelte`, `appStatus.svelte.js`); pages don't add their own banner stacks |
 | `Field` | inputs, selects, textareas, checkboxes | other controls go in as children; `hideLabel` inside a labelled `ToolGroup` |
-| `Tag` | a word about a row | quiet "· word" text; with `onclick` it is a bordered filter with `pressed`; `warn` adds ⚠; `bare` drops the dot |
+| `Tag` | a word about a row | quiet "繚 word" text; with `onclick` it is a bordered filter with `pressed`; `warn` adds ?? `bare` drops the dot |
 
 `<main class="console">` is the content column (24px gutters, 16px under 1180px). Section headings are 16px / 650;
 sub-labels are `.label-caps`. Sections are separated by a hairline and space, not by boxes.
@@ -74,32 +74,32 @@ sub-labels are `.label-caps`. Sections are separated by a hairline and space, no
 If a page needs something the components don't do, extend the component (as `Table` got `limit` and `tone` in step 3)
 rather than hand-rolling a one-off, and note it under the step in `docs/ui-redesign.md`.
 
-## Conventions that came out of steps 1–4 (follow them)
+## Conventions that came out of steps 1?? (follow them)
 
 - **Lime is only "act on this now".** A selected, locked, pinned or ticked thing is a *state*: mark it with light ink
   (`--text-1` border or outline, `--surface-3` fill), never lime. A disabled primary button is grey. One primary
   button per view, in the page header.
 - **Blue and red are only the sides, on structure** (a 3px inset edge on a list or column). Never on text or a figure.
-  Don't use red for "bad" or "gap": write the word with ⚠ (`Tag warn`), and use `--error` only for real errors.
-- **Teal and orange only colour signed figures and their bars**, with `+` / `−` in the text. Use a neutral colour when a
+  Don't use red for "bad" or "gap": write the word with ??(`Tag warn`), and use `--error` only for real errors.
+- **Teal and orange only colour signed figures and their bars**, with `+` / `? in the text. Use a neutral colour when a
   value is inside its noise (see `tone` helpers in `PlanSynergy.svelte` and `Team.svelte`). A result is a word in ink
   (Win bright, Loss quiet), not a colour.
 - **Charts** read `web/src/palette.js`: `COMPONENT` for a chart with several series, `TEXT_2` (neutral ink) for a
   single series, `FONT_UI` / `FONT_MONO`, `LINE` for axes and grid, `MUTED` for labels. Lime is never a data colour.
   A new series set must be validated first (command in `docs/ui-redesign.md`, "Colour"; the dataviz skill has the script).
 - **Figures are mono** (`class="mono"`, or `num: true` on a table column); labels are small caps; reasons and captions
-  are 12–13px in `--text-3`.
-- **Every state is written out**: empty ("No games match these filters"), loading, error with ⚠ and the reason.
+  are 12??3px in `--text-3`.
+- **Every state is written out**: empty ("No games match these filters"), loading, error with ??and the reason.
 - **A page's first request goes out at once** (`loading.js` holds the page until it answers); debounce only later
   edits. Other pages are lazy chunks (`App.svelte` `LOADERS`); Live and what it imports stay in the main bundle.
-- **Spacing slips to avoid:** Svelte drops the space between an inline element and following text, so "⚠ text" and
-  "name · tag" need a margin or a flex `gap`, not a literal space. This happened four times.
-- When a file has ⚠, −, · or →, edit it with the Edit / Write tools (or a Python script reading and writing UTF-8),
+- **Spacing slips to avoid:** Svelte drops the space between an inline element and following text, so "??text" and
+  "name 繚 tag" need a margin or a flex `gap`, not a literal space. This happened four times.
+- When a file has ?? ?? 繚 or ?? edit it with the Edit / Write tools (or a Python script reading and writing UTF-8),
   not shell heredocs with nested quoting (`CLAUDE.md`, last lesson).
 
 ## What is left, step by step
 
-### Step 5: Roster (`docs/roster-profiles.md`), Stages B–E
+### Step 5: Roster (`docs/roster-profiles.md`), Stages B?
 
 Stage A gave you: the new columns (`player_games`: kills, deaths, assists, cs, vision, duration_s; `players`: rank_json,
 mastery_json, profile_fetched_at), `learning/history.py` (`game_stats`, `backfill_game_stats`, `refresh_profiles`,
@@ -124,7 +124,7 @@ page, `load_inputs(db, puuid)`; `Game`, `PoolRow`, `ExecutionRow` records). Read
   demo roster, clearly marked), or the pages can't be checked. `scripts/seed_demo_games.py` (see below) is a start for
   team games; player games with stats, rank and mastery are still missing.
 - **Stage D**: the Roster page (lineup summaries, bench table, swap sheet with an undo toast, the four-step Add player
-  sheet). "Add player" is the page's primary button. Bench and Delete are separate; Delete sits in a `⋯` menu and
+  sheet). "Add player" is the page's primary button. Bench and Delete are separate; Delete sits in a `?畔 menu and
   asks for confirmation (`Button danger`). There is no sheet / dialog / toast / menu component yet: build them in
   `web/src/ui/` (focus trap, Escape closes, focus returns to the opener; `motion.js` has `pop` and `reveal`), add
   them to `#/kit`, and check Add player with the keyboard alone.
@@ -149,7 +149,7 @@ As `docs/ui-redesign.md` describes them. Notes:
 
 ### Step 9: Clean up
 
-As the doc lists, plus what steps 1–4 added to it:
+As the doc lists, plus what steps 1?? added to it:
 
 - Remove `#/kit` (`Kit.svelte`, its `LOADERS` / `PAGES` entries in `App.svelte`): **decision 11**.
 - Remove the alias tokens and `GOLD` from `palette.js` once nothing reads them; replace every hard-coded hex in
@@ -167,8 +167,8 @@ DRAFTASSIST_HOME=<scratch> DRAFTASSIST_DB=<scratch>/demo.sqlite DRAFTASSIST_LCU=
   uv run uvicorn draftassist.api.main:app --port 8765
 ```
 
-- Screenshots with Playwright (`require('playwright')`, pre-installed; don't install another) at **1440 × 900 and
-  1100 × 760**, saved in a scratch folder, never in the repository. Move the mouse off the rail first
+- Screenshots with Playwright (`require('playwright')`, pre-installed; don't install another) at **1440 ? 900 and
+  1100 ? 760**, saved in a scratch folder, never in the repository. Move the mouse off the rail first
   (`page.mouse.move(900, 860)`), wait ~2 s for the page to settle, use `fullPage: true` for long pages.
 - For each page check: no console errors, `document.documentElement.scrollWidth` equals the viewport width, keyboard
   focus is visible on every control, empty / loading / error states, and reduced motion
@@ -183,7 +183,7 @@ DRAFTASSIST_HOME=<scratch> DRAFTASSIST_DB=<scratch>/demo.sqlite DRAFTASSIST_LCU=
 
 ## Known gaps and things not verified (for the end pass)
 
-- The full test suite has not been run since step 2. Steps 3–4 changed only `web/`; Stage A changed Python and ran
+- The full test suite has not been run since step 2. Steps 3?? changed only `web/`; Stage A changed Python and ran
   only `tests/test_profile.py` and its neighbours.
 - `tests/test_simulation.py::test_simulated_draft[blue-ranked]` failed once in a full run while the UI was being
   rebuilt beside it, and passed alone and in the next full run. Cause not found.
