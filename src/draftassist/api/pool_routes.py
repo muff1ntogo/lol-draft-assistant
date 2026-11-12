@@ -9,6 +9,7 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from draftassist.api.deps import db_of
 from draftassist.data.pools import (
     bench,
+ create_player,
     forget_player,
     import_pools,
     list_players,
@@ -19,6 +20,7 @@ from draftassist.data.pools import (
     set_pool_entry,
     swap_player,
 )
+from draftassist.api.onboarding import OnboardingRunner
 from draftassist.data.settings_store import get_engine_settings
 from draftassist.engine.blind import pool_health
 from draftassist.engine.comp import badge
@@ -49,6 +51,62 @@ def _resolver(svc: Services):
 def _roster_changed(svc: Services) -> None:
     svc.save_roster()
     svc.reload()
+
+
+def _onboarding(svc: Services) -> OnboardingRunner:
+    runner = getattr(svc, "onboarding", None)
+    if runner is None:
+        yield_file = svc.settings.cache_dir / "jobs" / "yield.json" if svc.settings else None
+        runner = OnboardingRunner(svc.make_riot(), lambda: svc.live.engine._enemy_role_shares(), yield_file)
+        svc.onboarding = runner
+    return runner
+
+
+@router.post("/api/players/lookup")
+def post_lookup(request: Request, riot_id: str = Body(..., embed=True)) -> dict:
+    svc: Services = request.app.state.services
+    if not _onboarding(svc).available:
+        return {"no_key": True}
+    try:
+        riot = svc.make_riot()()
+        account = riot.account(riot_id)
+        if not account:
+            return {"found": False}
+        summoner = riot.summoner(account["puuid"]) or {}
+        return {"found": True, "riot_id": f"{account.get('gameName', riot_id.split('#')[0])}#{account.get('tagLine', riot_id.split('#')[-1])}",
+                "level": summoner.get("summonerLevel"), "rank": riot.ranks(account["puuid"])}
+    finally:
+        if 'riot' in locals(): riot.close()
+
+
+@router.post("/api/players/onboard")
+def post_onboard(request: Request, riot_id: str = Body(...), role: str = Body(...)) -> dict:
+    svc: Services = request.app.state.services
+    if role not in {"top", "jungle", "mid", "adc", "support"}:
+        raise HTTPException(422, "unknown role")
+    runner = _onboarding(svc)
+    return {"job": runner.start(riot_id, role)}
+
+
+@router.get("/api/players/onboard/{job}")
+def get_onboard(request: Request, job: str) -> dict:
+    record = _onboarding(request.app.state.services).get(job)
+    if record is None:
+        raise HTTPException(404, "no such onboarding job")
+    return {"status": record.status, "games_read": record.games_read, "games_total": record.games_total,
+            "proposal": record.proposal, "also_plays": record.also_plays, "error": record.error}
+
+
+@router.post("/api/players")
+def post_player(request: Request, riot_id: str = Body(...), role: str = Body(...), active: bool = Body(...),
+                pool: list[dict] = Body(...)) -> list[dict]:
+    svc: Services = request.app.state.services
+    try:
+        stored = create_player(db_of(svc), riot_id, role, active, pool, _onboarding(svc).completed(riot_id, role))
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from None
+    _roster_changed(svc)
+    return stored
 
 
 @router.put("/api/players")

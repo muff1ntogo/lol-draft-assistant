@@ -18,6 +18,7 @@ CLI: `uv run python -m draftassist.data.pools import pools.txt`
 from __future__ import annotations
 
 import difflib
+import json
 import logging
 import re
 from collections.abc import Mapping
@@ -27,7 +28,7 @@ from pathlib import Path
 from sqlalchemy import Engine
 from sqlmodel import Session, delete, select
 
-from draftassist.db.models import Player, PoolEntry
+from draftassist.db.models import Champion, Player, PlayerGame, PoolEntry
 from draftassist.engine.model import ROLES, TIERS, OurTeam, PoolChamp, tier_comfort
 
 log = logging.getLogger(__name__)
@@ -284,6 +285,37 @@ def swap_player(db: Engine, role: str, riot_id: str, resolver=None) -> list[dict
         known = _by_riot_id(s, riot_id)
         if current is None or known is None or known.puuid != current.puuid:
             _swap_in(s, role, riot_id, resolver, bracket)
+        s.commit()
+    return list_players(db)
+
+
+def create_player(db: Engine, riot_id: str, role: str, active: bool, pool: list[dict], onboarding=None) -> list[dict]:
+    """Create a reviewed onboarding proposal and its fetched history in one transaction."""
+    role, riot_id = _role(role), _check_riot_id(riot_id)
+    if not riot_id:
+        raise ValueError("a Riot ID is needed to add a player")
+    if any(e.get("role") != role or e.get("tier") not in TIERS for e in pool):
+        raise ValueError("pool entries must use the selected role and a known tier")
+    if len({e.get("champ_id") for e in pool}) != len(pool):
+        raise ValueError("a champion can appear only once in a pool")
+    with Session(db) as s:
+        if _by_riot_id(s, riot_id) is not None:
+            raise ValueError("that Riot ID is already on the roster")
+        current = player_for_role(s, role) if active else None
+        player = _new_player(s, role, riot_id)
+        player.active = active
+        if current is not None:
+            _bench(s, current)
+        if onboarding is not None:
+            player.api_puuid = onboarding.api_puuid
+            player.rank_json, player.mastery_json = json.dumps(onboarding.ranks), json.dumps(onboarding.mastery)
+            for i, game in enumerate(onboarding.games):
+                s.add(PlayerGame(puuid=player.puuid, match_id=f"onboard:{i}", champ_id=game.champ_id, role=game.role,
+                                 win=game.win, queue_id=None, game_start_ms=game.start_ms, source="match-v5"))
+        for item in pool:
+            if not s.get(Champion, item["champ_id"]):
+                raise ValueError(f"unknown champion {item['champ_id']}")
+            s.add(PoolEntry(puuid=player.puuid, champ_id=item["champ_id"], role=role, manual_tier=item["tier"]))
         s.commit()
     return list_players(db)
 

@@ -245,10 +245,18 @@ class RiotClient:
         """A player's ranked entries (league-v4 by PUUID): queue, tier, division, LP, wins, losses. Refreshed hourly."""
         return self.get(PLATFORM, f"/lol/league/v4/entries/by-puuid/{puuid}", ttl=3600) or []
 
-    def account_puuid(self, riot_id: str) -> str | None:
-        """'Name#TAG' -> PUUID (account-v1), None if no such account."""
+    def summoner(self, puuid: str) -> dict | None:
+        """Summoner-v4 identity, used only for the account level in roster onboarding."""
+        return self.get(PLATFORM, f"/lol/summoner/v4/summoners/by-puuid/{puuid}", ttl=DAY)
+
+    def account(self, riot_id: str) -> dict | None:
+        """Account-v1 identity for onboarding; unlike ``account_puuid`` preserves display casing."""
         from urllib.parse import quote
 
         name, _, tag = riot_id.partition("#")
-        body = self.get(REGION, f"/riot/account/v1/accounts/by-riot-id/{quote(name)}/{quote(tag)}")
+        return self.get(REGION, f"/riot/account/v1/accounts/by-riot-id/{quote(name)}/{quote(tag)}")
+
+    def account_puuid(self, riot_id: str) -> str | None:
+        """'Name#TAG' -> PUUID (account-v1), None if no such account."""
+        body = self.account(riot_id)
         return body.get("puuid") if body else None

@@ -197,6 +197,16 @@ the page) and `load_inputs`, which reads one player's rows. Tests: `tests/test_p
   the roster actions in Stage C (`players.active_since`). Blind safety, pool health and the execution hint need the
   engine, so the API adds them in Stages C and E.
 
+**Stage B (12 Nov 2026).** `learning/pool_proposal.py` is pure and has the documented, tuneable game and mastery
+thresholds. It produces reviewable game-first rows with source, games, wins and mastery; mastery fills only to five,
+never yields main, and no role gets more than ten rows. `api/onboarding.py` keeps onboarding reads in short-lived
+in-memory jobs: lookup canonicalizes account-v1 casing and returns level/rank; onboarding reads 60-day ranked history,
+rank and mastery, requests the crawl yield file, and returns proposal plus `also_plays`; nothing is stored until
+`POST /api/players` writes the reviewed player, pool and fetched games in one transaction. No key gives `{no_key:true}`
+at lookup and a completed empty onboarding proposal. Tests: `tests/test_pool_proposal.py` (fake Riot client) plus the
+affected pool, roster and profile tests: 38 passed. The user-authorized EUW real sanity check could not run because this
+environment had no `RIOT_API_KEY`; it made no API request and its disposable scratch directory was removed.
+
 ## Not in scope
 
 - A list of recent games on the profile (not chosen; History has the team's games).

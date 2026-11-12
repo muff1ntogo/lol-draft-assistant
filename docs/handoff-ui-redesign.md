@@ -39,7 +39,8 @@ reference for a finished console page, and `#/kit` (`web/src/Kit.svelte`) to see
 | 3 Prep | Done | `4607ec4` |
 | 4 Review: History and Team trends | Done | `94c5b4e` |
 | 5 Roster, Stage A (data and profile figures) | Done | `f30c2c5` |
-| 5 Roster, Stages B, C, D, E | **To do** | |
+| 5 Roster, Stage B (pool proposal and onboarding API) | Done | pending commit |
+| 5 Roster, Stages C, D, E | **To do** | |
 | 6 Crawl | **To do** | |
 | 7 Settings, Tags, Rules | **To do** | |
 | 8 Live's remaining parts | **To do** | |
@@ -193,6 +194,9 @@ DRAFTASSIST_HOME=<scratch> DRAFTASSIST_DB=<scratch>/demo.sqlite DRAFTASSIST_LCU=
   with values.
 - Stage A's learning-job wiring (`backfill_game_stats`, `refresh_profiles` after the history fetch) is covered by unit
   tests of each function, not by a test of `run_learning` end to end.
+- Stage B's fake-client proposal/onboarding coverage passed (38 focused tests with its affected pool/roster/profile
+tests), but the user-authorized real EUW sanity lookup/fetch was not run: no `RIOT_API_KEY` was available in this
+environment. It sent no request and the disposable scratch directory was removed.
 - "Comfort-weighted pool size" (main 1, comfortable 0.5, learning 0.25) and the lane-execution label and trend rules
   are this work's reading of the doc; the user has seen them but not confirmed them.
 - Roster's left gutter doesn't line up with the notice strip until `Pools.svelte` moves to `.console`.
