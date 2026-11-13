@@ -114,8 +114,8 @@ class Player(SQLModel, table=True):
     api_puuid: str | None = None
     # One active player per role; a swapped-out player stays on the bench with their pool (docs/player-roster.md)
     active: bool = True
-    # Set whenever a player becomes active in a role; used for the roster's "since" figure.
-    active_since: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    # When they became the active player in their role (the Roster page's "since"); None in databases older than it
+    active_since: datetime | None = Field(default_factory=lambda: datetime.now(UTC))
     # Profile data from the Riot API (docs/roster-profiles.md): fetched when a player is added, refreshed by the
     # learning job at most once a day. Not mirrored to roster.json (it is fetched again).
     rank_json: str | None = None  # JSON: the league-v4 entries (queue, tier, division, LP, wins, losses)

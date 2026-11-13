@@ -8,15 +8,17 @@ from sqlmodel import Session, select
 from draftassist.api.main import create_app
 from draftassist.data.pools import (
     bench,
-	bench_player,
-	delete_player,
+    bench_player,
+    delete_player,
     forget_player,
     import_pools,
     list_players,
     load_pools,
     load_team,
     parse_pool_text,
+    remove_player_pool_entry,
     roles_by_puuid,
+    set_player_pool_entry,
     set_players,
     swap_player,
 )
@@ -121,27 +123,41 @@ def test_a_swap_changes_the_stats_version_so_the_engine_reloads_after_the_draft(
 
 
 def test_bench_activate_and_delete_keep_the_right_player_data(db):
-	"""Stage C: new roster actions preserve pools and logged team history."""
-	with Session(db) as s:
-		main = s.get(Player, "puuid-main")
-		before = main.active_since
-		s.add(PlayerGame(puuid="puuid-main", match_id="fetched", champ_id=897, role="top", win=True,
-			game_start_ms=1, source="match-v5"))
-		s.add(PlayerGame(puuid="puuid-main", match_id="logged", champ_id=897, role="top", win=True,
-			game_start_ms=2, source="logged"))
-		s.commit()
-	assert bench_player(db, "Main#EUW")
-	assert [b["riot_id"] for b in bench(db)] == ["Main#EUW"]
-	swap_player(db, "top", "main#euw")
-	with Session(db) as s:
-		main = s.get(Player, "puuid-main")
-		assert main.active and main.active_since >= before
-	assert delete_player(db, "Main#EUW")
-	with Session(db) as s:
-		assert s.exec(select(PoolEntry).where(PoolEntry.puuid == "puuid-main")).first() is None
-		assert s.get(PlayerGame, ("puuid-main", "fetched")) is None
-		assert s.get(PlayerGame, ("puuid-main", "logged")) is not None
-		assert s.get(Player, "puuid-main").riot_id == ""
+    """Stage C: bench keeps the pool, activating brings the role's pool back, delete removes the pool and the fetched
+    games and keeps the team's logged games (decision 6)."""
+    with Session(db) as s:
+        before = s.get(Player, "puuid-main").active_since
+        s.add(PlayerGame(puuid="puuid-main", match_id="fetched", champ_id=897, role="top", win=True, game_start_ms=1,
+                         source="match-v5"))
+        s.add(PlayerGame(puuid="puuid-main", match_id="logged", champ_id=897, role="top", win=True, game_start_ms=2,
+                         source="logged"))
+        s.commit()
+    assert bench_player(db, "Main#EUW") and not bench_player(db, "Main#EUW") and not bench_player(db, "Nobody#EUW")
+    assert [b["riot_id"] for b in bench(db)] == ["Main#EUW"] and top_pool(db) == []
+    assert sorted(c for c, _ in bench(db)[0]["pools"]["top"]) == [68, 897]  # the bench keeps the pool
+    swap_player(db, "top", "main#euw")
+    assert top_pool(db) == [68, 897]  # and it comes back with them
+    with Session(db) as s:
+        main = s.get(Player, "puuid-main")
+        assert main.active and main.active_since >= before
+    assert delete_player(db, "Main#EUW") and not delete_player(db, "Main#EUW")
+    with Session(db) as s:
+        assert s.get(Player, "puuid-main") is None
+        assert s.exec(select(PoolEntry).where(PoolEntry.puuid == "puuid-main")).first() is None
+        assert s.get(PlayerGame, ("puuid-main", "fetched")) is None
+        assert s.get(PlayerGame, ("puuid-main", "logged")) is not None  # team history stays
+    assert by_role(db)["top"] == ""  # the role is empty, not a nameless player
+
+
+def test_any_players_pool_can_be_edited_benched_or_not(db):
+    swap_player(db, "top", "Sub#EUW", {"Sub#EUW": "puuid-sub"}.get)
+    assert set_player_pool_entry(db, "Main#EUW", "top", 150, "learning")  # on the bench
+    assert set_player_pool_entry(db, "sub#euw", "top", 150, "main") and not set_player_pool_entry(db, "Nobody#EUW", "top", 150, "main")
+    assert top_pool(db) == [150]
+    assert sorted(c for c, _ in bench(db)[0]["pools"]["top"]) == [68, 150, 897]
+    assert remove_player_pool_entry(db, "Main#EUW", "top", 150) and not remove_player_pool_entry(db, "Main#EUW", "top", 150)
+    with pytest.raises(ValueError):
+        set_player_pool_entry(db, "Main#EUW", "top", 150, "godlike")
 
 
 # ---------- the roster file ----------
@@ -210,19 +226,44 @@ def test_api_swap_bench_and_the_file_follows(make_services, db, tmp_path):
 
 
 def test_api_roster_profile_and_actions(make_services, db, tmp_path):
-	svc = make_services(db=db)
-	svc.roster_path = tmp_path / "roster.json"
-	with TestClient(create_app(svc, stats_refresh_s=0)) as client:
-		roster = client.get("/api/roster")
-		assert roster.status_code == 200
-		top = roster.json()["lineup"][0]
-		assert top["riot_id"] == "Main#EUW" and top["active_since"]
-		assert top["pool"]["champs"][0]["champ"]["name"] in {"Rumble", "K'Sante"}
-		profile = client.get("/api/players/Main%23EUW/profile", params={"window": "60d"})
-		assert profile.status_code == 200 and profile.json()["riot_id"] == "Main#EUW"
-		assert client.get("/api/players/Main%23EUW/profile", params={"window": "bad"}).status_code == 422
-		assert client.delete("/api/players/Main%23EUW", params={"confirm": "wrong"}).status_code == 422
-		assert client.post("/api/players/Main%23EUW/bench").status_code == 200
-		activated = client.post("/api/players/Main%23EUW/activate", json={"role": "top"})
-		assert activated.status_code == 200 and activated.json()["roster"]["lineup"][0]["riot_id"] == "Main#EUW"
-		assert client.delete("/api/players/Main%23EUW", params={"confirm": "Main#EUW"}).status_code == 200
+    svc = make_services(db=db)
+    svc.roster_path = tmp_path / "roster.json"
+    file = lambda: svc.roster_path.read_text(encoding="utf-8")
+    with TestClient(create_app(svc, stats_refresh_s=0)) as client:
+        roster = client.get("/api/roster").json()
+        assert [r["role"] for r in roster["lineup"]] == ["top", "jungle", "mid", "adc", "support"]
+        top, mid = roster["lineup"][0], roster["lineup"][2]
+        assert top["riot_id"] == "Main#EUW" and top["since_days"] == 0 and top["pool"]["size"] == 2 and top["pool_roles"] == ["top"]
+        assert {c["champ"]["name"] for c in top["pool"]["champs"]} == {"Rumble", "K'Sante"}
+        assert mid == {"role": "mid", "role_label": "Mid", "riot_id": "", "active": False}  # an empty role
+        assert roster["bench"] == [] and roster["has_key"] is False
+
+        profile = client.get("/api/players/Main%23EUW/profile", params={"window": "60d"}).json()
+        assert profile["riot_id"] == "Main#EUW" and profile["active"] and profile["pools"][0]["editable_tiers"]
+        assert [r["champ"]["name"] for r in profile["pools"][0]["pool"]] == ["K'Sante", "Rumble"]
+        assert client.get("/api/players/Main%23EUW/profile", params={"window": "bad"}).status_code == 422
+        assert client.get("/api/players/Nobody%23EUW/profile").status_code == 404
+
+        # the pool of a named player, and the stats bracket
+        assert client.put("/api/players/Main%23EUW/pool/top/150", json={"tier": "learning"}).json() == {"applied": True}
+        assert client.put("/api/players/Main%23EUW/pool/top/150", json={"tier": "godlike"}).status_code == 422
+        assert client.put("/api/players/Main%23EUW/pool/top/4242", json={"tier": "main"}).status_code == 404
+        assert client.delete("/api/players/Main%23EUW/pool/top/150").json() == {"applied": True}
+        assert client.delete("/api/players/Main%23EUW/pool/top/150").status_code == 404
+        assert client.put("/api/players/Main%23EUW/bracket", json={"bracket": "Emerald"}).json() == {"bracket": "emerald"}
+        assert client.get("/api/roster").json()["lineup"][0]["bracket"] == "emerald"
+
+        # bench, activate with what to undo, delete with confirm; the roster file follows each
+        benched = client.post("/api/players/Main%23EUW/bench").json()
+        assert benched["lineup"][0]["riot_id"] == "" and [b["riot_id"] for b in benched["bench"]] == ["Main#EUW"]
+        assert '"active": false' in file() and client.post("/api/players/Main%23EUW/bench").status_code == 404
+        assert client.post("/api/players/Jg%23EUW/activate", json={"role": "jungle"}).json()["undo"] is None  # already there
+        back = client.post("/api/players/Main%23EUW/activate", json={"role": "top"}).json()
+        assert back["roster"]["lineup"][0]["riot_id"] == "Main#EUW" and back["undo"] == {"riot_id": "", "role": "top", "bench": "Main#EUW"}
+        assert client.post("/api/players/Main%23EUW/activate", json={"role": "jungle"}).status_code == 422  # they are our top
+        assert client.post("/api/players/Nobody%23EUW/activate", json={"role": "top"}).status_code == 404
+        assert client.delete("/api/players/Main%23EUW", params={"confirm": "wrong"}).status_code == 422
+        assert client.delete("/api/players/Main%23EUW").status_code == 422
+        gone = client.delete("/api/players/Main%23EUW", params={"confirm": "main#euw"}).json()
+        assert gone["lineup"][0]["riot_id"] == "" and "Main#EUW" not in file()
+        assert client.delete("/api/players/Main%23EUW", params={"confirm": "Main#EUW"}).status_code == 404

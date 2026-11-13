@@ -6,8 +6,8 @@ crawl's role shares; the review UI can always show exactly why each row was sugg
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Iterable, Mapping
 
 from draftassist.learning.comfort import wr_adj
 

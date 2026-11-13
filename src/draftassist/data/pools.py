@@ -195,38 +195,39 @@ def _resolve(s: Session, player: Player, resolver) -> Player:
 
 
 def _swap_in(s: Session, role: str, riot_id: str, resolver=None, bracket: str | None = None) -> Player:
- """Make `riot_id` the role's active player: a benched player comes back with their pool, someone new starts with
- an empty one. The current player goes to the bench."""
- current = player_for_role(s, role)
- known = _by_riot_id(s, riot_id)
- if known is not None and known.active and known.role != role:
-  raise ValueError(f"{known.riot_id} is our {known.role}: swap them out there first")
- if current is not None and (known is None or known.puuid != current.puuid):
-  _bench(s, current)
- if known is None:
-  return _resolve(s, _new_player(s, role, riot_id, bracket), resolver)
- known.active, known.role, known.active_since = True, role, datetime.now(UTC)
- s.add(known)
- s.flush()
- return known
+    """Make `riot_id` the role's active player: a benched player comes back with their pool, someone new starts with
+    an empty one. The current player goes to the bench."""
+    current = player_for_role(s, role)
+    known = _by_riot_id(s, riot_id)
+    if known is not None and known.active and known.role != role:
+        raise ValueError(f"{known.riot_id} is our {known.role}: swap them out there first")
+    if current is not None and (known is None or known.puuid != current.puuid):
+        _bench(s, current)
+    if known is None:
+        return _resolve(s, _new_player(s, role, riot_id, bracket), resolver)
+    # their pool entries keep their own roles: an old role's pool waits there
+    known.active, known.role, known.active_since = True, role, datetime.now(UTC)
+    s.add(known)
+    s.flush()
+    return known
 
 
 def _move_player(s: Session, old: Player, new_puuid: str) -> Player:
- """Re-key a player (e.g. placeholder -> real PUUID), carrying their pool entries along."""
- if old.puuid == new_puuid:
-  return old
- new = Player(puuid=new_puuid, riot_id=old.riot_id, role=old.role, rank=old.rank, bracket=old.bracket,
-              client_puuid=old.client_puuid, api_puuid=old.api_puuid, active=old.active, active_since=old.active_since,
-              rank_json=old.rank_json, mastery_json=old.mastery_json, profile_fetched_at=old.profile_fetched_at)
- s.add(new)
- s.flush()
- for e in s.exec(select(PoolEntry).where(PoolEntry.puuid == old.puuid)).all():
-  s.add(PoolEntry(**{**e.model_dump(), "puuid": new_puuid}))
-  s.delete(e)
- s.flush()
- s.delete(old)
- s.flush()
- return new
+    """Re-key a player (e.g. placeholder -> real PUUID), carrying their pool entries, games and profile data along."""
+    if old.puuid == new_puuid:
+        return old
+    new = Player(puuid=new_puuid, riot_id=old.riot_id, role=old.role, rank=old.rank, bracket=old.bracket,
+                 client_puuid=old.client_puuid, api_puuid=old.api_puuid, active=old.active, active_since=old.active_since,
+                 rank_json=old.rank_json, mastery_json=old.mastery_json, profile_fetched_at=old.profile_fetched_at)
+    s.add(new)
+    s.flush()
+    for e in s.exec(select(PoolEntry).where(PoolEntry.puuid == old.puuid)).all():
+        s.add(PoolEntry(**{**e.model_dump(), "puuid": new_puuid}))
+        s.delete(e)
+    s.flush()
+    s.delete(old)
+    s.flush()
+    return new
 
 
 def _check_riot_id(riot_id: str) -> str:
@@ -291,33 +292,42 @@ def swap_player(db: Engine, role: str, riot_id: str, resolver=None) -> list[dict
     return list_players(db)
 
 
-def create_player(db: Engine, riot_id: str, role: str, active: bool, pool: list[dict], onboarding=None) -> list[dict]:
-    """Create a reviewed onboarding proposal and its fetched history in one transaction."""
+def create_player(db: Engine, riot_id: str, role: str, active: bool, pool: list[dict], fetched=None) -> list[dict]:
+    """Add a player with the pool the user reviewed (docs/roster-profiles.md, Add player), in one transaction.
+    `fetched` is what onboarding read for them, if anything: their API PUUID, rank, mastery and games (rows shaped like
+    `player_games`, with their real match ids, so the learning job's later fetch finds them and adds nothing twice).
+    Active: the role's current player goes to the bench. Returns the active players."""
     role, riot_id = _role(role), _check_riot_id(riot_id)
     if not riot_id:
         raise ValueError("a Riot ID is needed to add a player")
-    if any(e.get("role") != role or e.get("tier") not in TIERS for e in pool):
-        raise ValueError("pool entries must use the selected role and a known tier")
+    if any(e.get("role", role) != role or e.get("tier") not in TIERS for e in pool):
+        raise ValueError("pool entries must use the player's role and a known tier")
     if len({e.get("champ_id") for e in pool}) != len(pool):
         raise ValueError("a champion can appear only once in a pool")
     with Session(db) as s:
         if _by_riot_id(s, riot_id) is not None:
-            raise ValueError("that Riot ID is already on the roster")
+            raise ValueError(f"{riot_id} is already on the roster")
+        for item in pool:
+            if not s.get(Champion, item.get("champ_id")):
+                raise ValueError(f"unknown champion {item.get('champ_id')}")
         current = player_for_role(s, role) if active else None
-        player = _new_player(s, role, riot_id)
-        player.active = active
         if current is not None:
             _bench(s, current)
-        if onboarding is not None:
-            player.api_puuid = onboarding.api_puuid
-            player.rank_json, player.mastery_json = json.dumps(onboarding.ranks), json.dumps(onboarding.mastery)
-            for i, game in enumerate(onboarding.games):
-                s.add(PlayerGame(puuid=player.puuid, match_id=f"onboard:{i}", champ_id=game.champ_id, role=game.role,
-                                 win=game.win, queue_id=None, game_start_ms=game.start_ms, source="match-v5"))
+            bracket = current.bracket
+        else:
+            bracket = None
+        player = _new_player(s, role, riot_id, bracket)
+        player.active = active
+        if fetched is not None and fetched.api_puuid:
+            player.api_puuid = fetched.api_puuid
+            player.rank_json, player.mastery_json = json.dumps(fetched.ranks), json.dumps(fetched.mastery)
+            player.profile_fetched_at = datetime.now(UTC)
+            for row in fetched.games:
+                s.add(PlayerGame(puuid=player.puuid, source="match-v5", **row))
+        s.add(player)
         for item in pool:
-            if not s.get(Champion, item["champ_id"]):
-                raise ValueError(f"unknown champion {item['champ_id']}")
-            s.add(PoolEntry(puuid=player.puuid, champ_id=item["champ_id"], role=role, manual_tier=item["tier"]))
+            s.add(PoolEntry(puuid=player.puuid, champ_id=item["champ_id"], role=role, manual_tier=item["tier"],
+                            comfort=tier_comfort(item["tier"])))
         s.commit()
     return list_players(db)
 
@@ -353,35 +363,29 @@ def forget_player(db: Engine, riot_id: str) -> bool:
 
 
 def bench_player(db: Engine, riot_id: str) -> bool:
- """Move one active, named player to the bench while retaining their pools and history."""
- with Session(db) as s:
-  p = _by_riot_id(s, riot_id)
-  if p is None or not p.active:
-   return False
-  _bench(s, p)
-  s.commit()
-  return True
+    """Move one active, named player to the bench; they keep their pools and games. False if there is no such player."""
+    with Session(db) as s:
+        p = _by_riot_id(s, riot_id)
+        if p is None or not p.active:
+            return False
+        _bench(s, p)
+        s.commit()
+    return True
 
 
 def delete_player(db: Engine, riot_id: str) -> bool:
- """Permanently remove a player, pools and fetched games; team-logged games keep their historic owner/name."""
- with Session(db) as s:
-  p = _by_riot_id(s, riot_id)
-  if p is None:
-   return False
-  s.exec(delete(PoolEntry).where(PoolEntry.puuid == p.puuid))
-  s.exec(delete(PlayerGame).where(PlayerGame.puuid == p.puuid, PlayerGame.source != "logged"))
-  if p.active:
-   # Keep the role explicitly empty rather than creating an unnamed placeholder.
-   p.riot_id = ""
-   p.rank_json = p.mastery_json = None
-   p.api_puuid = p.client_puuid = None
-   p.active_since = datetime.now(UTC)
-   s.add(p)
-  else:
-   s.delete(p)
-  s.commit()
-  return True
+    """Remove a player for good: the player, their pools and the games fetched for them. The team's history stays
+    (docs/roster-profiles.md, decision 6): drafts, execution rows and the games logged from our own drafts
+    (`source == "logged"`), which History and the Team page read. False if there is no such player."""
+    with Session(db) as s:
+        p = _by_riot_id(s, riot_id)
+        if p is None:
+            return False
+        s.exec(delete(PoolEntry).where(PoolEntry.puuid == p.puuid))
+        s.exec(delete(PlayerGame).where(PlayerGame.puuid == p.puuid, PlayerGame.source != "logged"))
+        s.delete(p)
+        s.commit()
+    return True
 
 
 def resolve_from_session(db: Engine, members: list[dict]) -> int:
@@ -502,6 +506,37 @@ def remove_pool_entry(db: Engine, role: str, champ_id: int) -> bool:
     """Take one champion out of a player's pool. False if it wasn't there."""
     with Session(db) as s:
         player = player_for_role(s, role)
+        e = s.get(PoolEntry, (player.puuid, champ_id, role)) if player else None
+        if e is None:
+            return False
+        s.delete(e)
+        s.commit()
+    return True
+
+
+def set_player_pool_entry(db: Engine, riot_id: str, role: str, champ_id: int, tier: str) -> bool:
+    """Add a champion to any player's pool (active or benched, any role), or change its tier. False: no such player."""
+    if role not in ROLES:
+        raise ValueError(f"role must be one of {', '.join(ROLES)}")
+    if tier not in TIERS:
+        raise ValueError(f"tier must be one of {', '.join(TIERS)}")
+    with Session(db) as s:
+        player = _by_riot_id(s, riot_id)
+        if player is None:
+            return False
+        e = s.get(PoolEntry, (player.puuid, champ_id, role))
+        if e is None:
+            e = PoolEntry(puuid=player.puuid, champ_id=champ_id, role=role, manual_tier=tier, comfort=tier_comfort(tier))
+        e.manual_tier = tier
+        s.add(e)
+        s.commit()
+    return True
+
+
+def remove_player_pool_entry(db: Engine, riot_id: str, role: str, champ_id: int) -> bool:
+    """Take a champion out of any player's pool. False if the player or the entry isn't there."""
+    with Session(db) as s:
+        player = _by_riot_id(s, riot_id)
         e = s.get(PoolEntry, (player.puuid, champ_id, role)) if player else None
         if e is None:
             return False
