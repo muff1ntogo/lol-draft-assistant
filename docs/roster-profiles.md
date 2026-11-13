@@ -237,7 +237,12 @@ repository is the rewrite.
 - **Checked in a browser** (scratch database, seeded): adding by keyboard alone without a key, the key path against
   made-up answers (found, reading, proposal), an ID already on the roster, swap with Undo, bench with Undo, an empty
   role, delete, and on the profile tier change, remove with Undo, lock, window, import, a benched player, a player with
-  no data and an unknown player. **Not checked:** the one real Riot lookup (decision 7): no Riot ID was given.
+  no data and an unknown player. **The one real check (decision 7, 14 Nov 2026):** a Riot ID the user gave, through `lookup` and the
+  onboarding job, on a scratch folder deleted afterwards. The account was found with its level and ranks; 77 ranked
+  games of the last 60 days were read in 26 seconds, every one with KDA, CS and length and under its real match id;
+  the proposal, "also plays", storing them as Add player does, the Roster row and the profile all came out right.
+  It also showed that Ranked 5s games are queue 710 and ranked as `RANKED_PREMADE_5x5`: they count as games, but
+  the rank a player is shown is the higher of Solo/Duo and Flex only.
 
 ## Not in scope
 

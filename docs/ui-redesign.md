@@ -395,8 +395,8 @@ motion; the roster flows end to end; Tags' editing; Live through a whole draft, 
 - **With real data:** nothing was seen with a real crawl, a real roster or a real champ select. Lane-matchup bars in
   History, the Matchup tree's rows, builds on the Strategy tab and the power chart had no data in demo mode (the tree
   was seen against a made-up response).
-- **With a Riot key:** Add player's lookup and read (roster decision 7: no Riot ID was given, so it ran only against a
-  fake client), "Update from games", "Import missed games", scouting.
+- **With a Riot key:** "Update from games", "Import missed games" and scouting. (Add player's lookup and read were
+  checked once against the real API on 14 Nov, outside the browser: `docs/roster-profiles.md`, "Built".)
 - **Signed in:** only the solo account was seen. Crawl's shared-data, datasets, members, "what's published" and data
   selection sections, a running crawl, and Settings' sign-out and admin form were restyled without being seen.
 - **App states:** the first-run progress notice and a real update (the update notice was seen against a made-up

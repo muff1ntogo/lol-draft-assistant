@@ -165,7 +165,7 @@ Live when the draft ends. To look at these pages without real data: `scripts/see
 only; it refuses to run without `DRAFTASSIST_DB`).
 
 Open points:
-- Ranked 5s queue id and what `theirTeam` shows in Ranked 5s: unknown until the first recorded Ranked 5s champ select (recordings land in `fixtures/lcu/recorded/`).
+- Ranked 5s: match-v5 files its games under **queue 710** and league-v4 ranks it as `RANKED_PREMADE_5x5` (seen in a real player's history on 14 Nov 2026; `type=ranked` returns them with Solo/Duo 420 and Flex 440). Nothing in the code names 710 yet: check that the draft-format detection, the crawl's queue filters and the rank shown for a player treat it as intended. What `theirTeam` shows in a Ranked 5s champ select is still unknown until the first recorded one (recordings land in `fixtures/lcu/recorded/`).
 
 ## Code map (`src/draftassist/`)
 - `engine/strategy.py`: Live's Strategy view (lane plan, build reasons, win conditions); `data/builds.py` reads
