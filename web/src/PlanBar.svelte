@@ -81,14 +81,14 @@
 <style>
  .planbar { position: fixed; left: var(--rail-w-collapsed); right: 0; bottom: 0; z-index: 20; display: flex; align-items: center; gap: 18px;
  padding: 4px 20px; min-height: 56px; background: var(--rail); border-top: 1px solid var(--hairline-strong); overflow-x: auto; }
- .planbar.at_risk { border-top-color: var(--down); }
- .planbar.broken { border-top-color: var(--side-red); }
- .spacer { height: 68px; }
+ /* one 56px bar under a hairline; the plan's state is written in the bar, not painted on its edge */
+ .spacer { height: 60px; }
  .t { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
   .head { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; flex: none; }
  .state { font-size: 12px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
- .state.at_risk { color: var(--down-text); }
- .state.broken { color: var(--side-red-text); }
+ /* a status is a word, so it takes the status colours (never the favourability or side ones) */
+ .state.at_risk { color: var(--warn); }
+ .state.broken { color: var(--error); }
  .unpin { font: inherit; font-size: 12px; background: none; color: var(--text-3); border: 0; padding: 0; cursor: pointer; }
   .slots { display: flex; gap: 14px; flex: none; }
   .slot { display: flex; align-items: center; gap: 7px; }
@@ -97,13 +97,15 @@
   .txt { display: flex; flex-direction: column; line-height: 1.15; }
   .name { font-size: 14px; font-weight: 600; }
  .st { font-size: 11px; color: var(--text-3); white-space: nowrap; }
-  .slot.picked .st { color: var(--up-text); }
-  .slot.replaced .st, .slot.at_risk .st { color: var(--down-text); }
-  .slot.banned .st, .slot.taken .st { color: var(--side-red-text); }
-  .bans { display: flex; flex-direction: column; gap: 3px; flex: none; }
+  .slot.picked .st { color: var(--text-1); }
+  .slot.replaced .st, .slot.at_risk .st { color: var(--warn); }
+  .slot.banned .st, .slot.taken .st { color: var(--error); }
+  .bans { display: flex; align-items: center; gap: 8px; flex: none; }
   .row { display: inline-flex; gap: 3px; align-items: center; }
   .ban { border-radius: 6px; outline: 2px solid transparent; outline-offset: 1px; line-height: 0; }
-  .ban.ours { outline-color: var(--up); }
+  /* a planned ban we made: marked in light ink (a state), and said in its title */
+  .ban.ours { outline-color: var(--text-2); }
+  .row.off { margin-left: 8px; }
   .row.off .t { margin-right: 4px; }
   .summary { display: flex; flex-direction: column; gap: 3px; margin-left: auto; flex: none; }
   .srow { display: flex; align-items: center; gap: 8px; font-size: 13px; }
@@ -113,8 +115,6 @@
  .magic { background: var(--viz-threat); }
  .true { background: var(--viz-comp); }
   .lbl { font-weight: 700; min-width: 44px; }
-  .timing.early { color: var(--down-text); }
- .timing.late { color: var(--text-1); }
   .small { font-size: 12px; color: var(--text-2); }
  .muted { color: var(--text-3); font-weight: 500; }
 </style>

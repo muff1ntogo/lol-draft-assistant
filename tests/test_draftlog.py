@@ -154,6 +154,6 @@ def test_pools_api_import_and_errors(svc):
         assert pools["using_placeholder_pools"] is False
         # the live engine now uses the imported pools
         assert svc.engine.team.entry(897, "top").tier == "main"
-        players = client.put("/api/players", json={"players": [{"role": "top", "riot_id": "Me#EUW", "rank": "Gold I"}]})
-        assert players.status_code == 200 and players.json()[0]["riot_id"] == "Me#EUW"
-        assert client.put("/api/players", json={"players": [{"role": "top", "riot_id": "nope"}]}).status_code == 422
+        added = client.post("/api/players", json={"riot_id": "Me#EUW", "role": "top", "active": True, "pool": []})
+        assert added.status_code == 200 and added.json()["lineup"][0]["riot_id"] == "Me#EUW"
+        assert client.post("/api/players", json={"riot_id": "nope", "role": "top", "active": True, "pool": []}).status_code == 422

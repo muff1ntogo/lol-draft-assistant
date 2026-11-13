@@ -206,7 +206,7 @@ const PAGES = ['live', 'prep', 'pools', 'player', 'history', 'team', 'crawl', 's
           gap: 2px; padding: 12px 10px; background: var(--rail); border-right: 1px solid var(--hairline);
           transition: width var(--dur-enter) var(--ease-in-out); overflow: hidden; }
   .rail.folded { width: var(--rail-w-collapsed); }
-  .rail.folded:hover, .rail.folded:focus-within { width: var(--rail-w); box-shadow: 8px 0 24px rgba(0, 0, 0, 0.45); }
+  .rail.folded:hover, .rail.folded:focus-within { width: var(--rail-w); box-shadow: 8px 0 24px var(--scrim); }
   .brand { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 8px; margin-bottom: 14px; }
   .mark { flex: none; width: 18px; height: 18px; border-radius: 4px; background: var(--signal);
           clip-path: polygon(0 0, 100% 0, 100% 62%, 62% 100%, 0 100%); }
@@ -236,9 +236,9 @@ const PAGES = ['live', 'prep', 'pools', 'player', 'history', 'team', 'crawl', 's
   .stage > .page { grid-area: 1 / 1; min-width: 0; }
   .stage > .page.waiting { opacity: 0; pointer-events: none; }
   .stage > .page.leaving { opacity: 0; pointer-events: none; transition: opacity var(--dur-page-exit) var(--ease-in); }
-  .idle { display: grid; place-items: center; align-content: center; min-height: 80vh; gap: 4px; color: var(--muted); }
-  .idle h1 { color: var(--text); font-size: 32px; font-weight: 650; letter-spacing: -0.02em; margin: 0; }
+  .idle { display: grid; place-items: center; align-content: center; min-height: 80vh; gap: 4px; color: var(--text-3); }
+  .idle h1 { color: var(--text-1); font-size: 32px; font-weight: 650; letter-spacing: -0.02em; margin: 0; }
   .idle p { font-size: 16px; margin: 4px; }
   .scoutwrap { margin-top: 28px; display: flex; justify-content: center; width: 100%; }
-  .error { color: var(--red); }
+  .error { color: var(--error); }
 </style>

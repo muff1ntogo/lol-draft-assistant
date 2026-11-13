@@ -68,7 +68,7 @@
 {/if}
 
 <style>
-  .backdrop { position: fixed; inset: 0; z-index: 40; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, 0.55); }
+  .backdrop { position: fixed; inset: 0; z-index: 40; display: flex; justify-content: flex-end; background: var(--scrim); }
   .backdrop.dialog { align-items: center; justify-content: center; padding: 16px; }
   .sheet { display: flex; flex-direction: column; max-width: 100vw; height: 100%; background: var(--surface-1);
            border-left: 1px solid var(--hairline-strong); outline: none; }

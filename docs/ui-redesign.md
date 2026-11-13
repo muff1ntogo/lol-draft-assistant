@@ -1,9 +1,9 @@
 # UI redesign: one system, two moods
 
-Task doc for the full UI redesign (started 12 Nov 2026). The design direction was settled with the user in a question
-round (decisions below). The shared foundation and a working **Live** prototype are built; everything else is for
-Fable to build, page by page, following this doc. Read `CLAUDE.md` and `docs/SPEC.md` first: the hard rules there
-(read-only client, Live in the main bundle, no new dependencies without asking) still apply.
+Task doc for the full UI redesign, 12–14 Nov 2026. **Built: every step below is done.** The direction was settled with
+the user in a question round (decisions below); the foundation and a Live prototype came first, then the pages one step
+at a time, each with a "Built" note saying what was done and which choices the plan didn't spell out. What could not
+be checked is listed under "Not verified" near the end. `docs/roster-profiles.md` is step 5.
 
 ## Decisions (user, 12 Nov 2026)
 
@@ -83,11 +83,10 @@ containers, hierarchy before labels.
 
 Screenshots of the prototype were taken in demo mode at 1440 and 1100 px wide (see "How to check your work").
 
-## What Fable builds next
+## The build, step by step
 
-Do the steps in order. Each ends with the acceptance check: build, screenshots in demo mode at 1440 × 900 and
-1100 × 760, the anti-slop gate, and `uv run pytest`. Stop after each step for the user (CLAUDE.md: one phase at a
-time).
+Each step ended with a build, screenshots in demo mode at 1440 × 900 and 1100 × 760 and the anti-slop gate; the full
+test suite ran at the end.
 
 ### Step 1: Shared console components
 
@@ -252,6 +251,14 @@ and its inline save/remove flow; Rules keeps its locally edited prior and refit-
 - CompPanel: Type and Style as two `Stat`s, the identity bar unchanged (its colours are validated), legend in 11px.
 - ScoutBox: a `details` at the foot of their rail.
 
+**Built (13–14 Nov 2026).** `StrategyView` is a dense ruled desk (players separated by space, so it reads the same one,
+two or three across), `CompPanel` uses `Stat`s and the identity series as named tokens, `ScoutBox` is a disclosure at
+the foot of their rail, `ComponentBar` / `ComponentLegend` / `Champ` read tokens. `PlanBar` is one 56px bar under a
+hairline: the plan's state is written in it (at risk and replaced in the warning colour, broken, banned and taken in
+the error colour, picked in ink), not painted on its edge; a planned ban we made is outlined in light ink. The power
+chart draws ours in bright ink and theirs quieter and dashed: it used the side colours for "us" and "them", which said
+"blue side" even when we were red.
+
 ### Step 9: Clean up
 
 - Remove the alias tokens from `app.css` (`--panel`, `--gold`, `--muted`, `--blue`, …) once `rg -- '--gold|--panel|--muted|--blue|--link'`
@@ -261,12 +268,21 @@ and its inline save/remove flow; Rules keeps its locally edited prior and refit-
   (`--viz-threat`, `--viz-engage`, …).
 - Update `CLAUDE.md`'s "Colour identity" lesson to point at this doc (done in this commit).
 
-**Built in part (13 Nov 2026).** The unused `#/kit` component gallery and its route/preload entries are removed.
-The Step 8 Live components now use the graphite/token system, with named `--viz-*` tokens for all component,
-damage-split and comp-identity series; `Champ`'s ban slash also reads the named error token. Alias-token removal is
-intentionally deferred: a source inventory still finds the compatibility aliases across earlier, already-completed
-pages, so deleting them now would regress those surfaces. Remove each alias only after its remaining consumers have
-been migrated.
+**Built (14 Nov 2026).**
+
+- `#/kit` is gone (decision 11). The alias tokens and `GOLD` are gone; every `var(--…)` in `web/src` is defined in
+  `app.css`. No component holds a colour literal: the last ones became `--scrim`, `--shadow`, `--warn-soft`, `--link`
+  and the `--viz-*` series tokens.
+- The old Pools-page routes no page calls are removed: `PUT /api/players`, `POST /api/players/swap`,
+  `DELETE /api/players/bench` (and `forget_player`, which Delete replaces). `GET /api/pools`, the role-addressed pool
+  edits and `POST /api/pools/import` stay: tests across the suite read the first, and the others still work for
+  scripts.
+- Found while removing them: the new add, swap, bench and delete routes rebuilt Live's engine at once, even during a
+  champ select. They now wait for the draft to end, as the old swap did (`_lineup_changed`, with a test).
+- Tags: the table fits (archetypes are edited in their own view and shown as text in the others, rating headings are
+  shortened with the full word as the title, Remove is behind a menu) and draws 60 rows at a time, the rest on request.
+- `CLAUDE.md` describes the redesign, the roster pages and the web code; `docs/handoff-ui-redesign.md` and
+  `docs/roster-profiles-review.md` (working notes between models) are deleted.
 
 ## The system in numbers
 
@@ -369,6 +385,27 @@ Skills worth loading for this work (all in `.claude/skills/`): `no-ai-design-slo
 building it), `animation-systems` and `optimize-web-animations` (motion), `dataviz` (built-in; every chart),
 `workflow-progress-screenshots` and `iterate-until-verified` (the loop). Ignore the landing-page, WebGL and 3D skills:
 this is a desktop tool, not a marketing site.
+
+## Not verified
+
+Checked in a browser at both widths, in demo mode on a scratch database seeded with a made-up roster and games
+(`scripts/seed_demo_games.py`): every page loads without console errors or sideways scrolling, also under reduced
+motion; the roster flows end to end; Tags' editing; Live through a whole draft, with a pinned plan and idle. Not checked:
+
+- **With real data:** nothing was seen with a real crawl, a real roster or a real champ select. Lane-matchup bars in
+  History, the Matchup tree's rows, builds on the Strategy tab and the power chart had no data in demo mode (the tree
+  was seen against a made-up response).
+- **With a Riot key:** Add player's lookup and read (roster decision 7: no Riot ID was given, so it ran only against a
+  fake client), "Update from games", "Import missed games", scouting.
+- **Signed in:** only the solo account was seen. Crawl's shared-data, datasets, members, "what's published" and data
+  selection sections, a running crawl, and Settings' sign-out and admin form were restyled without being seen.
+- **App states:** the first-run progress notice and a real update (the update notice was seen against a made-up
+  response); the installed window (WebView2) rather than a browser.
+- **An older database:** existing players get `players.active_since` empty until their next swap ("days in the role" is
+  then blank); the new `player_games` columns fill from the Riot cache at the next learning run. Neither was run on a
+  copy of a real database.
+- **Readings of the doc the user has seen but not confirmed:** "comfort-weighted pool size" (main 1, comfortable 0.5,
+  learning 0.25) and the lane-execution label and trend rules (`docs/roster-profiles.md`, Stage A).
 
 ## Constraints that don't change
 

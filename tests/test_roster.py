@@ -10,7 +10,6 @@ from draftassist.data.pools import (
     bench,
     bench_player,
     delete_player,
-    forget_player,
     import_pools,
     list_players,
     load_pools,
@@ -101,19 +100,6 @@ def test_two_unlinked_players_in_a_role_get_their_own_placeholders(engine):
     with Session(engine) as s:
         keys = sorted(p.puuid for p in s.exec(select(Player)).all())
     assert keys == ["unresolved:mid", "unresolved:mid:2"]
-
-
-def test_forgetting_only_takes_benched_players(db):
-    with Session(db) as s:
-        s.add(PlayerGame(puuid="puuid-main", match_id="EUW1_1", champ_id=897, role="top", win=True, game_start_ms=1,
-                         source="match-v5"))
-        s.commit()
-    assert not forget_player(db, "Main#EUW")  # still playing
-    swap_player(db, "top", "Sub#EUW")
-    assert forget_player(db, "Main#EUW") and bench(db) == []
-    with Session(db) as s:
-        assert s.exec(select(PoolEntry).where(PoolEntry.puuid == "puuid-main")).first() is None
-        assert s.exec(select(PlayerGame).where(PlayerGame.puuid == "puuid-main")).first() is None
 
 
 def test_a_swap_changes_the_stats_version_so_the_engine_reloads_after_the_draft(db):
@@ -209,22 +195,6 @@ def test_a_broken_file_falls_back_to_the_previous_one(db, tmp_path):
 
 
 # ---------- the Pools page ----------
-def test_api_swap_bench_and_the_file_follows(make_services, db, tmp_path):
-    svc = make_services(db=db)
-    svc.roster_path = tmp_path / "roster.json"
-    with TestClient(create_app(svc, stats_refresh_s=0)) as client:
-        body = client.post("/api/players/swap", json={"role": "top", "riot_id": "Sub#EUW"}).json()
-        assert next(p for p in body["players"] if p["role"] == "top")["riot_id"] == "Sub#EUW"
-        assert body["bench"][0]["riot_id"] == "Main#EUW" and body["bench"][0]["pools"]["top"][0]["tier"] == "main"
-        assert body["applied"] is True
-        saved = json.loads(svc.roster_path.read_text(encoding="utf-8"))
-        assert {p["riot_id"] for p in saved["players"]} == {"Sub#EUW", "Jg#EUW", "Main#EUW"}
-        assert client.post("/api/players/swap", json={"role": "top", "riot_id": "Jg#EUW"}).status_code == 422
-        assert client.delete("/api/players/bench", params={"riot_id": "Nobody#EUW"}).status_code == 404
-        assert client.delete("/api/players/bench", params={"riot_id": "Main#EUW"}).json()["bench"] == []
-        assert "Main#EUW" not in svc.roster_path.read_text(encoding="utf-8")
-
-
 def test_api_roster_profile_and_actions(make_services, db, tmp_path):
     svc = make_services(db=db)
     svc.roster_path = tmp_path / "roster.json"
@@ -278,3 +248,23 @@ def test_a_pasted_pool_is_read_for_one_player_without_saving(make_services, db):
         assert [e["champ_id"] for e in headed["entries"]] == [150] and "jungle ignored" in headed["errors"][0]
         assert client.post("/api/pools/parse", json={"role": "carry", "text": "Gnar: main"}).status_code == 422
     assert top_pool(db) == [68, 897]  # nothing was saved
+
+
+def test_lineup_changes_wait_for_the_draft_to_end(make_services, db, tmp_path, monkeypatch):
+    """Adding, swapping, benching or deleting a player mid-draft must not rebuild the engine under the shot-caller."""
+    svc = make_services(db=db)
+    svc.roster_path = tmp_path / "roster.json"
+    reloads = []
+    monkeypatch.setattr(svc, "reload", lambda: reloads.append(1))
+    monkeypatch.setattr(svc, "learn", lambda: False)
+    with TestClient(create_app(svc, stats_refresh_s=0)) as client:
+        monkeypatch.setattr(svc, "in_draft", lambda: True)
+        assert client.post("/api/players", json={"riot_id": "Sub#EUW", "role": "top", "active": False, "pool": []}).status_code == 200
+        assert client.post("/api/players/Sub%23EUW/activate", json={"role": "top"}).status_code == 200
+        assert client.post("/api/players/Sub%23EUW/bench").status_code == 200
+        assert client.delete("/api/players/Sub%23EUW", params={"confirm": "Sub#EUW"}).status_code == 200
+        assert reloads == [] and "Sub#EUW" not in svc.roster_path.read_text(encoding="utf-8")  # the file follows at once
+        assert client.get("/api/roster").json()["in_draft"] is True
+        monkeypatch.setattr(svc, "in_draft", lambda: False)
+        assert client.post("/api/players/Main%23EUW/activate", json={"role": "top"}).status_code == 200
+        assert reloads == [1]

@@ -17,7 +17,6 @@ from draftassist.data.pools import (
     bench_player,
     create_player,
     delete_player,
-    forget_player,
     import_pools,
     list_players,
     load_pools,
@@ -63,6 +62,17 @@ def _resolver(svc: Services):
 def _roster_changed(svc: Services) -> None:
     svc.save_roster()
     svc.reload()
+
+
+def _lineup_changed(svc: Services) -> None:
+    """After a player is added, swapped, benched or deleted: mirror the roster file and forget the cached player
+    directory at once, but rebuild the engine only between drafts, so suggestions never change under the shot-caller.
+    Mid-draft the change is picked up when the draft ends (the stats version has moved)."""
+    svc.save_roster()
+    if svc.players is not None:
+        svc.players.invalidate()
+    if not svc.in_draft():
+        svc.reload()
 
 
 # ---------- adding a player (docs/roster-profiles.md: lookup, read their games, review, create) ----------
@@ -137,47 +147,9 @@ def post_player(request: Request, riot_id: str = Body(...), role: str = Body(...
         create_player(db_of(svc), riot_id, role, active, pool, _onboarding(svc).fetched(riot_id.strip(), role))
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
-    _roster_changed(svc)
+    _lineup_changed(svc)
     svc.learn()
     return _roster_payload(svc)
-
-
-@router.put("/api/players")
-def put_players(request: Request, players: list[dict] = Body(..., embed=True)) -> list[dict]:
-    svc: Services = request.app.state.services
-    try:
-        stored = set_players(db_of(svc), players, _resolver(svc))
-    except ValueError as e:
-        raise HTTPException(422, str(e)) from None
-    _roster_changed(svc)
-    return stored
-
-
-@router.post("/api/players/swap")
-def post_swap(request: Request, role: str = Body(...), riot_id: str = Body(...)) -> dict:
-    """Put a sub in (or someone back from the bench) for a role; the current player is benched with their pool. Like a
-    pool edit, it reaches suggestions after the current draft."""
-    svc: Services = request.app.state.services
-    try:
-        swap_player(db_of(svc), role, riot_id, _resolver(svc))
-    except ValueError as e:
-        raise HTTPException(422, str(e)) from None
-    svc.save_roster()
-    if svc.players is not None:
-        svc.players.invalidate()
-    out = _pool_changed(svc)
-    svc.learn()  # their recent games and comfort, now that they're playing
-    return out
-
-
-@router.delete("/api/players/bench")
-def delete_benched(request: Request, riot_id: str) -> dict:
-    """Forget a benched player for good: their pool and stored games too."""
-    svc: Services = request.app.state.services
-    if not forget_player(db_of(svc), riot_id):
-        raise HTTPException(404, "no benched player with that Riot ID")
-    svc.save_roster()
-    return _pools_payload(svc)
 
 
 # ---------- the roster page and player profiles (docs/roster-profiles.md) ----------
@@ -336,7 +308,7 @@ def post_bench_player(request: Request, riot_id: str) -> dict:
     svc: Services = request.app.state.services
     if not bench_player(db_of(svc), riot_id):
         raise HTTPException(404, "no active player with that Riot ID")
-    _roster_changed(svc)
+    _lineup_changed(svc)
     return _roster_payload(svc)
 
 
@@ -355,7 +327,7 @@ def post_activate_player(request: Request, riot_id: str, role: str = Body(..., e
         swap_player(db_of(svc), role, riot_id, _resolver(svc))
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
-    _roster_changed(svc)
+    _lineup_changed(svc)
     svc.learn()
     return {"roster": _roster_payload(svc), "undo": {"riot_id": previous, "role": role, "bench": riot_id}}
 
@@ -369,7 +341,7 @@ def delete_player_route(request: Request, riot_id: str, confirm: str = "") -> di
     svc: Services = request.app.state.services
     if not delete_player(db_of(svc), riot_id):
         raise HTTPException(404, "no player with that Riot ID")
-    _roster_changed(svc)
+    _lineup_changed(svc)
     return _roster_payload(svc)
 
 

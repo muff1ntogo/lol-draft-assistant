@@ -396,7 +396,7 @@
   /* ---- the centre ---- */
   .center { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .center.stale .shortlist, .center.stale .group { opacity: 0.55; }
-  .notice { padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px; color: var(--warn); background: rgba(240, 180, 41, 0.1); }
+  .notice { padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px; color: var(--warn); background: var(--warn-soft); }
   .notice.quiet { color: var(--text-3); background: none; padding: 0; }
   .head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
   .headline { margin: 0; font-size: 34px; font-weight: 750; letter-spacing: -0.025em; line-height: 1.1; }

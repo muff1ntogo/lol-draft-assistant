@@ -28,7 +28,7 @@
   .region { position: fixed; left: 0; right: 0; bottom: 24px; z-index: 50; display: flex; justify-content: center; pointer-events: none; }
   .toast { pointer-events: auto; display: flex; align-items: center; gap: 12px; max-width: min(560px, calc(100vw - 32px)); padding: 8px 8px 8px 16px;
            background: var(--surface-3); border: 1px solid var(--hairline-strong); border-radius: var(--radius); font-size: 13px; color: var(--text-1);
-           box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+           box-shadow: var(--shadow); }
   .x { width: 24px; height: 24px; padding: 0; border: 0; background: none; color: var(--text-3); font-size: 16px; line-height: 1; }
   .x:hover { color: var(--text-1); filter: none; }
 </style>

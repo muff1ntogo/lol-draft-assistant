@@ -36,6 +36,7 @@
   --text-1: #ececee;      /* primary: names, values */
   --text-2: #b4b8c1;      /* secondary: reasons, body */
   --text-3: #858a95;      /* tertiary: labels, units, captions (5.3:1 on --surface-1) */
+  --link: #c9d3e3;        /* links in running text: ink with an underline, not an accent */
   /* ---------- the one signal: "act on this" (your turn, the top pick, the main action, focus). Never a data colour. */
   --signal: #c8f135;
   --signal-ink: #0b0c0e;  /* text on lime */
@@ -65,6 +66,11 @@
   --warn: #f0b429;
   --error: #ff6b6b;
 
+  /* ---------- layers above the page: sheets, menus, the toast ---------- */
+  --scrim: rgba(0, 0, 0, 0.55);
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --warn-soft: rgba(240, 180, 41, 0.1);
+
   /* ---------- type ---------- */
   --font-ui: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
@@ -88,31 +94,6 @@
   --dur-menu: 200ms;
   --stagger: 30ms;
   --ease: 140ms var(--ease-out);
-
-  /* ---------- aliases: the names every page used before the redesign, mapped onto the new system so pages not yet
-     redesigned render in it. Remove each once no file reads it (docs/ui-redesign.md, step 9). ---------- */
-  --nav: var(--rail);
-  --panel: var(--surface-1);
-  --panel-2: var(--surface-2);
-  --panel-3: var(--surface-3);
-  --line: var(--hairline);
-  --line-strong: var(--hairline-strong);
-  --text: var(--text-1);
-  --muted: var(--text-3);
-  --blue: #8a9bb3;              /* was the quiet accent; now a neutral steel so it can't read as the blue side */
-  --blue-deep: var(--surface-3);
-  --link: #c9d3e3;
-  --gold: var(--signal);
-  --gold-bg: var(--surface-2);
-  --gold-line: var(--hairline-strong);
-  --on-gold: var(--signal-ink);
-  --red: var(--error);
-  --good: var(--up-text);
-  --side-blue-bg: var(--side-blue-soft);
-  --side-red-bg: var(--side-red-soft);
-  --side-red-text: #ff9b94;
-  --up-bg: rgba(27, 175, 122, 0.14);
-  --down-bg: rgba(224, 112, 46, 0.14);
 
   font-family: var(--font-ui);
   font-size: 14px;

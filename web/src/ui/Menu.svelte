@@ -50,7 +50,7 @@
   .more { width: 28px; height: 28px; padding: 0; border: 1px solid transparent; background: none; color: var(--text-2); font-size: 16px; line-height: 1; }
   .more:hover, .more[aria-expanded="true"] { background: var(--surface-2); color: var(--text-1); filter: none; }
   .list { position: absolute; top: calc(100% + 4px); z-index: 30; min-width: 160px; padding: 4px; display: flex; flex-direction: column;
-          background: var(--surface-2); border: 1px solid var(--hairline-strong); border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); }
+          background: var(--surface-2); border: 1px solid var(--hairline-strong); border-radius: var(--radius-sm); box-shadow: var(--shadow); }
   .list.right { right: 0; }
   .list.left { left: 0; }
   .list button { height: 28px; padding: 0 10px; border: 0; border-radius: 3px; background: none; color: var(--text-1); font-size: 13px; text-align: left; white-space: nowrap; }

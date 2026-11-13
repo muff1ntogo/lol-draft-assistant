@@ -347,21 +347,6 @@ def bench(db: Engine) -> list[dict]:
     return sorted(out, key=lambda p: (ROLES.index(p["role"]) if p["role"] in ROLES else 9, p["riot_id"].lower()))
 
 
-def forget_player(db: Engine, riot_id: str) -> bool:
-    """Delete a benched player, their pool and their stored games. Active players can't be forgotten."""
-    from draftassist.db.models import PlayerGame
-
-    with Session(db) as s:
-        p = _by_riot_id(s, riot_id)
-        if p is None or p.active:
-            return False
-        s.exec(delete(PoolEntry).where(PoolEntry.puuid == p.puuid))
-        s.exec(delete(PlayerGame).where(PlayerGame.puuid == p.puuid))
-        s.delete(p)
-        s.commit()
-    return True
-
-
 def bench_player(db: Engine, riot_id: str) -> bool:
     """Move one active, named player to the bench; they keep their pools and games. False if there is no such player."""
     with Session(db) as s:
