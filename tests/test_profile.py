@@ -124,7 +124,12 @@ def test_rank_summary_picks_the_higher_queue():
                               {"queueType": "RANKED_FLEX_SR", "tier": "GOLD", "rank": "II", "leaguePoints": 99}])
     assert same_tier["best"]["queue"] == "solo"  # division before LP
     assert rank_summary([{"queueType": "RANKED_SOLO_5x5", "tier": "MASTER", "rank": "I", "leaguePoints": 120}])["best"]["label"] == "Master"
-    assert rank_summary(None) == {"solo": None, "flex": None, "best": None}
+    assert rank_summary(None) == {"solo": None, "flex": None, "fives": None, "best": None}
+    # Ranked 5s has its own ladder: shown on the profile, but a Roster row's rank stays the higher of Solo/Duo and Flex
+    fives = rank_summary([{"queueType": "RANKED_SOLO_5x5", "tier": "SILVER", "rank": "II", "leaguePoints": 38},
+                          {"queueType": "RANKED_PREMADE_5x5", "tier": "PLATINUM", "rank": "I", "leaguePoints": 10, "wins": 9, "losses": 6}])
+    assert fives["fives"]["label"] == "Platinum I" and fives["fives"]["wins"] == 9 and fives["best"]["label"] == "Silver II"
+    assert rank_summary([{"queueType": "RANKED_PREMADE_5x5", "tier": "GOLD", "rank": "IV"}])["best"] is None
 
 
 POOL = [PoolRow(897, "top", "main"), PoolRow(150, "top", "comfortable", scored_tier="main"), PoolRow(266, "top", "learning", scored_tier="comfortable", locked=True),
@@ -279,3 +284,14 @@ def test_lane_execution_rows_belong_to_whoever_played_the_role(engine):
     assert sorted(r.share for r in mine.execution) == pytest.approx([0.03, 0.04])  # their two games, their role's row only
     assert [r.share for r in load_inputs(engine, "sub").execution] == pytest.approx([0.05])
     assert mine.pool == [PoolRow(897, "top", "main", "main", True)] and mine.mastery is None and mine.rank is None
+
+
+def test_ranked_5s_games_are_named_in_history():
+    from draftassist.api.recap import queue_label
+    from draftassist.db.models import Draft
+
+    def label(queue_id, draft_format):
+        return queue_label(Draft(queue_id=queue_id, side="blue", played_at=datetime.now(UTC), draft_format=draft_format))
+
+    assert label(710, "tournament") == "Ranked 5s" and label(710, "ranked") == "Ranked 5s"  # match-v5's queue for Ranked 5s
+    assert label(440, "ranked") == "Flex" and label(None, "tournament") == "Tournament draft"

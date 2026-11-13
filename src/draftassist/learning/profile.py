@@ -45,7 +45,8 @@ TIER_ORDER = {"main": 0, "comfortable": 1, "learning": 2}
 TIER_WEIGHT = {"main": 1.0, "comfortable": 0.5, "learning": 0.25}
 RANK_TIERS = ("IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND", "MASTER", "GRANDMASTER", "CHALLENGER")
 RANK_DIVISIONS = ("IV", "III", "II", "I")
-RANK_QUEUES = {"RANKED_SOLO_5x5": "solo", "RANKED_FLEX_SR": "flex"}
+RANK_QUEUES = {"RANKED_SOLO_5x5": "solo", "RANKED_FLEX_SR": "flex", "RANKED_PREMADE_5x5": "fives"}  # fives: Ranked 5s
+BEST_OF = ("solo", "flex")  # the rank on a Roster row: the higher of these two (the 5s ladder is its own scale)
 
 
 @dataclass(frozen=True)
@@ -166,9 +167,9 @@ def _rank_key(e: Mapping) -> tuple[int, int, int]:
 
 
 def rank_summary(entries: Iterable[Mapping] | None) -> dict:
-    """league-v4 entries -> {"solo": {...}, "flex": {...}, "best": the higher of the two}. Each: label ("Gold II"),
-    lp, wins, losses, queue."""
-    out: dict = {"solo": None, "flex": None, "best": None}
+    """league-v4 entries -> {"solo": {...}, "flex": {...}, "fives": {...}, "best": the higher of solo and flex}. Each:
+    label ("Gold II"), lp, wins, losses, queue."""
+    out: dict = {"solo": None, "flex": None, "fives": None, "best": None}
     best = None
     for e in entries or ():
         queue = RANK_QUEUES.get(e.get("queueType"))
@@ -179,7 +180,7 @@ def rank_summary(entries: Iterable[Mapping] | None) -> dict:
         row = {"queue": queue, "label": tier if apex else f"{tier} {e.get('rank', '')}".strip(), "lp": int(e.get("leaguePoints") or 0),
                "wins": int(e.get("wins") or 0), "losses": int(e.get("losses") or 0)}
         out[queue] = row
-        if best is None or _rank_key(e) > best[0]:
+        if queue in BEST_OF and (best is None or _rank_key(e) > best[0]):
             best = (_rank_key(e), row)
     out["best"] = best[1] if best else None
     return out

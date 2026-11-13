@@ -31,7 +31,7 @@ from draftassist.engine.formats import get_format
 from draftassist.engine.model import ROLE_LABELS, ROLES, sigmoid
 from draftassist.engine.state import SKIPPED, DraftState
 
-QUEUES = {420: "Solo/Duo", 440: "Flex", 700: "Clash", 0: "Custom"}
+QUEUES = {420: "Solo/Duo", 440: "Flex", 700: "Clash", 710: "Ranked 5s", 0: "Custom"}  # 710: seen in match-v5, Nov 2026
 MIN_MATCHUP_GAMES = 50  # fewer games: "no data"
 EVEN_PP = 1.0  # |delta| within this is shown as even
 

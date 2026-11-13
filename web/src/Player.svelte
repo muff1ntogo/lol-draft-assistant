@@ -169,7 +169,7 @@
   const games = (n) => `${n} game${n === 1 ? '' : 's'}`;
   const about = $derived.by(() => {
     if (!data) return '';
-    const ranks = ['solo', 'flex'].filter((q) => data.rank[q]).map((q) => `${QUEUE_LABELS[q]} ${rankText(data.rank[q])}, ${games(data.rank[q].wins + data.rank[q].losses)}`);
+    const ranks = ['solo', 'flex', 'fives'].filter((q) => data.rank[q]).map((q) => `${QUEUE_LABELS[q]} ${rankText(data.rank[q])}, ${games(data.rank[q].wins + data.rank[q].losses)}`);
     const since = data.since_days == null ? '' : data.since_days === 0 ? ' since today' : ` for ${data.since_days} day${data.since_days === 1 ? '' : 's'}`;
     return `${data.active ? `Our ${data.role_label}${since}` : `On the bench (${data.role_label})`} · ${ranks.length ? ranks.join(' · ') : data.has_key ? 'rank not read yet' : 'no Riot key: rank and mastery not read'}`;
   });

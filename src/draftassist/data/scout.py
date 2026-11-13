@@ -316,11 +316,12 @@ def scout_summary(riot_ids: Iterable[str], pools: Mapping[str, PlayerPool], role
     return out
 
 
-RANK_QUEUES = ("RANKED_FLEX_SR", "RANKED_SOLO_5x5")  # shown in this order: Ranked 5s plays out of Flex's ladder or its own
+RANK_QUEUES = ("RANKED_PREMADE_5x5", "RANKED_FLEX_SR", "RANKED_SOLO_5x5")  # shown in this order: Ranked 5s plays out of Flex's ladder or its own
 
 
 def rank_label(entries: Iterable[dict]) -> str | None:
-    """"Gold II" from league-v4 entries: Flex first, else Solo/Duo, else whatever queue there is."""
+    """"Gold II" from league-v4 entries: their Ranked 5s rank first (it has its own ladder, `RANKED_PREMADE_5x5`, and
+    scouting is for Ranked 5s), else Flex, else Solo/Duo, else whatever queue there is."""
     entries = list(entries)
     if not entries:
         return None
@@ -579,7 +580,7 @@ def main() -> int:
     if not report:
         print(f"No recorded champ selects in {folder}. Play a game with the app open (recording is on by default).")
         return 1
-    names = {420: "Solo/Duo", 440: "Flex"}
+    names = {420: "Solo/Duo", 440: "Flex", 710: "Ranked 5s"}
     for queue, fields in report.items():
         n = fields.pop("sessions")
         print(f"\nQueue {queue} ({names.get(queue, 'other: Ranked 5s?')}): {n} sessions")

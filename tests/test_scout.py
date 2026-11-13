@@ -223,6 +223,9 @@ def test_full_mastery_and_rank_are_stored(engine):
     pool = load_pools(engine, TEAM[:1], now=NOW)["Alpha#EUW"]
     assert rank_label(pool.ranks) == "Gold II" and pool.mastery[0] == (200, 5000)
     assert rank_label([{"queueType": "RANKED_SOLO_5x5", "tier": "MASTER", "rank": "I"}]) == "Master"
+    # scouting is for Ranked 5s, which has its own ladder: that rank first when they have one
+    assert rank_label([{"queueType": "RANKED_FLEX_SR", "tier": "GOLD", "rank": "II"},
+                       {"queueType": "RANKED_PREMADE_5x5", "tier": "PLATINUM", "rank": "IV"}]) == "Platinum IV"
 
 
 def test_patch_weights():

@@ -37,7 +37,7 @@ export const whole = (x) => (x == null ? '—' : Math.round(x).toLocaleString())
 export const pp = (x, digits = 1) => (x == null ? '—' : `${signed(x, digits)}pp`);
 export const day = (ms) => (ms ? new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short' }) : '—');
 export const rankText = (r) => (r ? `${r.label}${r.lp != null ? ` ${r.lp} LP` : ''}` : '');
-export const QUEUE_LABELS = { solo: 'Solo/Duo', flex: 'Flex' };
+export const QUEUE_LABELS = { solo: 'Solo/Duo', flex: 'Flex', fives: 'Ranked 5s' };
 
 // A lane-execution figure is coloured only when its label says the band is clear of 0 (colour rule 3)
 export const executionTone = (ex) => (ex?.label === 'Wins lane' ? 'up' : ex?.label === 'Loses lane' ? 'down' : null);
