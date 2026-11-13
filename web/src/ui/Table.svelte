@@ -105,6 +105,8 @@
   .t :global(th) { height: 28px; padding: 0 12px; text-align: left; vertical-align: middle; white-space: nowrap;
                    font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3);
                    background: var(--table-bg, var(--bg)); box-shadow: inset 0 -1px 0 var(--hairline-strong); }
+  /* positioned, so a visually hidden label inside a heading stays inside a table that scrolls sideways */
+  .t :global(th) { position: relative; }
   .t.sticky :global(thead th) { position: sticky; top: var(--table-top, 0); z-index: 1; }
   .t :global(td) { height: 32px; padding: 0 12px; line-height: 18px; vertical-align: middle; color: var(--text-1);
                    border-bottom: 1px solid var(--hairline); }

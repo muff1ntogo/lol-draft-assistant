@@ -11,6 +11,7 @@ import Field from './ui/Field.svelte';
 import Button from './ui/Button.svelte';
 import Table from './ui/Table.svelte';
 import Tag from './ui/Tag.svelte';
+import Menu from './ui/Menu.svelte';
 
   const LABELS = { engage: 'Engage', disengage: 'Disengage', poke: 'Poke', dive: 'Dive', pick: 'Pick',
                    splitpush: 'Split', enchanter: 'Enchanter', hypercarry: 'Hypercarry', setup: 'Setup', followup: 'Follow-up',
@@ -30,6 +31,8 @@ import Tag from './ui/Tag.svelte';
   };
   const MEASURED = [['cc', 'CC'], ['frontline', 'Front'], ['peel', 'Peel'], ['power_curve', 'Scaling'],
                     ['lane_pressure', 'Lane']];
+  // column headings short enough for eleven rating columns to fit; the full word is the heading's title
+  const SHORT = { disengage: 'Diseng', enchanter: 'Ench', hypercarry: 'Hyper', followup: 'Follow', needs_team: 'Needs' };
   let data = $state(null);
   let filter = $state('review');
   let query = $state('');
@@ -79,6 +82,11 @@ load();
     return out;
   });
 
+  // 250 rows of editors are slow to draw: the first 60 show, the rest on request (any filter or search starts over)
+  const PAGE = 60;
+  let showAll = $state(false);
+  $effect(() => { filter; view; roleFilter; query; showAll = false; });
+  const shownRows = $derived(showAll ? rows : rows.slice(0, PAGE));
   const key = (c, role) => `${c.champ_id}:${role}`;
   // does this line have labels in the group under review, and are they reviewed?
   function inGroup(c, role, entry) {
@@ -200,25 +208,23 @@ load();
       and Archetypes has its own review state; "Looks right" marks only the one you're viewing.
     </p>
 <Table dense sticky={false} scrollX={true}>
-      <thead><tr><th></th><th>Champion</th><th>Role</th><th>Archetype</th>
+      <thead><tr><th><span class="sr">Icon</span></th><th>Champion</th><th>Role</th><th>Archetype</th>
         {#if view === 'kit'}
           {#each data.kit_tags as t}<th class="num" title={KIT_LABELS[t][1]}>{KIT_LABELS[t][0]}</th>{/each}
         {:else if view === 'fight'}
-          {#each data.tags as t}<th class="num">{LABELS[t]}</th>{/each}
+          {#each data.tags as t}<th class="num" title={LABELS[t]}>{SHORT[t] ?? LABELS[t]}</th>{/each}
         {/if}
-        {#if view === 'fight'}<th>Style</th><th>Measured</th>{/if}<th></th></tr></thead>
+        {#if view === 'fight'}<th>Style</th><th class="xwide" title="Percentile in the role, from crawled matches">Measured</th>{/if}<th><span class="sr">Actions</span></th></tr></thead>
       <tbody>
-        {#each rows as { c, role, entry } (key(c, role))}
+        {#each shownRows as { c, role, entry } (key(c, role))}
           {@const v = role ? values(c, role, entry) : null}
           {@const m = role ? c.measured[role] : null}
           {@const hasArch = role && c.archetypes[role] && !c.archetypes[role].untagged}
           {@const here = role && inGroup(c, role, entry)}
           {@const isReviewed = !here || reviewedIn(c, role, entry)}
           <tr class:reviewed={here && isReviewed}>
-            <td><Champ champ={c.champ} size={30} /></td>
-            <td><strong>{c.name}</strong>
-{#if c.untagged}<Tag warn>untagged</Tag>{/if}
-              {#if !isReviewed}<span class="tag">draft</span>{/if}</td>
+            <td class="icon"><Champ champ={c.champ} size={24} /></td>
+            <td><span class="who"><strong>{c.name}</strong>{#if c.untagged}<Tag warn>untagged</Tag>{/if}{#if !isReviewed}<Tag title="Drafted, not reviewed yet: counts at half weight">draft</Tag>{/if}</span></td>
             <td>{#if role}{data.role_labels[role]}{:else}
               <select onchange={(ev) => (adding[c.champ_id] = ev.target.value)}>
                 <option value="">Add role…</option>
@@ -227,6 +233,7 @@ load();
             <td class="arch">{#if role}
               {@const a = arch(c, role)}
               {@const fb = c.archetypes[role]?.untagged ? c.archetypes[role].archetype : null}
+              {#if view === 'arch'}
               <select aria-label="Archetype" value={a.archetype} onchange={(ev) => setArch(c, role, 'archetype', ev.target.value)}>
                 <option value="">{fb ? `(${archLabel(fb)})` : '—'}</option>
                 {#each data.archetypes[role] as w}<option value={w}>{archLabel(w)}</option>{/each}
@@ -236,6 +243,9 @@ load();
                 <option value="">—</option>
                 {#each data.archetypes[role].filter((w) => w !== a.archetype) as w}<option value={w}>{archLabel(w)}</option>{/each}
               </select>
+              {:else}
+                <span class:quiet={!a.archetype}>{a.archetype ? archLabel(a.archetype) : fb ? `(${archLabel(fb)})` : '—'}{a.archetype2 ? ` / ${archLabel(a.archetype2)}` : ''}</span>
+              {/if}
 {#if c.archetypes[role]?.source === 'video'}<Tag>guide</Tag>{/if}
             {/if}</td>
             {#if view === 'kit'}
@@ -259,13 +269,13 @@ load();
               {#if role && c.identity[role]}
                 {@const id = c.identity[role]}
                 {@const t = c.timing[role]}
-                <span title={Object.entries(id.shares).map(([k, v]) => `${data.styles[k]} ${Math.round(v * 100)}%`).join(' · ')}>
+                <span title={Object.entries(id.shares).map(([k, v]) => `${data.styles[k]} ${Math.round(v * 100)}%`).join(' · ') + (m ? `\nMeasured (percentile in role): ${MEASURED.map(([k, l]) => `${l} ${fmt(m[k])}`).join(' · ')}` : '')}>
                   {id.badge.styles.map((k) => data.styles[k]).join(' / ') || 'Spread'}</span>
 {#if t?.label === 'early' || t?.label === 'late'}<Tag>{data.timings[t.label]}</Tag>{/if}
 {#if id.source === 'classes'}<span class="quiet">(classes)</span>{/if}
               {/if}
             </td>
-            <td class="measured small">
+            <td class="measured small xwide">
               {#if m}
                 {#each MEASURED as [k, l]}<span title="{l}: percentile in role">{l} {fmt(m[k])}</span>{/each}
 {:else if role}<span class="quiet">no data</span>{/if}
@@ -278,7 +288,7 @@ load();
                 {:else if !isReviewed}
 <Button onclick={() => save(c, role, entry, true)}>Looks right</Button>
                 {/if}
-{#if entry || hasArch}<Button variant="ghost" danger onclick={() => remove(c, role)}>Remove</Button>{/if}
+{#if entry || hasArch}<Menu label="More for {c.name} {data.role_labels[role]}" items={[{ label: 'Remove this role…', danger: true, onclick: () => remove(c, role) }]} />{/if}
               {/if}
               {#if error[key(c, role)]}<div class="err">{error[key(c, role)]}</div>{/if}
             </td>
@@ -288,6 +298,9 @@ load();
         {/each}
       </tbody>
 </Table>
+{#if rows.length > shownRows.length}
+  <p class="more">Showing the first {shownRows.length} of {rows.length}. <Button variant="ghost" onclick={() => (showAll = true)}>Show all {rows.length}</Button></p>
+{/if}
 {:else if loadError}
 <p class="message error" role="alert">⚠ {loadError} <Button variant="ghost" onclick={load}>Try again</Button></p>
 {:else}
@@ -301,14 +314,14 @@ load();
 .progress { width: 128px; height: 4px; overflow: hidden; background: var(--surface-2); border-radius: 2px; }
 .progress span { display: block; height: 100%; background: var(--text-2); }
 .help { max-width: 110ch; margin: 0 0 16px; color: var(--text-3); font-size: 12px; line-height: 1.55; }
-select.lvl { width: 40px; height: 24px; padding: 0 3px; text-align: center; background: var(--surface-2); color: var(--text-1); border: 1px solid var(--hairline); border-radius: var(--radius-sm); font: 12px var(--font-mono); }
+select.lvl { appearance: none; -webkit-appearance: none; width: 28px; height: 24px; padding: 0; text-align: center; text-align-last: center; cursor: pointer; background: var(--surface-2); color: var(--text-1); border: 1px solid var(--hairline); border-radius: var(--radius-sm); font: 12px var(--font-mono); }
 select.lvl:hover { border-color: var(--hairline-strong); }
 select.lvl:focus-visible, .arch select:focus-visible { outline: none; border-color: var(--signal); }
 select.l0 { color: var(--text-3); }
 .measured { white-space: nowrap; color: var(--text-3); }
   .stylecol { white-space: nowrap; }
   .arch { white-space: nowrap; }
-.arch select { width: 128px; height: 24px; margin-right: 4px; padding: 0 4px; background: var(--surface-2); color: var(--text-1); border: 1px solid var(--hairline); border-radius: var(--radius-sm); font-size: 12px; }
+.arch select { width: 148px; height: 24px; margin-right: 4px; padding: 0 4px; background: var(--surface-2); color: var(--text-1); border: 1px solid var(--hairline); border-radius: var(--radius-sm); font-size: 12px; }
   .arch select:disabled { opacity: 0.45; }
   .measured span { margin-right: 8px; }
   .actions { white-space: nowrap; }
@@ -317,4 +330,13 @@ select.l0 { color: var(--text-3); }
 .quiet { color: var(--text-3); }
 .message { margin: 16px 0; color: var(--text-3); }
   .small { font-size: 12px; }
+  .who { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+  .who strong { font-weight: 600; }
+  .icon { width: 32px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .more { margin: 12px 0 0; font-size: 13px; color: var(--text-3); }
+  /* eleven rating columns: tight cells, so the table fits without scrolling sideways */
+  main :global(td.num), main :global(th.num) { padding-left: 4px; padding-right: 4px; }
+  main :global(th.num) { font-size: 10px; letter-spacing: 0.03em; }
+  @media (max-width: 1640px) { main :global(.xwide) { display: none; } }
 </style>

@@ -157,8 +157,8 @@
       <header class="head">
         <div>
           <h2>{RESULT[h.result] ?? 'Result unknown'}{#if h.game_length_s} <span class="mono len">{length(h.game_length_s)}</span>{/if}</h2>
-          <p class="facts">{h.queue} · Patch {patchLabel(h.patch) ?? '—'} · {when(h.played_at)} · {ours} side{#if h.imported}
-            · <span title="Imported from Riot's match history: the app didn't see this champ select, so nothing was suggested, and the pick order is the order players are listed in, which may differ from the order they locked in">imported, not watched live</span>{/if}</p>
+          <p class="facts">{h.queue} · Patch {patchLabel(h.patch) ?? '—'} · {when(h.played_at)} · {ours} side{#if h.imported}<span class="imported"
+            title="Imported from Riot's match history: the app didn't see this champ select, so nothing was suggested, and the pick order is the order players are listed in, which may differ from the order they locked in">· imported, not watched live</span>{/if}</p>
         </div>
         {#if !h.imported}<Stat size="sm" value={h.pred_win_prob == null ? null : Math.round(h.pred_win_prob * 100)} unit="%" label="Predicted at lock-in" />{/if}
       </header>
@@ -317,6 +317,7 @@
   h2 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
   .len { font-size: 14px; font-weight: 500; color: var(--text-3); margin-left: 8px; }
   .facts { margin: 4px 0 0; font-size: 13px; color: var(--text-3); }
+  .imported { margin-left: 4px; }
   .planline { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; font-size: 13px; margin-top: 12px; }
   .planline .mono { color: var(--text-3); }
   .pc { display: inline-flex; align-items: center; gap: 6px; }

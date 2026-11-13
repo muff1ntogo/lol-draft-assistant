@@ -69,7 +69,7 @@
           {/if}
           {#if p.lane.lines.length}<ul>{#each p.lane.lines as l}<li>{l}</li>{/each}</ul>{/if}
           {#if p.lane.matchup_pp != null && p.opponent}
-            <div class="muted small">Game matchup {signed(p.lane.matchup_pp)}pp{#if p.lane.archetypes?.[0] && p.lane.archetypes?.[1]} · {p.lane.archetypes[0].replaceAll('_', ' ')} vs {p.lane.archetypes[1].replaceAll('_', ' ')}{/if}</div>
+            <div class="muted small">{[`Game matchup ${signed(p.lane.matchup_pp)}pp`, p.lane.archetypes?.[0] && p.lane.archetypes?.[1] ? `${p.lane.archetypes[0].replaceAll('_', ' ')} vs ${p.lane.archetypes[1].replaceAll('_', ' ')}` : null].filter(Boolean).join(' · ')}</div>
           {/if}
 
           <h4>Build {#if p.build}<small>{p.build.vs_opponent ? `vs ${p.build.opponent_name}` : 'overall'} · what: {p.build.ref_label} ({p.build.ref_games} g) · how well: your bracket ({p.build.bracket_games} g{p.build.bracket_wr != null ? `, ${pct(p.build.bracket_wr)}` : ''})</small>{/if}</h4>
@@ -131,7 +131,7 @@
             <h4>OP.GG <small>{p.opgg.loading ? 'loading…' : a ? `${p.opgg.tier ?? 'all'} tier · Solo/Duo` : ''}</small></h4>
             {#if m}
               <div class="matchup">
-                <div><strong>vs {m.opponent}:</strong> {ADV[m.play_style] ?? m.play_style ?? ''}{#if m.lane_advantage} · lane advantage: {m.lane_advantage}{/if}{#if m.solo_kill_advantage} · solo kills: {m.solo_kill_advantage}{/if}</div>
+                <div><strong>vs {m.opponent}:</strong> {[ADV[m.play_style] ?? m.play_style, m.lane_advantage ? `lane advantage: ${m.lane_advantage}` : null, m.solo_kill_advantage ? `solo kills: ${m.solo_kill_advantage}` : null].filter(Boolean).join(' · ')}</div>
                 {#if m.tip}<div class="tip">{m.tip}</div>{/if}
                 {#if m.core}<div class="row"><span class="k">Vs them</span><span>{m.core.names.join(' → ')} <small>{og(m.core)}</small></span></div>{/if}
                 {#if m.skill_order}<div class="row"><span class="k">Skills</span><span class="mono">{m.skill_order.join(' ')}</span></div>{/if}
@@ -146,7 +146,7 @@
                 {#if a.core}<div class="row"><span class="k">Core</span><span>{a.core.names.join(' → ')} <small>{og(a.core)}</small></span></div>{/if}
                 {#if a.boots}<div class="row"><span class="k">Boots</span><span>{a.boots.names.join(', ')} <small>{og(a.boots)}</small></span></div>{/if}
                 {#if a.fourth.length}<div class="row"><span class="k">4th item</span><span>{a.fourth.map((f) => f.names.join(', ')).join(' / ')}</span></div>{/if}
-                {#if a.skill_max}<div class="row"><span class="k">Skills</span><span>max {a.skill_max.join(' > ')}{#if a.skill_order} · <span class="mono">{a.skill_order.join(' ')}</span>{/if}</span></div>{/if}
+                {#if a.skill_max}<div class="row"><span class="k">Skills</span><span>max {a.skill_max.join(' > ')}{#if a.skill_order}<span class="mono order">{a.skill_order.join(' ')}</span>{/if}</span></div>{/if}
               </div>
             {/if}
           {/if}
@@ -173,9 +173,9 @@
  .threat { display: flex; gap: 10px; align-items: flex-start; }
  .players { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 0 28px; }
  @media (max-width: 720px) { .strategy { padding-inline: 16px; } .players { grid-template-columns: 1fr; } }
- .player { padding: 16px 0 20px; border-top: 1px solid var(--hairline); }
- .players .player:nth-child(-n + 2) { border-top: 0; }
- @media (max-width: 720px) { .players .player { border-top: 1px solid var(--hairline); } .players .player:first-child { border-top: 0; } }
+ /* the columns can be one, two or three across: space separates the players, not rules that depend on the count */
+ .player { padding: 16px 0 20px; }
+ .order { margin-left: 10px; }
   header { display: flex; align-items: center; gap: 12px; }
  .pname { font-size: 18px; font-weight: 650; }
   .vs { margin-left: auto; }

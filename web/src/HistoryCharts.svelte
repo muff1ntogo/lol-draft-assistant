@@ -233,10 +233,12 @@
 
       {#if stats.scouting}
         <h3>Scouting <span>Ranked 5s games where the enemy was scouted</span></h3>
-        <p class="scoutline">{stats.scouting.all_done} of {stats.scouting.games} games with all five fully read
-          ({stats.scouting.all_found} with all five found){#if stats.scouting.median_found_s != null} · all five had data
-          after {Math.round(stats.scouting.median_found_s)} s{/if}{#if stats.scouting.median_done_s != null}, fully read after
-          {Math.round(stats.scouting.median_done_s)} s (median){/if}{#if stats.scouting.missing} · {stats.scouting.missing} names not found{/if}{#if stats.scouting.errors} · {stats.scouting.errors} fetch errors{/if}</p>
+        <p class="scoutline">{[
+          `${stats.scouting.all_done} of ${stats.scouting.games} games with all five fully read (${stats.scouting.all_found} with all five found)`,
+          stats.scouting.median_found_s != null ? `all five had data after ${Math.round(stats.scouting.median_found_s)} s` : null,
+          stats.scouting.median_done_s != null ? `fully read after ${Math.round(stats.scouting.median_done_s)} s (median)` : null,
+          stats.scouting.missing ? `${stats.scouting.missing} names not found` : null,
+          stats.scouting.errors ? `${stats.scouting.errors} fetch errors` : null].filter(Boolean).join(' · ')}</p>
       {/if}
 
       {#if stats.bans.length}
