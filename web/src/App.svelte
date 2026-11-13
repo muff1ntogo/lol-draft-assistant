@@ -6,18 +6,19 @@
   import ScoutBox from './ScoutBox.svelte';
   import Notice from './ui/Notice.svelte';
   import { appStatus } from './appStatus.svelte.js';
-  import { DUR, CSS_EASE, receiveShared, reducedMotion, reveal, rise, sendShared } from './motion.js';
+  import Toast from './ui/Toast.svelte';
+  import { DUR, CSS_EASE, receiveShared, reducedMotion, sendShared } from './motion.js';
   import { settled } from './loading.js';
 
   // The top bar (docs/ui-engine-review.md, decision 3): Live · Prep · Review (History + Team) · Roster (Pools), then
   // Crawl and Settings as icons. Every page keeps its own address; a tab stays lit on the pages it groups.
   const TABS = [['live', 'Live'], ['prep', 'Prep'], ['history', 'Review'], ['pools', 'Roster']];
   const ICONS = [['crawl', 'Crawl: data jobs'], ['settings', 'Settings']];
-  const PAGES = ['live', 'prep', 'pools', 'history', 'team', 'crawl', 'settings', 'tags', 'champions', 'rules', 'kit'];
-  const GROUP = { team: 'history', tags: 'settings', champions: 'settings', rules: 'settings' };
+  const PAGES = ['live', 'prep', 'pools', 'player', 'history', 'team', 'crawl', 'settings', 'tags', 'champions', 'rules', 'kit'];
+  const GROUP = { team: 'history', tags: 'settings', champions: 'settings', rules: 'settings', player: 'pools' };
   const navKey = (p) => GROUP[p] ?? p;
   const LOADERS = {
-    pools: () => import('./Pools.svelte'), prep: () => import('./Prep.svelte'), history: () => import('./History.svelte'),
+    pools: () => import('./Roster.svelte'), player: () => import('./Player.svelte'), prep: () => import('./Prep.svelte'), history: () => import('./History.svelte'),
     team: () => import('./Team.svelte'), crawl: () => import('./Crawl.svelte'), settings: () => import('./Settings.svelte'),
     tags: () => import('./Tags.svelte'), champions: () => import('./Tags.svelte'), rules: () => import('./Rules.svelte'),
     kit: () => import('./Kit.svelte'), // the component samples (docs/ui-redesign.md, step 1): no rail item, removed in step 9
@@ -33,14 +34,17 @@
     const idle = window.requestIdleCallback ?? ((fn) => setTimeout(fn, 300));
     idle(() => Object.keys(LOADERS).filter((k) => k !== 'kit').forEach((k) => loadPage(k).catch(() => {})));
   }
+  // "#/player/<riot id>": a page with one parameter (the rest of the address, still URL-encoded)
+  const paramFromHash = () => location.hash.slice(2).split('/').slice(1).join('/');
   const pageFromHash = () => {
-    const key = location.hash.slice(2);
+    const key = location.hash.slice(2).split('/')[0];
     if (key === 'synergy') return 'prep'; // the Synergy page is part of Prep now (docs/synergy-v2.md)
     if (key === 'roster') return 'pools';
     if (key === 'review') return 'history';
     return PAGES.includes(key) ? key : 'live';
   };
   let page = $state(pageFromHash());
+  let param = $state(paramFromHash());
 
   // The pages on stage (loading.js): the one showing, and a new one mounted out of sight until its first requests
   // have answered. Then the new page rises in as the old one leaves, so it appears whole, in one movement.
@@ -67,9 +71,12 @@
   show(pageFromHash()).then(preloadAll);
   window.addEventListener('hashchange', () => {
     const next = pageFromHash();
-    if (next === page) return;
+    const nextParam = paramFromHash();
+    if (next === page && nextParam === param) return;
+    const samePage = next === page;
     page = next; // the nav answers at once; the page follows when it's ready
-    show(next);
+    param = nextParam;
+    if (!samePage) show(next); // the same page with another parameter (one profile to another) updates in place
   });
   // the entrance, run when a page waiting out of sight is ready (a WAAPI animation, as the element already exists)
   function enter(node, ready) {
@@ -165,7 +172,7 @@
 <!-- Pages share one grid cell, so the new page comes in while the old one leaves -->
 {#snippet pageView(entry)}
 {#if entry.Comp}
-  <entry.Comp />
+  <entry.Comp {param} />
 {:else if LOADERS[entry.key]}
   <main class="idle"><h1>Couldn't load this page</h1><p class="error">Check the connection to the app, then reload.</p></main>
 {:else if view.status === 'champ_select'}
@@ -188,6 +195,7 @@
   {/each}
 </div>
 
+<Toast />
 {#if page === 'live' && view.plan}
   {#key view.plan.text}<PlanBar bar={view.plan} />{/key}
 {/if}

@@ -267,3 +267,14 @@ def test_api_roster_profile_and_actions(make_services, db, tmp_path):
         gone = client.delete("/api/players/Main%23EUW", params={"confirm": "main#euw"}).json()
         assert gone["lineup"][0]["riot_id"] == "" and "Main#EUW" not in file()
         assert client.delete("/api/players/Main%23EUW", params={"confirm": "Main#EUW"}).status_code == 404
+
+
+def test_a_pasted_pool_is_read_for_one_player_without_saving(make_services, db):
+    with TestClient(create_app(make_services(db=db), stats_refresh_s=0)) as client:
+        bare = client.post("/api/pools/parse", json={"role": "top", "text": "Gnar: main\nRumble: learning\nNobody: main"}).json()
+        assert [(e["champ_id"], e["tier"], e["champ"]["name"]) for e in bare["entries"]] == [(150, "main", "Gnar"), (68, "learning", "Rumble")]
+        assert len(bare["errors"]) == 1 and bare["errors"][0].startswith("line 3: unknown champion")  # the user's own line number
+        headed = client.post("/api/pools/parse", json={"role": "top", "text": "Top:\nGnar: main\n\nJUNGLE\nSejuani: main"}).json()
+        assert [e["champ_id"] for e in headed["entries"]] == [150] and "jungle ignored" in headed["errors"][0]
+        assert client.post("/api/pools/parse", json={"role": "carry", "text": "Gnar: main"}).status_code == 422
+    assert top_pool(db) == [68, 897]  # nothing was saved

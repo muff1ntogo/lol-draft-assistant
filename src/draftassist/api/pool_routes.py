@@ -2,6 +2,7 @@
 text import, tier accept and lock. Every change is mirrored to the roster file (Services.save_roster)."""
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -11,6 +12,7 @@ from sqlmodel import Session, select
 from draftassist.api.deps import db_of
 from draftassist.api.onboarding import OnboardingRunner, lookup
 from draftassist.data.pools import (
+    ROLE_ALIASES,
     bench,
     bench_player,
     create_player,
@@ -227,9 +229,13 @@ def _roster_payload(svc: Services) -> dict:
         "learning": svc.learning or {"running": False},
         "has_key": svc.make_riot() is not None,
         "in_draft": svc.in_draft(),
-        "champions": sorted(({"id": c, "name": name} for c, (_, name) in svc.catalog.champs.items()),
-                            key=lambda c: c["name"]),
+        "champions": _champion_cards(svc),
     }
+
+
+def _champion_cards(svc: Services) -> list[dict]:
+    """Every champion as a card (id, name, icon), by name: what the add-champion search offers."""
+    return sorted((svc.catalog.card(c) for c in svc.catalog.champs), key=lambda c: c["name"])
 
 
 def _profile_payload(svc: Services, player: Player, window: str) -> dict:
@@ -257,8 +263,7 @@ def _profile_payload(svc: Services, player: Player, window: str) -> dict:
     body.update(riot_id=player.riot_id, role_label=ROLE_LABELS[player.role], active=player.active, bracket=player.bracket,
                 resolved=player.resolved, since_days=_days_since(player.active_since) if player.active else None,
                 health=_health(svc, player), has_key=svc.make_riot() is not None,
-                champions=sorted(({"id": c, "name": name} for c, (_, name) in svc.catalog.champs.items()),
-                                 key=lambda c: c["name"]))
+                champions=_champion_cards(svc))
     return body
 
 
@@ -431,6 +436,23 @@ def _pools_payload(svc: Services) -> dict:
         "champions": sorted(({"id": c, "name": name} for c, (_, name) in svc.catalog.champs.items()),
                             key=lambda c: c["name"]),
     }
+
+@router.post("/api/pools/parse")
+def post_pool_parse(request: Request, text: str = Body(...), role: str = Body(...)) -> dict:
+    """Read a pasted pool for one player without saving it (Add player, and "Import from text" on a profile): the
+    import format, with or without the role's heading. Returns that role's `entries` and every `errors` line."""
+    svc: Services = request.app.state.services
+    if role not in ROLES:
+        raise HTTPException(422, "unknown role")
+    first = next((line.strip() for line in text.splitlines() if line.strip() and not line.strip().startswith("#")), "")
+    headed = first.rstrip(":").strip().lower() in ROLE_ALIASES
+    parsed = parse_pool_text(text if headed else f"{role.upper()}\n{text}", svc.catalog.champs)
+    others = [r for r in parsed.entries if r != role]
+    shift = 0 if headed else 1  # the heading we added moved every line down one
+    errors = [re.sub(r"^line (\d+)", lambda m: f"line {int(m.group(1)) - shift}", e) for e in parsed.errors] + ([f"only the {ROLE_LABELS[role]} pool is read here: {', '.join(others)} ignored"] if others else [])
+    return {"entries": [{"champ_id": c, "champ": svc.catalog.card(c), "tier": t} for c, t in parsed.entries.get(role, [])],
+            "errors": errors}
+
 
 @router.post("/api/pools/import")
 def post_pool_import(request: Request, text: str = Body(..., embed=True)) -> dict:
