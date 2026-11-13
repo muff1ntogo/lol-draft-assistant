@@ -93,13 +93,14 @@ def test_every_push_to_main_publishes_the_installer_the_app_downloads():
     assert f"github.com/{REPO}/releases/latest/download/{ASSET}" in readme  # the download link up front
 
 
-def test_the_next_release_is_0_2_1():
-    """0.1.x ended at run 10 (v0.1.10); the power-spike work starts 0.2.x at .1 (user, 8 Nov 2026)."""
+def test_the_next_release_is_1_0_1():
+    """0.1.x ended at run 10 (v0.1.10) and 0.2.x at run 17 (v0.2.7); the redesigned app is v1 and starts 1.0.x at .1
+    (user, 14 Nov 2026)."""
     import tomllib
 
     py = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     major, minor, _ = py["project"]["version"].split(".")
-    assert (major, minor) == ("0", "2") and 11 - py["tool"]["draftassist"]["release_run_base"] == 1
+    assert (major, minor) == ("1", "0") and 18 - py["tool"]["draftassist"]["release_run_base"] == 1
 
 
 def test_a_silent_update_restarts_the_app_and_skips_the_setup_pages():
