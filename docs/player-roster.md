@@ -1,5 +1,10 @@
 # Task: player roster: subs, the bench, and a local copy of the pools
 
+> Since 13 Nov 2026 the page described here is the Roster page of `docs/roster-profiles.md`: "Swap in a sub" is its
+> swap sheet, Forget is Delete (for any player, with a confirmation), and the players table is gone (players are added
+> with Add player). The data model, the bench and the roster file below are unchanged. The old routes (`PUT
+> /api/players`, `POST /api/players/swap`, `DELETE /api/players/bench`) still exist; no page calls them.
+
 Built 7 Nov 2026, at the user's request: "player pool caching on local files (not affected by updates) + player
 swapping (caching past player pools but able to swap to new players for subs)".
 

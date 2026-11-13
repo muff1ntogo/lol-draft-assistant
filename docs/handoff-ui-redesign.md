@@ -1,209 +1,208 @@
-# Handover: finishing the UI redesign
+# Handover: the rest of the UI redesign (step 7's Tags and Rules, step 8, step 9)
 
-Written 12 Nov 2026 for whoever builds the rest. The work so far was done by one model over one session; the user will
-come back to that model at the end for debugging, polish, tests and housekeeping, so **your job is to build the
-remaining steps well, not to be the last line of defence**. Leave clear notes (see "What to leave behind").
+Written 13 Nov 2026. It replaces the first handover (12 Nov), which covered the roster work and is done. The user will
+come back to the first model afterwards for checks, optimisation and polish, so **build the remaining steps well and
+write down what you could not verify**: that pass starts from this file's last two sections.
 
 ## Read first, in this order
 
 1. `CLAUDE.md`: the project rules. The ones that bite here: the League client is read-only (no UI may offer to hover,
    pick, lock or accept), no new npm or Python dependencies without asking the user, never commit databases,
    recordings or screenshots.
-2. `docs/ui-redesign.md`: the design system, the three colour rules, the plan (steps 1??) and a "Built" note under
-   each finished step with the choices made. Read those notes: they are the precedents to follow.
-3. `docs/roster-profiles.md`: step 5 of the plan, a feature in five stages (A?), with its decisions, API, data and a
-   "Built" section for Stage A.
+2. `docs/ui-redesign.md`: the design system, the three colour rules, the plan (steps 1-9) and a "Built" note under
+   each finished step. Those notes are the precedents to follow.
+3. This file.
 
-Use `web/src/Live.svelte` as the reference for the look, `web/src/Prep.svelte` and `web/src/History.svelte` as the
-reference for a finished console page, and `#/kit` (`web/src/Kit.svelte`) to see every shared component in every state.
+Reference pages: `web/src/Live.svelte` for the broadcast-desk look; `web/src/Prep.svelte`, `History.svelte`,
+`Roster.svelte`, `Crawl.svelte` and `Settings.svelte` for finished console pages; `#/kit` (`web/src/Kit.svelte`) shows
+the first ten shared components in every state.
 
 ## Branch and rules of engagement
 
-- Work on **`claude/sharp-noether-n5ljtx`**. **Never merge or push to `main`**: every push to `main` publishes a release
-  that teammates' apps offer as an update.
-- One step (or one roster stage) at a time, in order. Commit after each with a clear message and push to the branch.
-- The user asked to see each step before the next one. If you are told to run through several, still commit per step.
-- **Tests:** the user's instruction is to run the full suite **once, at the end of all the steps** (it takes ~6
-  minutes). Do run the tests you write or touch while building (`uv run pytest tests/test_x.py`). The last full run
-  was after step 2: 1,612 passed, 2 skipped. Stage A added 12 tests in `tests/test_profile.py`.
-- If a doc is ambiguous or you would need to change scope, ask the user rather than deciding. Decisions already taken
-  are in the two docs' decision tables.
+- Work on **`claude/sharp-noether-n5ljtx`** (pull it first). **Never merge or push to `main`**: every push to `main`
+  publishes a release that teammates' apps offer as an update. The user decides when that happens.
+- One step at a time, in order. After each: a "Built" note under it in `docs/ui-redesign.md`, a commit with a clear
+  message, and a push to the branch.
+- **Tests:** write tests alongside any Python you add and run those. Do not run the full suite per step; it runs once
+  at the end. The last full run (13 Nov, before the roster rewrite) was 1,631 passed, 2 skipped; the roster rewrite
+  then ran `tests/test_roster.py`, `tests/test_pool_proposal.py` and `tests/test_profile.py` (38 passed).
+- If a doc is ambiguous or you would need to change scope, ask the user rather than deciding.
 
 ## Where things stand
 
 | Step | State | Commit |
 | --- | --- | --- |
-| Foundation: tokens, fonts, left rail, Live prototype | Done before this work | `b64b887` |
-| 1 Shared console components (`web/src/ui/`) and `#/kit` | Done | `3f3e0fe` |
+| Foundation: tokens, fonts, left rail, Live prototype | Done | `b64b887` |
+| 1 Shared console components and `#/kit` | Done | `3f3e0fe` |
 | 2 Notices and the shell | Done | `c9cd8b5` |
 | 3 Prep | Done | `4607ec4` |
 | 4 Review: History and Team trends | Done | `94c5b4e` |
-| 5 Roster, Stage A (data and profile figures) | Done | `f30c2c5` |
-| 5 Roster, Stage B (pool proposal and onboarding API) | Done | d90850b |
-| 5 Roster, Stages C, D, E | **To do** | |
-| 6 Crawl | **To do** | |
-| 7 Settings, Tags, Rules | **To do** | |
+| 5 Roster (`docs/roster-profiles.md`, Stages A-E) | Done | `f30c2c5`, `ab08aa0`, `82d2b67` |
+| 6 Crawl | Done | see `git log` ("step 6") |
+| 7 Settings | Done | see `git log` ("step 7 (first part)") |
+| 7 Tags, Rules | **To do** | |
 | 8 Live's remaining parts | **To do** | |
 | 9 Clean up | **To do** | |
 
-Pages still in the old layout (they already render in graphite + lime through the alias tokens): `Pools.svelte`,
-`Crawl.svelte`, `Settings.svelte`, `Tags.svelte`, `Rules.svelte`, and inside Live `StrategyView.svelte`,
-`PlanBar.svelte`, `CompPanel.svelte`, `ScoutBox.svelte`, `PowerChart.svelte`, `ComponentBar.svelte`,
-`ComponentLegend.svelte`, `Champ.svelte`.
+Still in the old layout (they render in graphite and lime through the alias tokens, and work): `Tags.svelte`,
+`Rules.svelte`, and inside Live `StrategyView.svelte`, `PlanBar.svelte`, `CompPanel.svelte`, `ScoutBox.svelte`,
+`PowerChart.svelte`, `ComponentBar.svelte`, `ComponentLegend.svelte`, `Champ.svelte`. The idle Live screen's markup
+is in `App.svelte` (`.idle`).
 
 ## The shared components (`web/src/ui/`)
 
-Each file starts with a comment saying what it is for and how to call it. In short:
+Each file starts with a comment saying what it is for and how to call it.
 
 | Component | Use it for | Worth knowing |
 | --- | --- | --- |
-| `PageHeader` | every console page's title, one-line description, actions | the page's one primary button goes in `actions` |
-| `Toolbar` + `ToolGroup` | the row of view controls | `ToolGroup label=` puts the caps label before the group; `end` pushes it right |
+| `PageHeader` | a console page's title, one-line description, actions | the page's one primary button goes in `actions` |
+| `Toolbar` + `ToolGroup` | the row of view controls | `ToolGroup label=` puts the caps label first; `end` pushes it right |
 | `Segmented` | a choice between modes | a radio group (arrow keys); never lime; `onchange` for navigation |
-| `Button` | every button | `variant` primary / secondary / ghost, `size` sm (28) / md (32), `danger`, `href`, `busy` |
-| `Table` | every table | `columns` + `rows` (with `sortable`, `num`, `format`, `tone`, `limit`, a `cell` snippet, `onrowclick`, `selected`, loading / empty / error rows), or wrap your own `<thead>` / `<tbody>` for grouped rows |
-| `Panel` | one self-contained raised area | a panel inside a panel turns into a ruled section by itself |
+| `Button` | every button | `variant` primary / secondary / ghost, `size` sm (28) / md (32), `danger`, `href`, `busy`; pass `type="submit"` inside a form |
+| `Table` | every table | `columns` + `rows` (`sortable`, `num`, `format`, `tone`, `limit`, a `cell` snippet, `onrowclick`, `selected`, `maxHeight`, loading / empty / error rows), or wrap your own `<thead>` / `<tbody>` for grouped rows |
+| `Panel` | one self-contained raised area | a panel inside a panel becomes a ruled section by itself |
 | `Stat` | a figure with its label | `tone` colours a value that is itself signed; `delta` is the signed change beside it |
-| `Notice` | the app's messages | the shell owns it (`App.svelte`, `appStatus.svelte.js`); pages don't add their own banner stacks |
-| `Field` | inputs, selects, textareas, checkboxes | other controls go in as children; `hideLabel` inside a labelled `ToolGroup` |
-| `Tag` | a word about a row | quiet "繚 word" text; with `onclick` it is a bordered filter with `pressed`; `warn` adds ?? `bare` drops the dot |
+| `Notice` | the app's messages | the shell owns it (`App.svelte`, `appStatus.svelte.js`); pages don't add banner stacks |
+| `Field` | inputs, selects, textareas, checkboxes | other controls go in as children; `hideLabel` inside a labelled `ToolGroup`; a bound value must not be `undefined` |
+| `Tag` | a word about a row | quiet text after a middle dot; with `onclick` a bordered filter with `pressed`; `warn` adds a warning mark; `bare` drops the dot |
+| `Sheet` | a task in a side sheet, or with `dialog` a yes / no box | traps focus, Escape and the backdrop close it, focus returns to the opener; `step` moves focus to each step's first field |
+| `Menu` | a "more" button for actions that shouldn't be one click away | `items: [{ label, onclick, danger? }]` |
+| `RadioList` | one choice where each option needs a line of explanation | `options: [{ value, label, note? }]` |
+| `Toast` | a short confirmation with one action (Undo) | call `toast(text, { action, seconds })` from `ui/toast.svelte.js`; `App.svelte` mounts it once |
 
 `<main class="console">` is the content column (24px gutters, 16px under 1180px). Section headings are 16px / 650;
 sub-labels are `.label-caps`. Sections are separated by a hairline and space, not by boxes.
 
-If a page needs something the components don't do, extend the component (as `Table` got `limit` and `tone` in step 3)
-rather than hand-rolling a one-off, and note it under the step in `docs/ui-redesign.md`.
+If a page needs something the components don't do, extend the component rather than hand-rolling a one-off, and say
+so in the step's "Built" note.
 
-## Conventions that came out of steps 1?? (follow them)
+## Conventions that came out of steps 1-7 (follow them)
 
-- **Lime is only "act on this now".** A selected, locked, pinned or ticked thing is a *state*: mark it with light ink
-  (`--text-1` border or outline, `--surface-3` fill), never lime. A disabled primary button is grey. One primary
-  button per view, in the page header.
+- **Lime is only "act on this now".** A selected, locked, pinned, ticked or open thing is a state: light ink
+  (`--text-1` border or outline, `--surface-2` / `--surface-3` fill), never lime. A disabled primary is grey. One
+  primary button per view, in the page header (a sheet's footer for a sheet).
 - **Blue and red are only the sides, on structure** (a 3px inset edge on a list or column). Never on text or a figure.
-  Don't use red for "bad" or "gap": write the word with ??(`Tag warn`), and use `--error` only for real errors.
-- **Teal and orange only colour signed figures and their bars**, with `+` / `? in the text. Use a neutral colour when a
-  value is inside its noise (see `tone` helpers in `PlanSynergy.svelte` and `Team.svelte`). A result is a word in ink
-  (Win bright, Loss quiet), not a colour.
-- **Charts** read `web/src/palette.js`: `COMPONENT` for a chart with several series, `TEXT_2` (neutral ink) for a
-  single series, `FONT_UI` / `FONT_MONO`, `LINE` for axes and grid, `MUTED` for labels. Lime is never a data colour.
-  A new series set must be validated first (command in `docs/ui-redesign.md`, "Colour"; the dataviz skill has the script).
-- **Figures are mono** (`class="mono"`, or `num: true` on a table column); labels are small caps; reasons and captions
-  are 12??3px in `--text-3`.
-- **Every state is written out**: empty ("No games match these filters"), loading, error with ??and the reason.
+  Don't use red for "bad" or "gap": write the word with a warning mark (`Tag warn`, `--warn`); `--error` is for real
+  errors only.
+- **Teal and orange only colour signed figures and their bars**, with the sign in the text, and only when the value
+  is outside its noise (see the `tone` helpers in `PlanSynergy.svelte`, `Team.svelte`, `roster.js`). A result is a
+  word in ink (Win bright, Loss quiet).
+- **Progress is not an action**: bars are 4px and grey (`--text-3`, `--text-2` for the current one). Nothing loops
+  except the champ-select dot in the rail.
+- **Charts** read `web/src/palette.js`: `COMPONENT` for several series, `TEXT_2` (neutral ink) for one, `FONT_UI` /
+  `FONT_MONO`, `LINE` for axes and grid, `MUTED` for labels. Lime is never a data colour. A new series set must be
+  validated first (command in `docs/ui-redesign.md`, "Colour"; the dataviz skill has the script).
+- **Figures are mono** (`class="mono"`, or `num: true` on a column); labels are small caps; captions are 12-13px in
+  `--text-3`. Messages after an action are one line under the header (`role="status"`, or `alert` with a warning mark).
+- **Every state is written out**: empty, loading, error with its reason.
 - **A page's first request goes out at once** (`loading.js` holds the page until it answers); debounce only later
   edits. Other pages are lazy chunks (`App.svelte` `LOADERS`); Live and what it imports stay in the main bundle.
-- **Spacing slips to avoid:** Svelte drops the space between an inline element and following text, so "??text" and
-  "name 繚 tag" need a margin or a flex `gap`, not a literal space. This happened four times.
-- When a file has ?? ?? 繚 or ?? edit it with the Edit / Write tools (or a Python script reading and writing UTF-8),
-  not shell heredocs with nested quoting (`CLAUDE.md`, last lesson).
+- **Narrow windows:** tables must fit at 1100px. Mark the columns that can go with a `wideonly` class and hide them
+  under 1180px (see `Roster.svelte`, `History.svelte`).
+- **Mistakes already made here, don't repeat them:**
+  - Svelte drops the space between an inline element and the text after it. A mark before text, or "name · tag",
+    needs a margin or a flex `gap`. This happened six times.
+  - Never change state while rendering (`x[key] ??= ...` in the markup throws `state_unsafe_mutation`): give every key
+    its starting value up front.
+  - A value bound to a `Field` must exist: fill missing keys with `''` when the data arrives.
+  - Files with non-ASCII characters must be edited with the Edit / Write tools, or a Python script that reads and
+    writes UTF-8. A model that rewrote the previous handover through a shell on Windows turned every dash, arrow and
+    warning mark into `??`. Check `git diff` for that before committing.
 
-## What is left, step by step
+## What is left
 
-### Step 5: Roster (`docs/roster-profiles.md`), Stages B?
+### Step 7, second part: Tags and Rules (`Tags.svelte`, `Rules.svelte`)
 
-Stage A gave you: the new columns (`player_games`: kills, deaths, assists, cs, vision, duration_s; `players`: rank_json,
-mastery_json, profile_fetched_at), `learning/history.py` (`game_stats`, `backfill_game_stats`, `refresh_profiles`,
-`mastery_rows`), `RiotClient.match_cached`, and `learning/profile.py` (`summary` for a Roster row, `profile` for the
-page, `load_inputs(db, puuid)`; `Game`, `PoolRow`, `ExecutionRow` records). Read its docstrings and
-`tests/test_profile.py` before building on it.
+As `docs/ui-redesign.md` says: Tags as a `Table` with its filters in a `Toolbar` and the review flags as `Tag`s you
+can click; Rules as `Table`s. Both open only from Settings > Champion data now, so give each a "back to Settings"
+link like `Player.svelte`'s "back to Roster". Tags is an editor (0-3 ratings per trait, archetypes, kit tags, three
+review groups): keep every edit path and its save / revert behaviour, and keep the page usable with ~170 champions
+(don't render every row's editor at once if it gets slow; the old page filters to "to review" by default).
 
-- **Stage B**: `learning/pool_proposal.py` (pure; the thresholds are in the doc's "Automatic pool") and the onboarding
-  API (lookup, start, status, create) against a fake Riot client. Reuse `profile.also_plays` and `history.mastery_rows`;
-  `refresh_profiles(db, riot, only=puuid)` fetches one player's rank and mastery whatever its age. The fetch must pause
-  a running crawl the way scouting does (`cache/jobs/yield.json`; see `data/scout.py`).
-  **Decision 7:** one real lookup + fetch is allowed as a sanity check, with a Riot ID the user gives (ask for it), on
-  a scratch database, through `RiotClient`, nothing kept. This container's proxy holds credentials for
-  `euw1.api.riotgames.com` and `europe.api.riotgames.com`; never print or commit a key.
-- **Stage C**: bench, activate with undo, delete with confirm, `GET /api/roster`. **Decision 6:** delete removes the
-  player, their pools and their *fetched* games; logged team games (`player_games.source == "logged"`), drafts and
-  execution rows stay. Add `players.active_since` here (the "since" figure on a Roster row needs it; noted in the
-  doc's Built section) and set it wherever a player becomes active. `roster.json` must follow every change
-  (`Services.save_roster`). The API layer adds what needs the engine: `blind.pool_health`, blind safety per champion,
-  the `execution_comfort` hint.
-- **Before Stage D**: build the demo data the doc's "Data" section asks for (synthetic games, mastery and rank for the
-  demo roster, clearly marked), or the pages can't be checked. `scripts/seed_demo_games.py` (see below) is a start for
-  team games; player games with stats, rank and mastery are still missing.
-- **Stage D**: the Roster page (lineup summaries, bench table, swap sheet with an undo toast, the four-step Add player
-  sheet). "Add player" is the page's primary button. Bench and Delete are separate; Delete sits in a `?畔 menu and
-  asks for confirmation (`Button danger`). There is no sheet / dialog / toast / menu component yet: build them in
-  `web/src/ui/` (focus trap, Escape closes, focus returns to the opener; `motion.js` has `pop` and `reveal`), add
-  them to `#/kit`, and check Add player with the keyboard alone.
-- **Stage E**: the profile page at `#/player/<riot-id>` (URL-encode the Riot ID: it contains `#`). It needs a route in
-  `App.svelte` that takes a parameter (`pageFromHash` only knows fixed names today) and a lazy chunk.
+### Step 8: Live's remaining parts
 
-The old `PUT /api/players`, `POST /api/players/swap` and `DELETE /api/players/bench` keep working until the old page is
-gone, then go, with their tests moved to the new routes.
+As the doc says. Notes:
 
-### Step 6: Crawl, Step 7: Settings / Tags / Rules, Step 8: Live's remaining parts
-
-As `docs/ui-redesign.md` describes them. Notes:
-
-- **Crawl**: progress bars are 4px, `--text-3` (`--text-2` for the current patch), never lime: progress isn't an
-  action. A user-role account (signed in with an invite) must still not see the admin-only jobs.
-- **Settings**: the left sub-navigation is new; Tags and Rules open from "Champion data" (Prep's links to them were
-  removed in step 3, so Settings is now the only way in). The `draftassist:update` window event from "Check for
-  updates" must keep reaching `appStatus.svelte.js`.
-- **Live**: keep `D` / `S`, keep everything Live imports in the main bundle, keep motion to events only.
-  `ComponentBar` and `ComponentLegend` still hard-code the three series colours: `--viz-threat` / `--viz-matchup` /
-  `--viz-comp` exist now (`app.css`).
+- Keep `D` / `S`, keep everything Live imports in the main bundle, keep motion to events only (lock-in, ban, turn
+  change, timer).
+- `ComponentBar` and `ComponentLegend` hard-code the three series colours; `--viz-threat` / `--viz-matchup` /
+  `--viz-comp` exist in `app.css` now.
+- `PlanBar` is fixed to the bottom and offset by the folded rail (`App.svelte`); the toast sits at the bottom too
+  (`ui/Toast.svelte`, 24px up): make sure they don't cover each other on Live.
+- `ScoutBox` is used in two places: under their rail on Live (`compact`) and on the idle Live screen.
+- Strategy needs data to look at: demo mode fills some of it; say what you could not see.
 
 ### Step 9: Clean up
 
-As the doc lists, plus what steps 1?? added to it:
-
-- Remove `#/kit` (`Kit.svelte`, its `LOADERS` / `PAGES` entries in `App.svelte`): **decision 11**.
-- Remove the alias tokens and `GOLD` from `palette.js` once nothing reads them; replace every hard-coded hex in
-  components.
-- Update `CLAUDE.md`: the code map (`web/src/ui/`, `appStatus.svelte.js`, `learning/profile.py`, the roster routes),
-  the status notes, and a line for `docs/roster-profiles.md`.
-- Run the full suite and fix what it finds.
+- Remove `#/kit`: `Kit.svelte` and its `LOADERS` / `PAGES` entries and the `kit` filter in `preloadAll`
+  (`App.svelte`). Decision 11.
+- Remove the alias tokens from `app.css` (`--panel`, `--gold`, `--muted`, `--blue`, `--line`, ...) once
+  `rg -- '--gold|--panel|--muted|--blue|--link|--line\b|--text\b|--red|--good' web/src` finds no use, and `GOLD` from
+  `palette.js`.
+- Replace every hard-coded colour in components (`rg -n '#[0-9a-fA-F]{3,6}' web/src --glob '*.svelte'`) with a token
+  or a `palette.js` constant.
+- Remove the old roster routes no page calls any more, with their tests moved or dropped: `PUT /api/players`,
+  `POST /api/players/swap`, `DELETE /api/players/bench`, `PUT` / `DELETE /api/pools/{role}/{champ_id}`,
+  `POST /api/pools/import`, and `GET /api/pools` if nothing reads it (check `rg "api/pools|api/players" web/src src
+  tests` first; `accept` and `lock` are still used by `Player.svelte`). The CLI's `pools import` must keep working.
+- Update `CLAUDE.md`: the code map (`web/src/ui/`, `appStatus.svelte.js`, `learning/profile.py`,
+  `learning/pool_proposal.py`, `api/onboarding.py`, the roster routes, `scripts/seed_demo_games.py`), a paragraph for
+  `docs/roster-profiles.md` and `docs/ui-redesign.md` like the other task docs have, "Pools page" wording that is now
+  "Roster" or a player's profile, and the test count.
+- Run the full suite once and fix what it finds.
 
 ## How to check your work
 
 ```sh
-cd web && npm ci && npm run build          # after every UI change; the build must print no warnings
-# a scratch data folder, demo mode; restart after a Python change, and after the first build (the app mounts web/dist at start)
-DRAFTASSIST_HOME=<scratch> DRAFTASSIST_DB=<scratch>/demo.sqlite DRAFTASSIST_LCU=demo \
-  uv run uvicorn draftassist.api.main:app --port 8765
+cd web && npm ci && npm run build          # after every UI change; it must print no warnings
+# a scratch data folder; start once so it loads the champions, stop, seed, start again
+export DRAFTASSIST_HOME=<scratch> DRAFTASSIST_DB=<scratch>/demo.sqlite
+DRAFTASSIST_LCU=demo uv run uvicorn draftassist.api.main:app --port 8765      # first start: wait ~15 s, then stop it
+DRAFTASSIST_LCU=off DRAFTASSIST_DEMO_LOG=1 uv run python scripts/seed_demo_games.py
+DRAFTASSIST_LCU=demo uv run uvicorn draftassist.api.main:app --port 8765
 ```
 
-- Screenshots with Playwright (`require('playwright')`, pre-installed; don't install another) at **1440 ? 900 and
-  1100 ? 760**, saved in a scratch folder, never in the repository. Move the mouse off the rail first
-  (`page.mouse.move(900, 860)`), wait ~2 s for the page to settle, use `fullPage: true` for long pages.
-- For each page check: no console errors, `document.documentElement.scrollWidth` equals the viewport width, keyboard
-  focus is visible on every control, empty / loading / error states, and reduced motion
-  (`browser.newContext({ reducedMotion: 'reduce' })`).
-- Demo mode has **no logged games and no crawled matches**. Seed team games with
-  `scripts/seed_demo_games.py` (its docstring has the command; stop the app first, and it only runs when
-  `DRAFTASSIST_DB` is set). For data demo mode can't produce (the Matchup tree's rows, a pending update), answer the
-  request yourself in the test: `page.route('**/api/...', (r) => r.fulfill({ json: ... }))`. Say in your notes when a
-  state was checked against a made-up response.
+- The seed script makes a made-up roster (`...#DEMO`), their games, rank and mastery, and 26 team games with execution
+  splits. It refuses to run without `DRAFTASSIST_DB` and on a database that already has players. Restart the app after
+  a Python change, and after the first `npm run build` (it mounts `web/dist` at start).
+- Screenshots with Playwright (`require('playwright')`, pre-installed; don't install another) at **1440 x 900 and
+  1100 x 760**, saved in a scratch folder, never in the repository. Move the mouse off the rail first
+  (`page.mouse.move(900, 860)`), wait ~2 s, use `fullPage: true` for long pages.
+- For each page: no console errors (listen for `pageerror`), `document.documentElement.scrollWidth` equals the
+  viewport width at both sizes, keyboard focus visible on every control, empty / loading / error states, and reduced
+  motion (`browser.newContext({ reducedMotion: 'reduce' })`).
+- For data demo mode can't produce, answer the request yourself in the check:
+  `page.route('**/api/...', (r) => r.fulfill({ json: ... }))`. Say in your notes when a state was checked against a
+  made-up response.
 - Before and after each page, run the anti-slop gate (`.claude/skills/no-ai-design-slop`, `audit-ai-design-slop`) on
   the rendered page at both widths. Ignore the landing-page, WebGL and 3D skills.
 
 ## Known gaps and things not verified (for the end pass)
 
-- The full test suite has not been run since step 2. Steps 3?? changed only `web/`; Stage A changed Python and ran
-  only `tests/test_profile.py` and its neighbours.
-- `tests/test_simulation.py::test_simulated_draft[blue-ranked]` failed once in a full run while the UI was being
-  rebuilt beside it, and passed alone and in the next full run. Cause not found.
-- Checked only against made-up responses: the Matchup tree's rows, the update notice. Not exercised at all: the
-  first-run progress notice in the shell (only on `#/kit`), "Import missed games" on History (needs a Riot key),
-  Prep's and Review's error states, reduced motion on Prep and Review.
-- History's lane-matchup bars show "no data" with the seeded games, so the recap's favourability bars were not seen
+- **The full suite** has not been run since the roster rewrite and steps 6-7.
+- **The one real Riot check** of Add player (roster decision 7) was never done: the user has not given a Riot ID.
+  Everything about onboarding is tested against a fake client or made-up answers.
+- **Crawl** was only seen as a solo account with nothing crawled and nothing running. The shared-data, datasets,
+  members, "what's published" and data-selection sections, and a running crawl, were restyled without being seen.
+- **Settings:** only the solo account. Sign-out, the admin form and "Update to ..." were not exercised.
+- **Seen only against made-up responses:** the Matchup tree's rows, the update notice, Add player's key path.
+  **Not exercised at all:** the first-run progress notice in the shell, "Import missed games" on History, the error
+  states of Prep and Review, reduced motion on any page after the kit.
+- History's lane-matchup bars show "no data" with seeded games, so the recap's favourability bars were not seen
   with values.
+- `tests/test_simulation.py::test_simulated_draft[blue-ranked]` failed once in a full run on 12 Nov while the UI was
+  being rebuilt beside it, and has passed in every run since. Cause not found.
 - Stage A's learning-job wiring (`backfill_game_stats`, `refresh_profiles` after the history fetch) is covered by unit
   tests of each function, not by a test of `run_learning` end to end.
-- Stage B's fake-client proposal/onboarding coverage passed (38 focused tests with its affected pool/roster/profile
-tests), but the user-authorized real EUW sanity lookup/fetch was not run: no `RIOT_API_KEY` was available in this
-environment. It sent no request and the disposable scratch directory was removed.
+- An older database gets `players.active_since` as NULL for existing players ("since" is then blank until their next
+  swap). Not checked on a copy of a real database.
 - "Comfort-weighted pool size" (main 1, comfortable 0.5, learning 0.25) and the lane-execution label and trend rules
   are this work's reading of the doc; the user has seen them but not confirmed them.
-- Roster's left gutter doesn't line up with the notice strip until `Pools.svelte` moves to `.console`.
+- The new sheet, menu, radio list and toast are not on `#/kit` (it is removed in step 9).
 
 ## What to leave behind
 
-After each step or stage: a "Built" note under it in the task doc (what was built, the choices you made that the doc
-didn't spell out, what you could not verify), a commit per step, and the branch pushed. If you stop mid-step, say
-exactly where in this file's table. Keep this file's "Where things stand" and "Known gaps" current: the end pass
-starts from them.
+After each step: its "Built" note in `docs/ui-redesign.md` (what you built, choices the doc didn't spell out, what you
+could not verify), a commit, a push. Keep this file's "Where things stand" table and "Known gaps" list current, and
+if you stop mid-step say exactly where. Don't add new handover or review documents: put the notes in the step's
+"Built" section and in this file.

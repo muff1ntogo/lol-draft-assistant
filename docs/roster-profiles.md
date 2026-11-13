@@ -197,7 +197,7 @@ the page) and `load_inputs`, which reads one player's rows. Tests: `tests/test_p
   the roster actions in Stage C (`players.active_since`). Blind safety, pool health and the execution hint need the
   engine, so the API adds them in Stages C and E.
 
-**Stage B (12 Nov 2026).** `learning/pool_proposal.py` is pure and has the documented, tuneable game and mastery
+**Stage B (12 Nov 2026; its API was rewritten on 13 Nov, see below).** `learning/pool_proposal.py` is pure and has the documented, tuneable game and mastery
 thresholds. It produces reviewable game-first rows with source, games, wins and mastery; mastery fills only to five,
 never yields main, and no role gets more than ten rows. `api/onboarding.py` keeps onboarding reads in short-lived
 in-memory jobs: lookup canonicalizes account-v1 casing and returns level/rank; onboarding reads 60-day ranked history,
@@ -206,6 +206,38 @@ rank and mastery, requests the crawl yield file, and returns proposal plus `also
 at lookup and a completed empty onboarding proposal. Tests: `tests/test_pool_proposal.py` (fake Riot client) plus the
 affected pool, roster and profile tests: 38 passed. The user-authorized EUW real sanity check could not run because this
 environment had no `RIOT_API_KEY`; it made no API request and its disposable scratch directory was removed.
+
+**Stages C, D and E (13 Nov 2026).** Built roughly by another model, then rewritten in the end pass; what is in the
+repository is the rewrite.
+
+- **API** (`api/pool_routes.py`, `api/onboarding.py`, `data/pools.py`): `GET /api/roster`; `POST /api/players/lookup`,
+  `/onboard`, `GET /onboard/{job}`, `POST /onboard/{job}/skip`, `POST /api/players`; `POST /api/players/{id}/bench`,
+  `/activate` (returns what to undo), `DELETE /api/players/{id}?confirm=`; `GET /api/players/{id}/profile?window=`;
+  and, beyond the table above, `PUT /api/players/{id}/bracket`, `PUT` / `DELETE /api/players/{id}/pool/{role}/{champ}`
+  (any player's pool, benched too) and `POST /api/pools/parse` (reads a pasted pool for one role without saving).
+  Tests: `tests/test_roster.py`, `tests/test_pool_proposal.py`, `tests/test_profile.py`.
+- **Pages**: `web/src/Roster.svelte` (lineup, bench, swap sheet, delete dialog), `AddPlayer.svelte` (the four steps),
+  `Player.svelte` at `#/player/<riot id>` with `ShareLine.svelte` (the lane-execution line), helpers in `roster.js`.
+  New shared components: `ui/Sheet`, `ui/Menu`, `ui/RadioList`, `ui/Toast` (+ `ui/toast.svelte.js`).
+- **Choices made here:**
+  - Onboarding keeps the games it read under their **real match ids, with their figures**, and `create_player` stores
+    them, so the learning job's later fetch recognises them (the first build stored them as `onboard:N` and every
+    game would have been counted twice). Rank and mastery are read before the games, so a skipped read still has them.
+  - **Delete removes the player's row** (decision 6 says what else goes and stays): the role is then empty, not held by
+    a nameless player.
+  - `players.active_since` (new column, None in older databases) feeds "N days in the role".
+  - **Tier accept and lock** act on the active player's own role (`learning/comfort.py` works that way); other pools on
+    a profile can be edited (tier, add, remove) but show no suggestions.
+  - **Roles** on the profile are one neutral bar per role with the share written, not one stacked bar: five role colours
+    would have needed a new validated palette for no gain.
+  - The **stats bracket** select is in the profile header for an active player only (it belongs to the role's player).
+  - **Demo data** is a script, not part of demo mode: `scripts/seed_demo_games.py` seeds a made-up roster (`…#DEMO`),
+    games, rank and mastery into a scratch database and refuses to run without `DRAFTASSIST_DB`. Demo mode reads
+    whatever database the app points at, so it must never write invented players.
+- **Checked in a browser** (scratch database, seeded): adding by keyboard alone without a key, the key path against
+  made-up answers (found, reading, proposal), an ID already on the roster, swap with Undo, bench with Undo, an empty
+  role, delete, and on the profile tier change, remove with Undo, lock, window, import, a benched player, a player with
+  no data and an unknown player. **Not checked:** the one real Riot lookup (decision 7): no Riot ID was given.
 
 ## Not in scope
 

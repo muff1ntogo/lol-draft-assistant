@@ -203,6 +203,10 @@ pool health) with Profile / Swap / Bench / Delete; a bench table with Swap in; a
 read their games → review the proposed pool, add champions → active or bench); and a profile page per player (summary
 tiles, champion pool with editing, roles, lane execution, mastery). Build its stages in order; they replace this step.
 
+**Built (13 Nov 2026):** see the "Built" section of `docs/roster-profiles.md`. It added `ui/Sheet`, `ui/Menu`,
+`ui/RadioList` and `ui/Toast` (with `ui/toast.svelte.js`; `App.svelte` mounts the one toast), and routes with a
+parameter (`#/player/<riot id>`: `App.svelte` hands the rest of the address to the page as `param`).
+
 ### Step 6: Crawl (`Crawl.svelte`)
 
 Already close to a console. Make it full width like every other page (today it's a centred column), put the crawl
@@ -210,12 +214,22 @@ form in a `Panel` with a `Toolbar`, the tier table as a `Table` with the progres
 (the current patch's bar in `--text-2`; no lime: progress isn't an action), "Other jobs" as a `Table` (job, what it
 does, last run, Run as secondary; only a job you're expected to run next may be primary), Storage as a `Table`.
 
+**Built (13 Nov 2026).** As above. The running crawl shows its figures as `Stat`s and has no pulsing dot (nothing loops
+outside the rail). Tier sets are rows of tags you press; a set's name picks or clears the whole set. Each job's last
+run comes from the page's own history list. Only the solo account with nothing crawled and nothing running was seen
+in a browser: the admin and user sections (shared data, datasets, members, what's published, data selection) and a
+running crawl were restyled blind.
+
 ### Step 7: Settings, Tags, Rules (`Settings.svelte`, `Tags.svelte`, `Rules.svelte`)
 
 - Settings: a left sub-navigation (sections: Weights, Bans, Synergy, Scouting, Data, Riot key, Account, Champion data,
   About), one section at a time, each a stack of labelled `Field`s / sliders with the current value in mono.
 - Tags: a `Table` with filters in a `Toolbar`; review flags as `Tag`s you can click.
 - Rules: `Table`s.
+
+**Built so far (13 Nov 2026): Settings only.** Nine sections in a left sub-navigation (arrow keys move between them,
+the open one is remembered); Weights, Bans and Scouting are one saved set with Save in the page header, Synergy has
+its own Save there. "Data" shows the data folder and links to Crawl. Tags and Rules are still the old pages.
 
 ### Step 8: Live's remaining parts (`StrategyView.svelte`, `PlanBar.svelte`, `CompPanel.svelte`, `ScoutBox.svelte`, `PowerChart.svelte`)
 
