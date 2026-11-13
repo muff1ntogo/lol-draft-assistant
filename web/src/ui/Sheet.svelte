@@ -35,8 +35,9 @@
     focusFirst();
     return () => { if (opener?.isConnected) opener.focus(); };
   });
-  let lastStep = step;
+ let lastStep = $state();
   $effect(() => {
+ if (lastStep === undefined) { lastStep = step; return; }
     if (step === lastStep) return;
     lastStep = step;
     if (open) queueMicrotask(focusFirst); // after the new step's fields are in the page

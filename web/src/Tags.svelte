@@ -3,6 +3,14 @@
   // match stats can't measure. The first pass was drafted by Claude (unreviewed: half weight in every model);
   // edits are written back to data/champion_tags.yaml. Measured traits are shown for context, read-only.
   import Champ from './Champ.svelte';
+import PageHeader from './ui/PageHeader.svelte';
+import Toolbar from './ui/Toolbar.svelte';
+import ToolGroup from './ui/ToolGroup.svelte';
+import Segmented from './ui/Segmented.svelte';
+import Field from './ui/Field.svelte';
+import Button from './ui/Button.svelte';
+import Table from './ui/Table.svelte';
+import Tag from './ui/Tag.svelte';
 
   const LABELS = { engage: 'Engage', disengage: 'Disengage', poke: 'Poke', dive: 'Dive', pick: 'Pick',
                    splitpush: 'Split', enchanter: 'Enchanter', hypercarry: 'Hypercarry', setup: 'Setup', followup: 'Follow-up',
@@ -32,8 +40,17 @@
   let view = $state('fight'); // the group under review: fight (synergy tags), kit, or arch (archetypes)
   let error = $state({});
   let adding = $state({}); // champ id -> role being added
+let loadError = $state('');
 
-  fetch('/api/tags').then((r) => r.json()).then((d) => (data = d));
+async function load() {
+ try {
+  const res = await fetch('/api/tags');
+  if (!res.ok) throw new Error(`request failed (${res.status})`);
+  data = await res.json();
+  loadError = '';
+ } catch (e) { loadError = `Couldn't load champion tags: ${e.message}`; }
+}
+load();
 
   // one row per champion-role entry; untagged champions get one empty row
   const rows = $derived.by(() => {
@@ -151,31 +168,27 @@
   const fmt = (v) => (v == null ? '—' : Math.round(v * 100));
 </script>
 
-<main class="page">
-  <h1>Champions <small>tags, fight style and timing per role</small> <a class="back" href="#/settings">← Settings</a></h1>
+<main class="console">
+<PageHeader title="Champion tags" description="Review fight style, matchup-kit interactions and lane archetypes for each champion role.">
+ {#snippet actions()}<Button variant="ghost" href="#/settings">Settings</Button>{/snippet}
+</PageHeader>
   {#if data}
-    <div class="bar">
-      <div class="progress" title="{counts.reviewed} of {counts.total} reviewed">
-        <span style="width:{counts.total ? (100 * counts.reviewed) / counts.total : 0}%"></span>
-      </div>
-      <span>{counts.reviewed} / {counts.total} reviewed · {data.counts.untagged} untagged</span>
-      <div class="group">
-        {#each [['review', 'To review'], ['reviewed', 'Reviewed'], ['untagged', 'Untagged'], ['all', 'All']] as [k, l]}
-          <button class:on={filter === k} onclick={() => (filter = k)}>{l}</button>
-        {/each}
-      </div>
-      <div class="group">
-        <button class:on={view === 'fight'} onclick={() => (view = 'fight')}>Fight tags</button>
-        <button class:on={view === 'kit'} onclick={() => (view = 'kit')}>Kit tags</button>
-        <button class:on={view === 'arch'} onclick={() => (view = 'arch')}>Archetypes</button>
-      </div>
-      <select bind:value={roleFilter}>
-        <option value="all">All roles</option>
-        {#each data.roles as r}<option value={r}>{data.role_labels[r]}</option>{/each}
-      </select>
-      <input placeholder="Search" bind:value={query} />
-    </div>
-    <p class="muted small">
+<Toolbar label="Tag review filters">
+ <ToolGroup label="Review">
+  <Tag onclick={() => (filter = 'review')} pressed={filter === 'review'}>To review</Tag>
+  <Tag onclick={() => (filter = 'reviewed')} pressed={filter === 'reviewed'}>Reviewed</Tag>
+  <Tag onclick={() => (filter = 'untagged')} pressed={filter === 'untagged'} warn>Untagged</Tag>
+  <Tag onclick={() => (filter = 'all')} pressed={filter === 'all'}>All</Tag>
+ </ToolGroup>
+ <ToolGroup label="View"><Segmented label="Tag group" options={[["fight", "Fight tags"], ["kit", "Kit tags"], ["arch", "Archetypes"]]} bind:value={view} /></ToolGroup>
+ <ToolGroup label="Role"><Field label="Role" hideLabel options={[['all', 'All roles'], ...data.roles.map((r) => [r, data.role_labels[r]])]} bind:value={roleFilter} width="132px" /></ToolGroup>
+ <ToolGroup end><Field label="Search champions" hideLabel placeholder="Search champions" bind:value={query} width="190px" /></ToolGroup>
+</Toolbar>
+<div class="summary">
+ <div class="progress" title="{counts.reviewed} of {counts.total} reviewed" aria-label="{counts.reviewed} of {counts.total} reviewed"><span style="width:{counts.total ? (100 * counts.reviewed) / counts.total : 0}%"></span></div>
+ <span class="mono">{counts.reviewed} / {counts.total}</span><span>reviewed</span><Tag warn={data.counts.untagged > 0}>{data.counts.untagged} untagged</Tag>
+</div>
+<p class="help">
       0 = not at all, 3 = defining. The tags are the one source of fight style: Style shows the identity they give
       (Engage, Poke, Pick, Protect, Split), used by the badges, comp panels, comp coherence and the Team page.
       Unreviewed tags count at half weight in the synergy and team models (labels read them as written); "Looks right"
@@ -186,7 +199,7 @@
       A kit rating belongs to the champion: changing it in one role changes all its roles. Each of Fight tags, Kit tags
       and Archetypes has its own review state; "Looks right" marks only the one you're viewing.
     </p>
-    <table>
+<Table dense sticky={false} scrollX={true}>
       <thead><tr><th></th><th>Champion</th><th>Role</th><th>Archetype</th>
         {#if view === 'kit'}
           {#each data.kit_tags as t}<th class="num" title={KIT_LABELS[t][1]}>{KIT_LABELS[t][0]}</th>{/each}
@@ -204,7 +217,7 @@
           <tr class:reviewed={here && isReviewed}>
             <td><Champ champ={c.champ} size={30} /></td>
             <td><strong>{c.name}</strong>
-              {#if c.untagged && !role}<span class="tag untagged">untagged</span>{/if}
+{#if c.untagged}<Tag warn>untagged</Tag>{/if}
               {#if !isReviewed}<span class="tag">draft</span>{/if}</td>
             <td>{#if role}{data.role_labels[role]}{:else}
               <select onchange={(ev) => (adding[c.champ_id] = ev.target.value)}>
@@ -223,7 +236,7 @@
                 <option value="">—</option>
                 {#each data.archetypes[role].filter((w) => w !== a.archetype) as w}<option value={w}>{archLabel(w)}</option>{/each}
               </select>
-              {#if c.archetypes[role]?.source === 'video'}<span class="tag">guide</span>{/if}
+{#if c.archetypes[role]?.source === 'video'}<Tag>guide</Tag>{/if}
             {/if}</td>
             {#if view === 'kit'}
               {#each data.kit_tags as t}
@@ -248,78 +261,60 @@
                 {@const t = c.timing[role]}
                 <span title={Object.entries(id.shares).map(([k, v]) => `${data.styles[k]} ${Math.round(v * 100)}%`).join(' · ')}>
                   {id.badge.styles.map((k) => data.styles[k]).join(' / ') || 'Spread'}</span>
-                {#if t?.label === 'early' || t?.label === 'late'}<span class="tm {t.label}">{data.timings[t.label]}</span>{/if}
-                {#if id.source === 'classes'}<span class="muted">(classes)</span>{/if}
+{#if t?.label === 'early' || t?.label === 'late'}<Tag>{data.timings[t.label]}</Tag>{/if}
+{#if id.source === 'classes'}<span class="quiet">(classes)</span>{/if}
               {/if}
             </td>
             <td class="measured small">
               {#if m}
                 {#each MEASURED as [k, l]}<span title="{l}: percentile in role">{l} {fmt(m[k])}</span>{/each}
-              {:else if role}<span class="muted">no data</span>{/if}
+{:else if role}<span class="quiet">no data</span>{/if}
             </td>
             {/if}
             <td class="actions">
               {#if role}
                 {#if changed(c, role, entry)}
-                  <button class="primary" onclick={() => save(c, role, entry)}>Save</button>
+<Button variant="primary" onclick={() => save(c, role, entry)}>Save</Button>
                 {:else if !isReviewed}
-                  <button onclick={() => save(c, role, entry, true)}>Looks right</button>
+<Button onclick={() => save(c, role, entry, true)}>Looks right</Button>
                 {/if}
-                {#if entry || hasArch}<button class="link" onclick={() => remove(c, role)}>Remove</button>{/if}
+{#if entry || hasArch}<Button variant="ghost" danger onclick={() => remove(c, role)}>Remove</Button>{/if}
               {/if}
               {#if error[key(c, role)]}<div class="err">{error[key(c, role)]}</div>{/if}
             </td>
           </tr>
         {:else}
-          <tr><td colspan={view === 'kit' ? data.kit_tags.length + 5 : view === 'arch' ? 5 : data.tags.length + 7} class="muted">Nothing here.</td></tr>
+<tr><td colspan={view === 'kit' ? data.kit_tags.length + 5 : view === 'arch' ? 5 : data.tags.length + 7} class="quiet">Nothing matches these filters.</td></tr>
         {/each}
       </tbody>
-    </table>
-  {:else}
-    <p class="muted">Loading…</p>
+</Table>
+{:else if loadError}
+<p class="message error" role="alert">⚠ {loadError} <Button variant="ghost" onclick={load}>Try again</Button></p>
+{:else}
+<p class="message" aria-busy="true">Loading champion tags…</p>
   {/if}
 </main>
 
 <style>
-  .page { max-width: 1700px; margin: 0 auto; padding: 20px 28px 60px; }
-  h1 { font-size: 30px; margin: 8px 0 12px; }
-  h1 small { font-size: 16px; color: var(--muted); font-weight: 400; }
-  .back { font-size: 14px; font-weight: 400; color: var(--muted); margin-left: 12px; }
-  .bar { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; flex-wrap: wrap; }
-  .progress { width: 220px; height: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
-  .progress span { display: block; height: 100%; background: var(--up); }
-  .group { display: inline-flex; gap: 4px; }
-  button { font: inherit; font-size: 13px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line);
-           border-radius: 6px; padding: 3px 10px; cursor: pointer; }
-  button.on { border-color: var(--gold); color: var(--gold); }
-  button.primary { background: var(--gold); border-color: var(--gold); color: var(--on-gold); font-weight: 600; }
-  button.link { background: none; border: none; color: var(--muted); text-decoration: underline; }
-  input, select { font: inherit; font-size: 13px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line);
-                  border-radius: 6px; padding: 3px 6px; }
-  .bar input { margin-left: auto; width: 200px; }
-  table { width: 100%; border-collapse: collapse; font-size: 14px; background: var(--panel); border-radius: 8px; }
-  th { text-align: left; color: var(--muted); font-weight: 500; padding: 6px 6px; border-bottom: 1px solid var(--line); font-size: 13px; }
-  td { padding: 3px 6px; border-bottom: 1px solid var(--panel-2); vertical-align: middle; }
-  tr.reviewed { opacity: 0.85; }
-  .num { text-align: center; }
-  select.lvl { width: 44px; text-align: center; }
-  select.l0 { color: var(--muted); }
-  select.l2 { border-color: var(--side-blue); }
-  select.l3 { border-color: var(--side-blue); background: var(--side-blue-bg); }
-  .tag { font-size: 11px; padding: 0 5px; border-radius: 4px; background: var(--line); color: var(--text-2); margin-left: 6px; }
-  .tag.untagged { background: var(--down-bg); color: var(--down-text); }
-  .measured { white-space: nowrap; color: var(--muted); }
+.summary { display: flex; align-items: center; gap: 8px; min-height: 28px; margin: 0 0 12px; color: var(--text-3); font-size: 12px; }
+.summary .mono { color: var(--text-1); }
+.progress { width: 128px; height: 4px; overflow: hidden; background: var(--surface-2); border-radius: 2px; }
+.progress span { display: block; height: 100%; background: var(--text-2); }
+.help { max-width: 110ch; margin: 0 0 16px; color: var(--text-3); font-size: 12px; line-height: 1.55; }
+select.lvl { width: 40px; height: 24px; padding: 0 3px; text-align: center; background: var(--surface-2); color: var(--text-1); border: 1px solid var(--hairline); border-radius: var(--radius-sm); font: 12px var(--font-mono); }
+select.lvl:hover { border-color: var(--hairline-strong); }
+select.lvl:focus-visible, .arch select:focus-visible { outline: none; border-color: var(--signal); }
+select.l0 { color: var(--text-3); }
+.measured { white-space: nowrap; color: var(--text-3); }
   .stylecol { white-space: nowrap; }
   .arch { white-space: nowrap; }
-  .arch select { width: 128px; }
+.arch select { width: 128px; height: 24px; margin-right: 4px; padding: 0 4px; background: var(--surface-2); color: var(--text-1); border: 1px solid var(--hairline); border-radius: var(--radius-sm); font-size: 12px; }
   .arch select:disabled { opacity: 0.45; }
-  .tm { margin-left: 6px; font-size: 11px; padding: 0 4px; border-radius: 3px; background: var(--line); }
-  .tm.early { color: var(--down-text); }
-  .tm.late { color: var(--link); }
   .measured span { margin-right: 8px; }
   .actions { white-space: nowrap; }
-  .actions button + button { margin-left: 8px; }
-  .err { color: var(--red); font-size: 12px; }
-  .muted { color: var(--muted); }
+.actions :global(.btn + .btn) { margin-left: 4px; }
+.err, .error { color: var(--error); font-size: 12px; }
+.quiet { color: var(--text-3); }
+.message { margin: 16px 0; color: var(--text-3); }
   .small { font-size: 12px; }
 </style>

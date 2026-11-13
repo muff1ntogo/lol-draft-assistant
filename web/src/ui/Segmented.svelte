@@ -27,6 +27,7 @@
   const stop = $derived(items.some((o) => o.value === value && !o.disabled) ? value : items.find((o) => !o.disabled)?.value);
 </script>
 
+<!-- svelte-ignore a11y_interactive_supports_focus -- composite widget: its selected radio is the sole tab stop -->
 <div class="seg" role="radiogroup" aria-label={label} aria-disabled={disabled || undefined} bind:this={root} {onkeydown}>
   {#each items as o, i}
     <button type="button" role="radio" aria-checked={o.value === value} class:on={o.value === value} data-i={i}

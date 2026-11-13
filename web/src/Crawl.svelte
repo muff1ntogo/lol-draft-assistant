@@ -434,7 +434,7 @@
         {#if message}<p class="warn" role="alert">⚠ {message}</p>{/if}
         {#if data.log.length}
           <h3 class="label-caps">{running ? 'Output' : `Last run: ${data.last?.label ?? ''} · ${data.last ? result(data.last) : ''}`}</h3>
-          <pre bind:this={logBox} tabindex="0" aria-label="Job output">{data.log.join('\n')}</pre>
+ <pre bind:this={logBox} aria-label="Job output">{data.log.join('\n')}</pre>
         {/if}
       </Panel>
     </section>

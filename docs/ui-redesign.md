@@ -231,6 +231,19 @@ running crawl were restyled blind.
 the open one is remembered); Weights, Bans and Scouting are one saved set with Save in the page header, Synergy has
 its own Save there. "Data" shows the data folder and links to Crawl. Tags and Rules are still the old pages.
 
+**Built (13 Nov 2026).** Tags and Rules now share the console's `PageHeader`, `Toolbar`/`ToolGroup`, `Segmented`,
+`Field`, `Button`, `Tag` and `Table` language. Tags keeps the three distinct review surfaces (fight, kit and archetype)
+and its inline save/remove flow; Rules keeps its locally edited prior and refit-on-save flow. Choices made here:
+
+- The dense per-row ratings, archetype selects and prior number inputs remain native compact controls. They are the
+  evidence-editing task itself, so replacing them with cards or sheets would make the console slower to review.
+- Reviewed and selected filters use raised ink states, not lime. Lime is reserved for the one pending Save action;
+  "untagged" and "disagrees" are written warning states with a warning mark.
+- Both pages now give a retryable request error instead of leaving a failed initial fetch looking like it is loading.
+- `npm run build` completed without warnings; a scratch demo server returned both APIs and routes. Browser screenshots,
+  console-error inspection, focus traversal, width-overflow checks and reduced-motion emulation could not run because
+  this checkout has Chromium but no installed Playwright package, and no dependency was added.
+
 ### Step 8: Live's remaining parts (`StrategyView.svelte`, `PlanBar.svelte`, `CompPanel.svelte`, `ScoutBox.svelte`, `PowerChart.svelte`)
 
 - Strategy is console-dense inside Live: runes / spells / items as icon rows with names, lane plan and win conditions

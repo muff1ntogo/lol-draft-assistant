@@ -40,12 +40,12 @@ the first ten shared components in every state.
 | 5 Roster (`docs/roster-profiles.md`, Stages A-E) | Done | `f30c2c5`, `ab08aa0`, `82d2b67` |
 | 6 Crawl | Done | see `git log` ("step 6") |
 | 7 Settings | Done | see `git log` ("step 7 (first part)") |
-| 7 Tags, Rules | **To do** | |
+| 7 Tags, Rules | Done | this commit |
 | 8 Live's remaining parts | **To do** | |
 | 9 Clean up | **To do** | |
 
-Still in the old layout (they render in graphite and lime through the alias tokens, and work): `Tags.svelte`,
-`Rules.svelte`, and inside Live `StrategyView.svelte`, `PlanBar.svelte`, `CompPanel.svelte`, `ScoutBox.svelte`,
+Still in the old layout (they render in graphite and lime through the alias tokens, and work): inside Live
+`StrategyView.svelte`, `PlanBar.svelte`, `CompPanel.svelte`, `ScoutBox.svelte`,
 `PowerChart.svelte`, `ComponentBar.svelte`, `ComponentLegend.svelte`, `Champ.svelte`. The idle Live screen's markup
 is in `App.svelte` (`.idle`).
 
@@ -199,6 +199,10 @@ DRAFTASSIST_LCU=demo uv run uvicorn draftassist.api.main:app --port 8765
 - "Comfort-weighted pool size" (main 1, comfortable 0.5, learning 0.25) and the lane-execution label and trend rules
   are this work's reading of the doc; the user has seen them but not confirmed them.
 - The new sheet, menu, radio list and toast are not on `#/kit` (it is removed in step 9).
+- **Tags and Rules:** their APIs and routes were reached from the scratch demo server and the production build is
+  warning-free. Screenshots at both required widths, browser console errors, keyboard focus traversal, horizontal
+  overflow, made-up empty/error responses and reduced-motion emulation were not inspected: this checkout has Chromium
+  but no installed Playwright package, and no dependency was added.
 
 ## What to leave behind
 
