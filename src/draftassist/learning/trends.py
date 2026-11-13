@@ -15,6 +15,7 @@ from datetime import datetime
 from sqlalchemy import Engine
 from sqlmodel import Session, col, select
 
+from draftassist.data.pools import Roster
 from draftassist.db.models import Draft, DraftAction, GameExecution, GameExecutionRole
 from draftassist.engine.model import ROLE_LABELS, ROLES
 
@@ -69,6 +70,7 @@ class TrendGame:
     shares: Mapping[str, float]
     z: Mapping[str, Mapping[str, float]] = field(default_factory=dict)
     champs: Mapping[str, int] = field(default_factory=dict)
+    names: Mapping[str, str] = field(default_factory=dict)  # our role -> the in-game name the draft logged
 
 
 def _latest(games: Sequence[TrendGame], window: int | None) -> list[TrendGame]:
@@ -116,19 +118,25 @@ def _stat_bands(games: Sequence[TrendGame], role: str) -> list[dict]:
     return out
 
 
-def role_trends(games: Sequence[TrendGame], window: int | None) -> list[dict]:
-    """Per player (one per role on the Pools page): mean z of the role's stats, and per champion with 5+ games."""
+def role_trends(games: Sequence[TrendGame], window: int | None, roster: Roster | None = None) -> list[dict]:
+    """Per player (one per role on the Pools page): mean z of the role's stats, and per champion with 5+ games.
+    With `roster` (v1.0.2: Review shows only what is registered on the Roster): each role's row is its active player's
+    games only (a draft that logged no name counts as theirs), and only champions in their pool for the role."""
     chosen = _latest(games, window)
     out = []
     for role in ROLES:
         mine = [g for g in chosen if g.z.get(role)]
+        player = None
+        if roster is not None:
+            player = next((p for p in roster.players if p.active and p.role == role), None)
+            mine = [g for g in mine if player is not None and roster.named(g.names.get(role), role) == player]
         row = {"role": role, "name": ROLE_LABELS[role], "games": len(mine), "too_few": len(mine) < MIN_TREND_GAMES,
                "stats": [], "champions": []}
         if not row["too_few"]:
             row["stats"] = _stat_bands(mine, role)
         by_champ: dict[int, list[TrendGame]] = {}
         for g in mine:
-            if g.champs.get(role):
+            if g.champs.get(role) and (player is None or roster.in_pool(player, role, g.champs[role])):
                 by_champ.setdefault(g.champs[role], []).append(g)
         row["champions"] = [{"champ_id": c, "games": len(gs), "stats": _stat_bands(gs, role)}
                             for c, gs in sorted(by_champ.items(), key=lambda kv: -len(kv[1])) if len(gs) >= MIN_CHAMP_GAMES]
@@ -162,14 +170,17 @@ def load_trend_games(db: Engine) -> list[TrendGame]:
                 lines.setdefault(headline["stat"], headline["z"])  # jungle's gold
                 z[r.role] = lines
         games.append(TrendGame(d.draft_id, d.played_at, {"draft": 100 * e.draft, "early": 100 * e.early, "conversion": 100 * e.conversion},
-                               e.verdict, shares, z, picks.get(d.draft_id, {})))
+                               e.verdict, shares, z, picks.get(d.draft_id, {}),
+                               json.loads(d.players_json) if d.players_json else {}))
     return games
 
 
-def trends_payload(db: Engine, window: str, card: Callable[[int], dict | None], names: Mapping[str, str]) -> dict:
+def trends_payload(db: Engine, window: str, card: Callable[[int], dict | None], roster: Roster) -> dict:
+    """The Team page's trends. The team's own figures read every game; each player's row keeps to the roster."""
     games = load_trend_games(db)
     size = WINDOWS[window]
-    roles = role_trends(games, size)
+    roles = role_trends(games, size, roster)
+    names = {p.role: p.name for p in roster.players if p.active}
     for r in roles:
         r["player"] = names.get(r["role"]) or None
         for c in r["champions"]:

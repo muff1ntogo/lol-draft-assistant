@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 
 from draftassist.api.main import create_app
 from draftassist.data.pools import set_players
+from draftassist.data.riot import RiotUnavailable
 from draftassist.db.models import Champion, Player, PlayerGame, PoolEntry
 from draftassist.learning.pool_proposal import Game, Mastery, proposal
 
@@ -112,7 +113,7 @@ def wait(client, job):
 def svc(make_services, db, monkeypatch, tmp_path):
     svc = make_services(db=db)
     svc.roster_path = tmp_path / "roster.json"
-    monkeypatch.setattr(svc, "make_riot", lambda: lambda: FakeRiot())
+    monkeypatch.setattr(svc, "make_riot", lambda **_: lambda: FakeRiot())
     monkeypatch.setattr(svc, "learn", lambda: False)  # the learning job would call the real API
     svc.live.engine._role_shares = {1: {"top": 1.0}, 2: {"top": 1.0}, 3: {"top": 1.0}}
     return svc
@@ -181,7 +182,7 @@ def test_skip_goes_on_with_what_has_been_read(svc, db, monkeypatch):
                 release.wait(5)
             return super().match(match_id)
 
-    monkeypatch.setattr(svc, "make_riot", lambda: lambda: Slow())
+    monkeypatch.setattr(svc, "make_riot", lambda **_: lambda: Slow())
     with TestClient(create_app(svc, stats_refresh_s=0)) as client:
         job = client.post("/api/players/onboard", json={"riot_id": "Name#EUW", "role": "top"}).json()["job"]
         for _ in range(200):
@@ -211,9 +212,48 @@ def test_a_failed_read_says_why(svc, monkeypatch):
         def match_ids(self, *args, **kwargs):
             raise ConnectionError("down")
 
-    monkeypatch.setattr(svc, "make_riot", lambda: lambda: Broken())
+    monkeypatch.setattr(svc, "make_riot", lambda **_: lambda: Broken())
     with TestClient(create_app(svc, stats_refresh_s=0)) as client:
         gone = wait(client, client.post("/api/players/onboard", json={"riot_id": "Nobody#EUW", "role": "top"}).json()["job"])
         assert gone["status"] == "error" and gone["error"] == "No such account"
         broken = wait(client, client.post("/api/players/onboard", json={"riot_id": "Name#EUW", "role": "top"}).json()["job"])
         assert broken["status"] == "error" and "ConnectionError" in broken["error"] and broken["rank"]["best"]["label"] == "Gold II"
+
+
+def test_a_player_with_several_roles_gets_a_pool_proposed_for_each(svc, db):
+    """v1.0.2: one read, a pool per role. Their games are all top; mastery on champion 3 fills mid too, where the crawl
+    says it is played."""
+    svc.live.engine._role_shares = {1: {"top": 1.0}, 2: {"top": 1.0}, 3: {"top": 0.5, "mid": 0.5}}
+    with TestClient(create_app(svc, stats_refresh_s=0)) as client:
+        assert client.post("/api/players/onboard", json={"riot_id": "Name#EUW", "role": "top", "roles": ["jg"]}).status_code == 422
+        job = client.post("/api/players/onboard", json={"riot_id": "Name#EUW", "role": "top", "roles": ["mid", "top"]}).json()["job"]
+        status = wait(client, job)
+        assert status["roles"] == ["top", "mid"]
+        assert [(r["role"], r["champ_id"], r["source"]) for r in status["proposal"]] == [
+            ("top", 1, "games"), ("top", 2, "games"), ("top", 3, "mastery"), ("mid", 3, "mastery")]
+        pool = [{"champ_id": 1, "role": "top", "tier": "main"}, {"champ_id": 3, "role": "mid", "tier": "learning"},
+                {"champ_id": 3, "role": "top", "tier": "learning"}]  # the same champion in two roles is two entries
+        assert client.post("/api/players", json={"riot_id": "Canonical#EUW", "role": "top", "active": True, "pool": pool,
+                                                 "roles": []}).status_code == 422  # mid isn't one of their roles
+        roster = client.post("/api/players", json={"riot_id": "Canonical#EUW", "role": "top", "active": True, "pool": pool,
+                                                   "roles": ["mid", "support"]}).json()
+        top = roster["lineup"][0]
+        assert top["plays"] == ["top", "mid", "support"] and top["pool_roles"] == ["top", "mid"]
+        profile = client.get("/api/players/Canonical%23EUW/profile").json()
+        assert profile["plays"] == ["top", "mid", "support"] and [g["role"] for g in profile["pools"]] == ["top", "mid", "support"]
+
+
+def test_a_full_rate_limit_says_when_to_try_again_and_keeps_what_was_read(svc, monkeypatch):
+    class Limited(FakeRiot):
+        def match(self, match_id):
+            if match_id.endswith("2"):
+                raise RiotUnavailable("Riot's rate limit for this key is full", 90)
+            return super().match(match_id)
+
+    monkeypatch.setattr(svc, "make_riot", lambda **_: lambda: Limited())
+    with TestClient(create_app(svc, stats_refresh_s=0)) as client:
+        before = time.time()
+        status = wait(client, client.post("/api/players/onboard", json={"riot_id": "Name#EUW", "role": "top"}).json()["job"])
+        assert status["status"] == "error" and "rate limit" in status["error"]
+        assert before + 89 <= status["retry_at"] <= time.time() + 91
+        assert [r["champ_id"] for r in status["proposal"] if r["source"] == "games"] == [1]  # the game read before it

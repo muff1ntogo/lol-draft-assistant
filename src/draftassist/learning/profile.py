@@ -250,16 +250,17 @@ def summary(games: Sequence[Game], pool: Sequence[PoolRow], execution: Sequence[
 
 def profile(games: Sequence[Game], pool: Sequence[PoolRow], execution: Sequence[ExecutionRow], role: str,
             mastery: Sequence[Sequence[int]] | None = None, rank: Iterable[Mapping] | None = None, window: str = "60d",
-            now_ms: int | None = None) -> dict:
+            now_ms: int | None = None, plays: Iterable[str] = ()) -> dict:
     """Every section of the profile page that comes from stored rows. `window` picks the games the figures read; the
-    pool roles are the player's role first, then any other role they have a pool in."""
+    pool roles are the player's role first, then every other role they play (`plays`) or have a pool in."""
     if window not in WINDOWS:
         raise ValueError(f"window must be one of {WINDOWS}")
     now_ms = now_ms if now_ms is not None else int(time.time() * 1000)
     chosen = in_window(games, window, now_ms)
     in_role = [g for g in chosen if g.role == role]
     ex = execution_figures([r for r in execution if r.role == role])
-    pool_roles = [role] + [r for r in ROLES if r != role and any(e.role == r for e in pool)]
+    plays = set(plays)
+    pool_roles = [role] + [r for r in ROLES if r != role and (r in plays or any(e.role == r for e in pool))]
     return {
         "role": role, "window": window, "windows": list(WINDOWS),
         "tiles": {**figures(in_role), "execution": {k: ex[k] for k in ("games", "needed", "enough", "mean_pp", "se_pp", "label", "trend")},

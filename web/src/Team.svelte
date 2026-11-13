@@ -109,12 +109,14 @@
       {/if}
 
       {#if trends}
-        <h3>Per player <span class="sub">mean z against expectation, ± one standard error; for deaths, fewer is better</span></h3>
+        <h3>Per player <span class="sub">the lineup's games in their role and the champions in their pool; mean z against expectation, ± one standard error; for deaths, fewer is better</span></h3>
         <div class="players">
           {#each trends.roles as r}
             <div class="player">
               <div class="who"><span class="label-caps">{r.name}</span>{#if r.player} <strong>{r.player}</strong>{/if} <span class="sub"><span class="mono">{r.games}</span> games</span></div>
-              {#if r.too_few}
+              {#if !r.player}
+                <p class="none">No player in this role on the Roster</p>
+              {:else if r.too_few}
                 <p class="none">Too few games for a trend</p>
               {:else}
                 <Table dense sticky={false}>

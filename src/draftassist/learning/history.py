@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import httpx
@@ -16,7 +17,7 @@ from sqlalchemy import Engine
 from sqlmodel import Session, select
 
 from draftassist.data.crawler import POSITIONS
-from draftassist.data.riot import PLATFORM, RiotAuthError, RiotClient
+from draftassist.data.riot import PLATFORM, RiotAuthError, RiotClient, RiotUnavailable
 from draftassist.db.models import Draft, DraftAction, Player, PlayerGame, PoolEntry
 from draftassist.learning.comfort import WINDOW_DAYS
 
@@ -71,9 +72,16 @@ def collect_logged(db: Engine) -> int:
     return added
 
 
-def fetch_history(db: Engine, riot: RiotClient, now: float | None = None) -> dict[str, int]:
+Progress = Callable[[dict], None]
+
+
+def fetch_history(db: Engine, riot: RiotClient, now: float | None = None, progress: Progress | None = None,
+                  failed: list[str] | None = None) -> dict[str, int]:
     """Each linked player's ranked games of the last 60 days from match-v5. Every response is cached,
-    so repeated runs only fetch new matches. Returns games added per role."""
+    so repeated runs only fetch new matches. Returns games added per role.
+    `progress` hears {player, players_done, players, games_read, games} as it goes; `failed` collects the Riot IDs
+    whose history couldn't be read (the others still are). RiotAuthError and RiotUnavailable (a full rate limit) stop
+    the whole fetch: the next player would only fail the same way."""
     now = now if now is not None else time.time()
     since = int(now - WINDOW_DAYS * 86_400)
     added: dict[str, int] = {}
@@ -85,19 +93,26 @@ def fetch_history(db: Engine, riot: RiotClient, now: float | None = None) -> dic
                 s.add(p)
         s.commit()
         players = [p for p in s.exec(select(Player)).all() if p.api_puuid and p.active]
-    for p in players:
+    for i, p in enumerate(players):
+        def tell(read: int, total: int, p=p, i=i) -> None:
+            if progress is not None:
+                progress({"player": p.riot_id, "players_done": i, "players": len(players), "games_read": read,
+                          "games": total})
+        tell(0, 0)
         try:
             try:
-                added[p.role] = _fetch_player(db, riot, p, since)
+                added[p.role] = _fetch_player(db, riot, p, since, tell)
             except httpx.HTTPStatusError as e:
                 # 400: a PUUID from another Riot API key (encrypted per app). Look it up again, retry once.
                 if e.response.status_code != 400 or not p.riot_id or not (fresh := _re_resolve(db, riot, p)):
                     raise
-                added[p.role] = _fetch_player(db, riot, fresh, since)
-        except RiotAuthError:
+                added[p.role] = _fetch_player(db, riot, fresh, since, tell)
+        except (RiotAuthError, RiotUnavailable):
             raise
         except Exception:  # one player's trouble doesn't stop the others
             log.exception("match history for %s failed", p.role)
+            if failed is not None:
+                failed.append(p.riot_id or p.role)
     return added
 
 
@@ -116,7 +131,8 @@ def _re_resolve(db: Engine, riot: RiotClient, p: Player) -> Player | None:
     return stored
 
 
-def _fetch_player(db: Engine, riot: RiotClient, p: Player, since: int) -> int:
+def _fetch_player(db: Engine, riot: RiotClient, p: Player, since: int,
+                  tell: Callable[[int, int], None] = lambda read, total: None) -> int:
     """Store one player's ranked games since `since` under their internal key (pool entries use it)."""
     ids: list[str] = []
     while len(ids) < MAX_MATCHES_PER_PLAYER:
@@ -125,8 +141,12 @@ def _fetch_player(db: Engine, riot: RiotClient, p: Player, since: int) -> int:
         if len(page) < 100:
             break
     added = 0
+    ids = ids[:MAX_MATCHES_PER_PLAYER]
+    tell(0, len(ids))
     with Session(db) as s:
-        for match_id in ids[:MAX_MATCHES_PER_PLAYER]:
+        for n, match_id in enumerate(ids, 1):
+            if n % 5 == 0:
+                tell(n, len(ids))
             existing = s.get(PlayerGame, (p.puuid, match_id))
             if existing is not None and existing.source == "match-v5":
                 continue
@@ -141,7 +161,9 @@ def _fetch_player(db: Engine, riot: RiotClient, p: Player, since: int) -> int:
                                            role=POSITIONS.get(me.get("teamPosition") or ""), win=bool(me["win"]),
                                            queue_id=info.get("queueId"), game_start_ms=info.get("gameStartTimestamp", 0),
                                            source="match-v5", **game_stats(me, info)))
+            s.commit()  # match by match, so a run stopped by Riot keeps what it read
         s.commit()
+    tell(len(ids), len(ids))
     return added
 
 
@@ -195,7 +217,7 @@ def refresh_profiles(db: Engine, riot: RiotClient, now: float | None = None, onl
             try:
                 p.rank_json = json.dumps(riot.ranks(p.api_puuid))
                 p.mastery_json = json.dumps(mastery_rows(riot.mastery_all(p.api_puuid)))
-            except RiotAuthError:
+            except (RiotAuthError, RiotUnavailable):
                 raise
             except Exception:  # one player's trouble doesn't stop the others
                 log.exception("profile for %s failed", p.role)

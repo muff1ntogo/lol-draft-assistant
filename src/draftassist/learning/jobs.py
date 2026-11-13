@@ -7,13 +7,21 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from sqlalchemy import Engine
 
 from draftassist.data.pools import backfill_player_ids, list_players, set_players
-from draftassist.data.riot import RiotAuthError, RiotClient
+from draftassist.data.progress import request_yield
+from draftassist.data.riot import (
+    UNAVAILABLE_RETRY_S,
+    RiotAuthError,
+    RiotClient,
+    RiotUnavailable,
+)
 from draftassist.learning.comfort import TierChange, rescore
 from draftassist.learning.execution import refresh_executions
 from draftassist.learning.history import (
@@ -33,19 +41,35 @@ class LearningResult:
     history_games: dict[str, int] = field(default_factory=dict)
     proposals: list[TierChange] = field(default_factory=list)
     history_error: str | None = None
+    retry_at: float | None = None  # epoch seconds: when Riot can be asked again after history_error (None: any time)
+    failed_players: list[str] = field(default_factory=list)  # Riot IDs whose history couldn't be read
 
 
-def run_learning(db: Engine, make_riot: Callable[[], RiotClient] | None = None) -> LearningResult:
+def run_learning(db: Engine, make_riot: Callable[[], RiotClient] | None = None,
+                 progress: Callable[[dict], None] | None = None, yield_file: Path | None = None,
+                 clock: Callable[[], float] = time.time) -> LearningResult:
+    """`progress` hears the history fetch as it goes (see `fetch_history`); `yield_file` asks a running crawl to
+    leave the key's rate limit to this run while it reads, as scouting does."""
     with _lock:
         result = LearningResult()
         backfill_player_ids(db)
         if make_riot is not None:
+            def told(state: dict) -> None:
+                if yield_file is not None:
+                    request_yield(yield_file)
+                if progress is not None:
+                    progress(state)
             try:
+                if yield_file is not None:
+                    request_yield(yield_file)
                 riot = make_riot()
                 unlinked = [p for p in list_players(db) if p["riot_id"] and not p["resolved"]]
                 if unlinked:
                     set_players(db, unlinked, riot.account_puuid)
-                result.history_games = fetch_history(db, riot)
+                result.history_games = fetch_history(db, riot, progress=told, failed=result.failed_players)
+                if result.failed_players:
+                    result.history_error = f"couldn't read the match history of {', '.join(result.failed_players)}"
+                    result.retry_at = clock() + UNAVAILABLE_RETRY_S
                 # docs/roster-profiles.md: figures for games stored before they were kept (from the cache, no requests),
                 # then rank and mastery, at most once a day
                 try:
@@ -57,9 +81,13 @@ def run_learning(db: Engine, make_riot: Callable[[], RiotClient] | None = None) 
                     log.exception("profile data failed")
             except RiotAuthError as e:
                 result.history_error = str(e)
+            except RiotUnavailable as e:  # rate limit full or Riot down: say when to try again
+                result.history_error = str(e)
+                result.retry_at = clock() + e.retry_after
             except Exception as e:  # network trouble: still learn from our own logs
                 log.exception("match history fetch failed")
                 result.history_error = f"match history unavailable ({type(e).__name__})"
+                result.retry_at = clock() + UNAVAILABLE_RETRY_S
         result.logged_games = collect_logged(db)
         result.proposals = rescore(db)
         try:
@@ -70,10 +98,11 @@ def run_learning(db: Engine, make_riot: Callable[[], RiotClient] | None = None) 
 
 
 def run_in_background(db: Engine, make_riot, on_done: Callable[[LearningResult], None] | None = None,
-                      on_error: Callable[[], None] | None = None) -> None:
+                      on_error: Callable[[], None] | None = None, progress: Callable[[dict], None] | None = None,
+                      yield_file: Path | None = None) -> None:
     def work():
         try:
-            res = run_learning(db, make_riot)
+            res = run_learning(db, make_riot, progress, yield_file)
             log.info("learning: %d new logged games, history %s, %d tier proposals%s", res.logged_games,
                      res.history_games, len(res.proposals), f" ({res.history_error})" if res.history_error else "")
             if on_done is not None:

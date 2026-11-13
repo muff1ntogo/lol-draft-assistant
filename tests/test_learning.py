@@ -146,6 +146,32 @@ def test_fetch_history_from_match_v5(db, tmp_path):
         assert {(g.champ_id, g.role, g.win) for g in s.exec(select(PlayerGame))} == {(897, "top", True), (150, "top", False)}
 
 
+def test_a_full_rate_limit_stops_the_update_with_a_retry_time_and_progress_is_told(db, tmp_path):
+    """Update from games (Roster page): it says how far it got, and a full rate limit ends it at once with when to try
+    again, instead of sleeping through Riot's Retry-After; games read before that are kept."""
+    set_players(db, [{"role": "top", "riot_id": "Me#EUW"}], {"Me#EUW": "puuid-me"}.get)
+    game = {"info": {"gameDuration": 1800, "queueId": 440, "gameStartTimestamp": NOW_MS,
+                     "participants": [{"puuid": "puuid-me", "championId": 897, "teamPosition": "TOP", "win": True}]}}
+
+    def handler(req):
+        if req.url.path.endswith("/ids"):
+            return httpx.Response(200, json=[f"EUW1_{i}" for i in range(1, 8)])
+        if req.url.path.endswith("EUW1_6"):
+            return httpx.Response(429, headers={"Retry-After": "80"})
+        return httpx.Response(200, json=game)
+
+    told = []
+    make = lambda: RiotClient("RGAPI-x", tmp_path, limiter=RateLimiter(sleep=lambda s: None), max_wait=10,
+                              transport=httpx.MockTransport(handler), sleep=lambda s: None)
+    res = run_learning(db, make, progress=told.append, yield_file=tmp_path / "jobs" / "yield.json", clock=lambda: 1000.0)
+    assert "rate limit" in res.history_error and res.retry_at == 1080.0
+    assert told[0] == {"player": "Me#EUW", "players_done": 0, "players": 1, "games_read": 0, "games": 0}
+    assert told[-1]["games"] == 7 and told[-1]["games_read"] == 5
+    assert (tmp_path / "jobs" / "yield.json").is_file()  # a running crawl was asked to make room
+    with Session(db) as s:
+        assert len(s.exec(select(PlayerGame).where(PlayerGame.source == "match-v5")).all()) == 5  # kept
+
+
 # ---------- acceptance: tiers update after each logged game ----------
 def play(svc, game_id, won):
     svc.live.handle_phase("ChampSelect", None)

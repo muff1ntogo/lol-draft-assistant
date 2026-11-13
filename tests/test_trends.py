@@ -5,10 +5,18 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from draftassist.api.main import create_app
-from draftassist.db.models import Draft, DraftAction, GameExecution, GameExecutionRole
+from draftassist.data.pools import create_player
+from draftassist.db.models import (
+    Draft,
+    DraftAction,
+    GameExecution,
+    GameExecutionRole,
+    Player,
+    PoolEntry,
+)
 from draftassist.learning.trends import (
     MIN_CHAMP_GAMES,
     MIN_TREND_GAMES,
@@ -144,8 +152,9 @@ def test_per_role_reads_only_games_that_have_that_role():
 
 
 # ---------- the API ----------
-def add_game(s, i, draft_pp, verdict, top_gold_z, champ=266):
-    d = Draft(side="blue", played_at=T0 - timedelta(hours=i), result="loss", draft_format="tournament")
+def add_game(s, i, draft_pp, verdict, top_gold_z, champ=266, names=None):
+    d = Draft(side="blue", played_at=T0 - timedelta(hours=i), result="loss", draft_format="tournament",
+              players_json=json.dumps(names) if names else None)
     s.add(d)
     s.flush()
     s.add(DraftAction(draft_id=d.draft_id, seq=1, side="blue", type="pick", champ_id=champ, role="top"))
@@ -159,9 +168,15 @@ def add_game(s, i, draft_pp, verdict, top_gold_z, champ=266):
 
 
 def test_api_trends(make_services, engine):
+    create_player(engine, "Topper#EUW", "top", True, [])
     with Session(engine) as s:
+        top_key = s.exec(select(Player).where(Player.riot_id == "Topper#EUW")).one().puuid
+        s.add(PoolEntry(puuid=top_key, champ_id=266, role="top", manual_tier="main"))
         for i in range(12):
             add_game(s, i, -3, "Lost from ahead", 1.0 + 0.1 * i)
+        # two more top games: one by a teammate who isn't on the roster, one on a champion outside Topper's pool
+        add_game(s, 30, -3, "Lost from ahead", 9.0, names={"top": "Randomflex"})
+        add_game(s, 31, -3, "Lost from ahead", 9.0, champ=86, names={"top": "Topper"})
         # a game with only the draft part doesn't count
         d = Draft(side="blue", played_at=T0, result="win")
         s.add(d)
@@ -172,11 +187,13 @@ def test_api_trends(make_services, engine):
         t = client.get("/api/team/trends", params={"window": "10"}).json()
         everything = client.get("/api/team/trends", params={"window": "all"}).json()
         assert client.get("/api/team/trends", params={"window": "7"}).status_code == 422
-    assert t["team"]["games"] == 10 and everything["team"]["games"] == 12
+    assert t["team"]["games"] == 10 and everything["team"]["games"] == 14  # the team's figures read every game
     assert t["team"]["parts"]["draft"]["mean"] == pytest.approx(-3)
     assert t["team"]["parts"]["conversion"]["mean"] == pytest.approx(-60)
     assert t["team"]["lever"]["part"] == "conversion"
     top = next(r for r in everything["roles"] if r["role"] == "top")
-    assert top["games"] == 12 and top["stats"][0]["stat"] == "gold"
-    assert top["champions"][0]["champ"]["id"] == 266
+    # Topper's row: their 13 games (not Randomflex's), and only the champion in their pool
+    assert top["player"] == "Topper" and top["games"] == 13 and top["stats"][0]["stat"] == "gold"
+    assert [c["champ"]["id"] for c in top["champions"]] == [266]
+    assert next(r for r in everything["roles"] if r["role"] == "mid")["player"] is None  # nobody in the role
     assert t["windows"] == ["10", "20", "all"] and t["min_games"] == MIN_TREND_GAMES

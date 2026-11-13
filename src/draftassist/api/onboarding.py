@@ -17,7 +17,7 @@ from pathlib import Path
 
 from draftassist.data.crawler import POSITIONS
 from draftassist.data.progress import request_yield
-from draftassist.data.riot import RiotAuthError
+from draftassist.data.riot import RiotAuthError, RiotUnavailable
 from draftassist.learning.comfort import WINDOW_DAYS
 from draftassist.learning.history import (
     MAX_MATCHES_PER_PLAYER,
@@ -54,6 +54,7 @@ def lookup(riot, riot_id: str) -> dict:
 class OnboardingJob:
     riot_id: str
     role: str
+    roles: list[str] = field(default_factory=list)  # the other roles they play: a pool is proposed for each
     status: str = "reading"  # reading | done | error
     games_read: int = 0
     games_total: int = 0
@@ -64,12 +65,14 @@ class OnboardingJob:
     ranks: list[dict] = field(default_factory=list)
     api_puuid: str | None = None
     error: str | None = None
+    retry_at: float | None = None  # epoch seconds: when Riot can be asked again after a full rate limit
     stop: bool = False  # the user skipped the rest, or the player was created: stop reading
     started: float = field(default_factory=time.time)
 
     def as_dict(self) -> dict:
         return {"status": self.status, "riot_id": self.riot_id, "games_read": self.games_read, "games_total": self.games_total,
-                "proposal": self.proposal, "also_plays": self.also_plays, "rank": rank_summary(self.ranks), "error": self.error}
+                "proposal": self.proposal, "also_plays": self.also_plays, "rank": rank_summary(self.ranks), "error": self.error,
+                "retry_at": self.retry_at, "roles": [self.role, *self.roles]}
 
 
 class OnboardingRunner:
@@ -82,11 +85,12 @@ class OnboardingRunner:
         self._lock = threading.Lock()
         self._jobs: dict[str, OnboardingJob] = {}
 
-    def start(self, riot_id: str, role: str) -> str:
-        """Start reading a player. Without a key the job is done at once with an empty proposal: the pool is built by
-        hand."""
+    def start(self, riot_id: str, role: str, roles: list[str] | tuple[str, ...] = ()) -> str:
+        """Start reading a player. `roles`: the other roles they play, each gets a proposed pool. Without a key the
+        job is done at once with an empty proposal: the pool is built by hand."""
         factory = self.make_riot()
-        job = OnboardingJob(riot_id, role, status="reading" if factory else "done")
+        job = OnboardingJob(riot_id, role, [r for r in dict.fromkeys(roles) if r != role],
+                            status="reading" if factory else "done")
         job_id = uuid.uuid4().hex
         with self._lock:
             done = sorted((j for j in self._jobs.items() if j[1].status != "reading"), key=lambda j: j[1].started)
@@ -120,9 +124,13 @@ class OnboardingRunner:
     def _propose(self, job: OnboardingJob) -> None:
         now_ms = int(time.time() * 1000)
         games = [Game(g["champ_id"], g["role"], g["win"], g["game_start_ms"]) for g in job.games]
-        job.proposal = proposal(games, (Mastery(*row) for row in job.mastery), job.role, self.role_shares(), now_ms)
-        job.also_plays = also_plays([ProfileGame(g["match_id"], g["champ_id"], g["role"], g["win"], g["game_start_ms"])
-                                     for g in job.games], job.role)
+        shares = self.role_shares()
+        job.proposal = [row for role in (job.role, *job.roles)
+                        for row in proposal(games, [Mastery(*m) for m in job.mastery], role, shares, now_ms)]
+        chosen = {job.role, *job.roles}
+        job.also_plays = [r for r in also_plays([ProfileGame(g["match_id"], g["champ_id"], g["role"], g["win"],
+                                                             g["game_start_ms"]) for g in job.games], job.role)
+                          if r["role"] not in chosen]
 
     def _work(self, job: OnboardingJob, factory: Callable[[], object]) -> None:
         riot = None
@@ -162,6 +170,9 @@ class OnboardingRunner:
             job.status, job.error = "error", str(e)
         except RiotAuthError as e:
             job.status, job.error = "error", str(e)
+        except RiotUnavailable as e:  # what was read so far is still proposed; the rest can be read later
+            self._propose(job)
+            job.status, job.error, job.retry_at = "error", str(e), time.time() + e.retry_after
         except Exception as e:  # network trouble: say so, the pool can still be built by hand
             log.exception("onboarding %s failed", job.role)
             job.status, job.error = "error", f"Couldn't read their games ({type(e).__name__})"

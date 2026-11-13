@@ -22,21 +22,27 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import Engine
 from sqlmodel import Session
 
+from draftassist.api.account_routes import router as account_router
+from draftassist.api.datasets_routes import router as datasets_router
 from draftassist.api.draftlog import DraftLogger
 from draftassist.api.history_routes import router as history_router
+from draftassist.api.jobs_routes import router as jobs_router
 from draftassist.api.learning_routes import router as learning_router
 from draftassist.api.live import LiveHub, LiveService
 from draftassist.api.pool_routes import router as pool_router
-from draftassist.api.settings_routes import router as settings_router
 from draftassist.api.scout_routes import router as scout_router
-from draftassist.api.jobs_routes import router as jobs_router
+from draftassist.api.settings_routes import router as settings_router
 from draftassist.api.setup_routes import router as setup_router
-from draftassist.api.account_routes import router as account_router
-from draftassist.api.datasets_routes import router as datasets_router
-from draftassist.api.storage_routes import router as storage_router
 from draftassist.api.shared_routes import router as shared_router
+from draftassist.api.storage_routes import router as storage_router
 from draftassist.api.synergy_routes import router as synergy_router
-from draftassist.config import DATA_ROOT, RESOURCE_ROOT, Settings, ensure_user_files, load_settings
+from draftassist.config import (
+    DATA_ROOT,
+    RESOURCE_ROOT,
+    Settings,
+    ensure_user_files,
+    load_settings,
+)
 from draftassist.data import ddragon
 from draftassist.data.pools import (
     PlayerDirectoryDb,
@@ -62,6 +68,8 @@ from draftassist.engine.formats import get_format
 from draftassist.lcu.demo import demo_sessions
 from draftassist.lcu.recorder import SessionRecorder
 from draftassist.learning.jobs import LearningResult, run_in_background
+
+LEARNING_MAX_WAIT_S = 10.0  # "Update from games": a full rate limit fails fast with a retry time instead of stalling
 
 log = logging.getLogger(__name__)
 WEB_DIST = RESOURCE_ROOT / "web" / "dist"
@@ -243,7 +251,12 @@ class Services:
         """A fresh install, in the background, then reload: a teammate's first pull of the shared stats (with progress
         for the banner), then the champions and, unless shared stats arrived, OP.GG's starting stats (only the fallback
         for users). False if there's nothing to do or it's already running. `wait`: run here (tests)."""
-        from draftassist.first_run import BOOTSTRAP_JOBS, bootstrap, needs_bootstrap, pull_shared_first_run
+        from draftassist.first_run import (
+            BOOTSTRAP_JOBS,
+            bootstrap,
+            needs_bootstrap,
+            pull_shared_first_run,
+        )
 
         first_pull = self.first_pull_needed()
         if self.db is None or self.bootstrap["state"] == "running" or not (first_pull or needs_bootstrap(self.db)):
@@ -390,33 +403,49 @@ class Services:
             self.players.invalidate()
         self.loaded_version = version
 
-    def make_riot(self):
+    def make_riot(self, max_wait: float | None = None):
+        """A Riot client factory, or None without a key. Every client the app makes shares one rate limiter, so
+        onboarding, scouting and the learning job never add up to more than the key allows. `max_wait`: see
+        RiotClient (for someone waiting on a page: fail with a retry time rather than sleep through a full limit)."""
         if self.settings is None or not self.settings.has_riot_api_key:
             return None
-        from draftassist.data.riot import RiotClient
+        from draftassist.data.riot import RateLimiter, RiotClient
 
         settings = self.settings
-        return lambda: RiotClient(settings.riot_api_key, settings.cache_dir)
+        if getattr(self, "_riot_limiter", None) is None:
+            self._riot_limiter = RateLimiter()
+        limiter = self._riot_limiter
+        return lambda: RiotClient(settings.riot_api_key, settings.cache_dir, limiter=limiter, max_wait=max_wait)
 
     def learn(self) -> bool:
         """Start the learning job (link players, collect games, re-score tiers) in the background.
-        False if one is already running. The engine reloads between drafts when it is done."""
+        False if one is already running. The engine reloads between drafts when it is done. While it runs,
+        `learning["progress"]` says whose games it is reading; when Riot couldn't be read, the summary's `retry_at`
+        says when it can be asked again."""
         if self.db is None or (self.learning or {}).get("running"):
             return False
         import time as _time
 
-        self.learning = {**(self.learning or {}), "running": True}
+        previous = (self.learning or {}).get("summary") or {}
+        self.learning = {"running": True, "started_at": _time.time(), "progress": None, "summary": previous}
+
+        def progress(state: dict) -> None:
+            if self.learning is not None and self.learning.get("running"):
+                self.learning = {**self.learning, "progress": state}
 
         def done(res: LearningResult) -> None:
             self.learning = {"running": False, "finished_at": _time.time(), "summary": {
                 "logged_games": res.logged_games, "history_games": res.history_games,
-                "proposals": len(res.proposals), "history_error": res.history_error}}
+                "proposals": len(res.proposals), "history_error": res.history_error, "retry_at": res.retry_at,
+                "failed_players": res.failed_players}}
             self.refresh_stats()
 
         def failed() -> None:
-            self.learning = {**(self.learning or {}), "running": False, "summary": {"error": "learning job failed (see log)"}}
+            self.learning = {"running": False, "finished_at": _time.time(),
+                             "summary": {"error": "learning job failed (see log)", "retry_at": _time.time() + 60}}
 
-        run_in_background(self.db, self.make_riot(), done, failed)
+        yield_file = self.settings.cache_dir / "jobs" / "yield.json" if self.settings else None
+        run_in_background(self.db, self.make_riot(max_wait=LEARNING_MAX_WAIT_S), done, failed, progress, yield_file)
         return True
 
     # ---------- shared data (docs/shared-data.md, Stages 2-3) ----------

@@ -11,7 +11,7 @@ from draftassist.data.archetypes import ARCHETYPES, load_archetype_plans
 from draftassist.data.crawler import MASTER_PLUS
 from draftassist.data.master import MIN_MATCHES, master_matches, usable_master
 from draftassist.data.matchup_model import load_matchup_model, pooled_stats
-from draftassist.data.pools import list_players
+from draftassist.data.pools import roster
 from draftassist.data.settings_store import get_engine_settings, save_engine_settings
 from draftassist.data.synergy import crawl_weights
 from draftassist.engine.blind import pool_health
@@ -155,8 +155,7 @@ def get_team_trends(request: Request, window: str = "10") -> dict:
         raise HTTPException(422, f"window must be one of {', '.join(WINDOWS)}")
     svc: Services = request.app.state.services
     db = db_of(svc)
-    names = {p["role"]: p["riot_id"].split("#")[0] for p in list_players(db) if p["riot_id"]}
-    return trends_payload(db, window, svc.catalog.card, names)
+    return trends_payload(db, window, svc.catalog.card, roster(db))
 
 @router.put("/api/team/style")
 def put_team_style(request: Request, style: str | None = Body(None, embed=True)) -> dict:

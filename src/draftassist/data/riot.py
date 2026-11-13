@@ -34,6 +34,18 @@ class RiotAuthError(RuntimeError):
     """The key was rejected (401/403). Development keys expire after 24 hours."""
 
 
+class RiotUnavailable(RuntimeError):
+    """Riot couldn't be read right now: its rate limit is full for longer than the caller wants to wait (often a crawl
+    using the same key), or it kept failing. `retry_after` is how many seconds to wait before trying again."""
+
+    def __init__(self, message: str, retry_after: float):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+UNAVAILABLE_RETRY_S = 60.0  # after server or network errors that outlasted the retries
+
+
 def key_id(api_key: str) -> str:
     """Short one-way fingerprint telling keys apart without storing them."""
     return hashlib.sha256(api_key.encode()).hexdigest()[:12]
@@ -126,7 +138,9 @@ def match_path(match_id: str) -> str:
 class RiotClient:
     def __init__(self, api_key: str, cache_dir: Path, limiter: RateLimiter | None = None,
                  transport: httpx.BaseTransport | None = None, sleep: Callable[[float], None] = time.sleep,
-                 clock: Callable[[], float] = time.time, max_retries: int = 5):
+                 clock: Callable[[], float] = time.time, max_retries: int = 5, max_wait: float | None = None):
+        """`max_wait`: the longest a 429 may make one request wait. A longer Retry-After raises RiotUnavailable at
+        once instead of sleeping (for someone waiting on a page; a crawl leaves it None and waits)."""
         if not api_key:
             raise RiotAuthError("RIOT_API_KEY is not set (put it in .env)")
         self._http = httpx.Client(timeout=30, transport=transport, headers={"X-Riot-Token": api_key})
@@ -136,7 +150,7 @@ class RiotClient:
         self._store = open_cache(cache_dir)
         self.key_id = key_id(api_key)
         self.limiter = limiter or RateLimiter(sleep=sleep)
-        self._sleep, self._clock, self._max_retries = sleep, clock, max_retries
+        self._sleep, self._clock, self._max_retries, self._max_wait = sleep, clock, max_retries, max_wait
         self.requests_made = 0
 
     def __repr__(self) -> str:
@@ -179,6 +193,8 @@ class RiotClient:
                                     "RIOT_API_KEY in .env")
             if resp.status_code == 429:
                 wait = float(resp.headers.get("Retry-After", 2 ** attempt))
+                if self._max_wait is not None and (wait > self._max_wait or attempt == self._max_retries):
+                    raise RiotUnavailable("Riot's rate limit for this key is full (a crawl may be using it)", wait)
                 log.info("rate limited on %s; waiting %.0f s", path, wait)
                 self._sleep(wait)
                 continue
@@ -194,7 +210,8 @@ class RiotClient:
                 return body
             self._store.put(host, path, params, body, self._clock(), self.key_id)
             return body
-        raise RuntimeError(f"Riot API: giving up on {path} after {self._max_retries + 1} attempts")
+        raise RiotUnavailable(f"Riot API: giving up on {path} after {self._max_retries + 1} attempts",
+                              UNAVAILABLE_RETRY_S)
 
     # ---------- endpoints ----------
     def league_entries(self, tier: str, division: str, page: int = 1) -> list[dict]:

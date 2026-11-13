@@ -11,6 +11,7 @@ from sqlalchemy import Engine
 from sqlmodel import Session, col, select
 
 from draftassist.api.recap import _actions, _roles, art, plan_adherence, queue_label
+from draftassist.data.pools import Registered, Roster, roster
 from draftassist.data.provider import ChampionCatalog
 from draftassist.db.models import Draft, DraftAction, GameExecution, OwnGameParticipant
 from draftassist.engine.engine import DraftEngine
@@ -104,30 +105,42 @@ def _execution(s: Session, games: list[Draft], first: int = 1) -> list[dict]:
 
 
 def _players(s: Session, engine: DraftEngine, catalog: ChampionCatalog, games: list[Draft],
-             acts: dict[int, list[DraftAction]]) -> list[dict]:
-    """Per player (or role, when the name wasn't logged), per champion: games, wins and the mean gold lead at 15."""
+             acts: dict[int, list[DraftAction]], roster: Roster) -> list[dict]:
+    """Per roster player and role, per champion in their pool for that role: games, wins and the mean gold lead at 15
+    (v1.0.2: Review shows only the players and champions registered on the Roster). A player's totals count all
+    their games in the role; `other_games` says how many were on champions outside that pool. Names a draft didn't
+    log are the role's active player's; players who aren't on the roster are left out."""
     lanes = defaultdict(dict)
     for p in s.exec(select(OwnGameParticipant).where(col(OwnGameParticipant.draft_id).in_([d.draft_id for d in games]))):
         lanes[p.draft_id][(p.champ_id, p.team_id)] = p.lane_gold_15
     cells: dict[tuple[str, str], dict[int, list]] = defaultdict(lambda: defaultdict(list))
+    who_is: dict[str, Registered] = {}
     for d in games:
         names = json.loads(d.players_json) if d.players_json else {}
         ours, _ = _roles(engine, d, acts[d.draft_id])
         team = 100 if d.side == "blue" else 200
         for champ, role in ours.items():
-            who = names.get(role) or ROLE_LABELS.get(role, role)
-            cells[(role, who)][champ].append((_won(d), lanes[d.draft_id].get((champ, team))))
+            player = roster.named(names.get(role), role)
+            if player is None:
+                continue
+            who_is[player.riot_id] = player
+            cells[(role, player.riot_id)][champ].append((_won(d), lanes[d.draft_id].get((champ, team))))
     order = {r: i for i, r in enumerate(ROLES)}
     out = []
-    for (role, who), champs in sorted(cells.items(), key=lambda kv: (order.get(kv[0][0], 9), kv[0][1])):
-        rows = []
+    for (role, riot_id), champs in sorted(cells.items(), key=lambda kv: (order.get(kv[0][0], 9), kv[0][1].lower())):
+        player = who_is[riot_id]
+        rows, wins, n = [], 0, 0
         for champ, results in champs.items():
+            wins += sum(w for w, _ in results)
+            n += len(results)
+            if not roster.in_pool(player, role, champ):
+                continue
             golds = [g for _, g in results if g is not None]
             rows.append({"champ": art(catalog, champ, None), **rate(sum(w for w, _ in results), len(results)),
                          "gold15": round(sum(golds) / len(golds)) if golds else None, "gold_games": len(golds)})
         rows.sort(key=lambda r: (-r["games"], -(r["wr"] or 0)))
-        out.append({"player": who, "role": role, "role_label": ROLE_LABELS.get(role, role),
-                    **rate(sum(r["wins"] for r in rows), sum(r["games"] for r in rows)), "champions": rows})
+        out.append({"player": player.name, "riot_id": riot_id, "role": role, "role_label": ROLE_LABELS.get(role, role),
+                    **rate(wins, n), "champions": rows, "other_games": n - sum(r["games"] for r in rows)})
     return out
 
 
@@ -198,7 +211,7 @@ def history_stats(db: Engine, engine: DraftEngine, catalog: ChampionCatalog, que
         trend = _trend(every, rolling)[-last:] if last else _trend(every, rolling)
         acts = _actions(s, [d.draft_id for d in games])
         execution = _execution(s, games, first=len(every) - len(games) + 1)  # numbered like the trend
-        players = _players(s, engine, catalog, games, acts)
+        players = _players(s, engine, catalog, games, acts, roster(db))
     predicted = [d for d in games if d.pred_win_prob is not None and not d.imported]
     return {
         "games": len(games), "total_games": len(every), "last": last, "timeframes": list(TIMEFRAMES),

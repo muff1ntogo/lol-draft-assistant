@@ -21,14 +21,20 @@ from draftassist.data.pools import (
     list_players,
     load_pools,
     parse_pool_text,
+    player_roles,
     remove_player_pool_entry,
     remove_pool_entry,
+    set_lineup,
     set_player_pool_entry,
+    set_player_roles,
     set_players,
     set_pool_entry,
     swap_player,
 )
-from draftassist.data.riot import RiotAuthError
+from draftassist.data.pools import (
+    lineup as current_lineup,
+)
+from draftassist.data.riot import RiotAuthError, RiotUnavailable
 from draftassist.data.settings_store import get_engine_settings
 from draftassist.db.models import Player, PoolEntry
 from draftassist.engine.blind import blind_safety, pool_health
@@ -43,6 +49,7 @@ if TYPE_CHECKING:
     from draftassist.api.main import Services
 
 router = APIRouter()
+ONBOARDING_MAX_WAIT_S = 15.0  # Add player: a full rate limit says when to try again rather than stall the sheet
 
 
 # ---------- players & pools ----------
@@ -80,7 +87,8 @@ def _onboarding(svc: Services) -> OnboardingRunner:
     runner = getattr(svc, "onboarding", None)
     if runner is None:
         yield_file = svc.settings.cache_dir / "jobs" / "yield.json" if svc.settings else None
-        runner = OnboardingRunner(svc.make_riot, lambda: svc.live.engine.role_share_map, yield_file)
+        runner = OnboardingRunner(lambda: svc.make_riot(max_wait=ONBOARDING_MAX_WAIT_S),
+                                  lambda: svc.live.engine.role_share_map, yield_file)
         svc.onboarding = runner
     return runner
 
@@ -93,7 +101,7 @@ def post_lookup(request: Request, riot_id: str = Body(..., embed=True)) -> dict:
     known = _player(svc, riot_id.strip())
     if known is not None:
         return {"found": True, "on_roster": True, "riot_id": known.riot_id, "role": known.role, "active": known.active}
-    factory = svc.make_riot()
+    factory = svc.make_riot(max_wait=ONBOARDING_MAX_WAIT_S)
     if factory is None:
         return {"no_key": True}
     riot = factory()
@@ -101,6 +109,8 @@ def post_lookup(request: Request, riot_id: str = Body(..., embed=True)) -> dict:
         return lookup(riot, riot_id.strip())
     except RiotAuthError as e:
         raise HTTPException(502, str(e)) from None
+    except RiotUnavailable as e:
+        raise HTTPException(503, f"{e}: try again in {max(1, round(e.retry_after))} s") from None
     except Exception as e:
         raise HTTPException(502, f"Riot didn't answer ({type(e).__name__})") from None
     finally:
@@ -108,10 +118,13 @@ def post_lookup(request: Request, riot_id: str = Body(..., embed=True)) -> dict:
 
 
 @router.post("/api/players/onboard")
-def post_onboard(request: Request, riot_id: str = Body(...), role: str = Body(...)) -> dict:
-    if role not in ROLES:
+def post_onboard(request: Request, riot_id: str = Body(...), role: str = Body(...),
+                 roles: list[str] = Body(default_factory=list)) -> dict:
+    """Start reading a player's games; the proposal has a pool for `role` and for each of `roles` (the others they
+    play)."""
+    if role not in ROLES or any(r not in ROLES for r in roles):
         raise HTTPException(422, "unknown role")
-    return {"job": _onboarding(request.app.state.services).start(riot_id.strip(), role)}
+    return {"job": _onboarding(request.app.state.services).start(riot_id.strip(), role, roles)}
 
 
 @router.get("/api/players/onboard/{job}")
@@ -140,11 +153,12 @@ def _with_cards(svc: Services, body: dict) -> dict:
 
 @router.post("/api/players")
 def post_player(request: Request, riot_id: str = Body(...), role: str = Body(...), active: bool = Body(...),
-                pool: list[dict] = Body(...)) -> dict:
-    """Create the player and their reviewed pool in one transaction, with what onboarding read for them."""
+                pool: list[dict] = Body(...), roles: list[str] = Body(default_factory=list)) -> dict:
+    """Create the player and their reviewed pools in one transaction, with what onboarding read for them. `role` is the
+    role they play first; `roles` the others they play."""
     svc: Services = request.app.state.services
     try:
-        create_player(db_of(svc), riot_id, role, active, pool, _onboarding(svc).fetched(riot_id.strip(), role))
+        create_player(db_of(svc), riot_id, role, active, pool, _onboarding(svc).fetched(riot_id.strip(), role), roles)
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
     _lineup_changed(svc)
@@ -174,13 +188,14 @@ def _health(svc: Services, player: Player) -> dict | None:
     return pool_health(svc.engine, player.role)
 
 
-def _roster_row(svc: Services, player: Player, pool_roles: dict[str, list[str]]) -> dict:
+def _roster_row(svc: Services, player: Player, pool_roles: dict[str, list[str]], plays: dict[str, list[str]]) -> dict:
     inputs = load_inputs(db_of(svc), player.puuid)
     row = summary(inputs.games, inputs.pool, inputs.execution, player.role, inputs.rank)
     row["pool"]["champs"] = [{**e, "champ": svc.catalog.card(e["champ_id"])} for e in row["pool"]["champs"]]
     row.update(riot_id=player.riot_id, active=player.active, bracket=player.bracket, resolved=player.resolved,
                role_label=ROLE_LABELS[player.role], since_days=_days_since(player.active_since) if player.active else None,
-               pool_roles=pool_roles.get(player.puuid, []), health=_health(svc, player))
+               pool_roles=pool_roles.get(player.puuid, []), plays=plays.get(player.puuid, [player.role]),
+               health=_health(svc, player))
     return row
 
 
@@ -192,12 +207,13 @@ def _roster_payload(svc: Services) -> dict:
         for e in session.exec(select(PoolEntry)).all():
             has.setdefault(e.puuid, set()).add(e.role)
     pool_roles = {puuid: [r for r in ROLES if r in roles] for puuid, roles in has.items()}
-    active = {p.role: _roster_row(svc, p, pool_roles) for p in players if p.active}
+    plays = player_roles(db)
+    active = {p.role: _roster_row(svc, p, pool_roles, plays) for p in players if p.active}
     benched = sorted((p for p in players if not p.active), key=lambda p: (ROLES.index(p.role), p.riot_id.lower()))
     return {
         "lineup": [active.get(role) or {"role": role, "role_label": ROLE_LABELS[role], "riot_id": "", "active": False}
                    for role in ROLES],
-        "bench": [_roster_row(svc, p, pool_roles) for p in benched],
+        "bench": [_roster_row(svc, p, pool_roles, plays) for p in benched],
         "learning": svc.learning or {"running": False},
         "has_key": svc.make_riot() is not None,
         "in_draft": svc.in_draft(),
@@ -213,7 +229,9 @@ def _champion_cards(svc: Services) -> list[dict]:
 def _profile_payload(svc: Services, player: Player, window: str) -> dict:
     db = db_of(svc)
     inputs = load_inputs(db, player.puuid)
-    body = profile(inputs.games, inputs.pool, inputs.execution, player.role, inputs.mastery, inputs.rank, window)
+    plays = player_roles(db).get(player.puuid, [player.role])
+    body = profile(inputs.games, inputs.pool, inputs.execution, player.role, inputs.mastery, inputs.rank, window,
+                   plays=plays)
     lane_z = lane_z_by_entry(db) if get_engine_settings(db)["execution_comfort"] else None
     profiles = svc.profiles()
     for group in body["pools"]:
@@ -233,6 +251,7 @@ def _profile_payload(svc: Services, player: Player, window: str) -> dict:
     for row in body["mastery"]:
         row["champ"] = svc.catalog.card(row["champ_id"])
     body.update(riot_id=player.riot_id, role_label=ROLE_LABELS[player.role], active=player.active, bracket=player.bracket,
+                plays=plays,
                 resolved=player.resolved, since_days=_days_since(player.active_since) if player.active else None,
                 health=_health(svc, player), has_key=svc.make_riot() is not None,
                 champions=_champion_cards(svc))
@@ -314,22 +333,48 @@ def post_bench_player(request: Request, riot_id: str) -> dict:
 
 @router.post("/api/players/{riot_id}/activate")
 def post_activate_player(request: Request, riot_id: str, role: str = Body(..., embed=True)) -> dict:
-    """Put a player in as the role's active player; whoever was there goes to the bench. `undo` says how to swap
-    back: activate that player in that role, or bench this one if the role was empty."""
+    """Put a player in as the role's active player. Whoever was there goes to the bench, or, when the player moves over
+    from another lineup role that the one they replace also plays, the two trade roles. `undo` is the lineup before
+    (role -> Riot ID), for `PUT /api/roster/lineup`; `replaced` is who was in the role."""
     svc: Services = request.app.state.services
     _found(svc, riot_id)
     if role not in ROLES:
         raise HTTPException(422, "unknown role")
-    previous = next((p["riot_id"] for p in list_players(db_of(svc)) if p["role"] == role), "")
-    if previous.lower() == riot_id.lower():
-        return {"roster": _roster_payload(svc), "undo": None}
+    before = current_lineup(db_of(svc))
+    if before[role].lower() == riot_id.lower():
+        return {"roster": _roster_payload(svc), "undo": None, "replaced": ""}
     try:
         swap_player(db_of(svc), role, riot_id, _resolver(svc))
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
     _lineup_changed(svc)
     svc.learn()
-    return {"roster": _roster_payload(svc), "undo": {"riot_id": previous, "role": role, "bench": riot_id}}
+    return {"roster": _roster_payload(svc), "undo": before, "replaced": before[role]}
+
+
+@router.put("/api/roster/lineup")
+def put_lineup(request: Request, lineup: dict[str, str] = Body(..., embed=True)) -> dict:
+    """Put a lineup back exactly (Undo after a swap or a move): role -> Riot ID, "" for an empty role."""
+    svc: Services = request.app.state.services
+    try:
+        set_lineup(db_of(svc), lineup)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from None
+    _lineup_changed(svc)
+    return _roster_payload(svc)
+
+
+@router.put("/api/players/{riot_id}/roles")
+def put_player_roles(request: Request, riot_id: str, roles: list[str] = Body(..., embed=True)) -> dict:
+    """The roles a player plays. A role taken away takes its pool with it."""
+    svc: Services = request.app.state.services
+    try:
+        plays = set_player_roles(db_of(svc), riot_id, roles)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from None
+    if plays is None:
+        raise HTTPException(404, "no player with that Riot ID")
+    return {"plays": plays, "applied": _pool_edit_applied(svc)}
 
 
 @router.delete("/api/players/{riot_id}")

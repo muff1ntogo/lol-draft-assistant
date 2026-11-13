@@ -144,10 +144,35 @@
     try {
       const out = await api(`${playerPath(riotId)}/activate`, { method: 'POST', body: { role } });
       swapOpen = false;
-      say(out.undo?.riot_id ? `Swapped in for ${nameOf(out.undo.riot_id)}, who is on the bench.` : `${nameOf(riotId)} is our ${ROLE_LABELS[role]} now.`);
+      say(out.replaced ? `Swapped in for ${nameOf(out.replaced)}, who is on the bench.` : `${nameOf(riotId)} is our ${ROLE_LABELS[role]} now.`);
       await load();
     } catch (e) { say(`Not swapped: ${e.message}`, true); }
   }
+  // ---- roles (v1.0.2: a player can play several, each with its own pool) ----
+  let dropping = $state(null); // { role, champs }: taking a role with a pool away asks first
+  let dropOpen = $state(false);
+  async function saveRoles(roles, text) {
+    try {
+      const r = await api(`${playerPath(riotId)}/roles`, { method: 'PUT', body: { roles } });
+      say(`${text}${applied(r)}`);
+      await load();
+    } catch (e) { say(`Not saved: ${e.message}`, true); }
+  }
+  function toggleRole(role) {
+    if (!data.plays.includes(role)) {
+      saveRoles([...data.plays, role], `${ROLE_LABELS[role]} is one of ${nameOf(riotId)}'s roles now: add champions to its pool below.`);
+      return;
+    }
+    const champs = data.pools.find((g) => g.role === role)?.pool.length ?? 0;
+    if (champs) { dropping = { role, champs }; dropOpen = true; return; }
+    saveRoles(data.plays.filter((r) => r !== role), `${ROLE_LABELS[role]} taken off ${nameOf(riotId)}'s roles.`);
+  }
+  async function confirmDrop() {
+    dropOpen = false;
+    await saveRoles(data.plays.filter((r) => r !== dropping.role),
+      `${ROLE_LABELS[dropping.role]} taken off ${nameOf(riotId)}'s roles, with its pool.`);
+  }
+
   let deleteOpen = $state(false);
   let deleting = $state(false);
   async function confirmDelete() {
@@ -171,7 +196,8 @@
     if (!data) return '';
     const ranks = ['solo', 'flex', 'fives'].filter((q) => data.rank[q]).map((q) => `${QUEUE_LABELS[q]} ${rankText(data.rank[q])}, ${games(data.rank[q].wins + data.rank[q].losses)}`);
     const since = data.since_days == null ? '' : data.since_days === 0 ? ' since today' : ` for ${data.since_days} day${data.since_days === 1 ? '' : 's'}`;
-    return `${data.active ? `Our ${data.role_label}${since}` : `On the bench (${data.role_label})`} · ${ranks.length ? ranks.join(' · ') : data.has_key ? 'rank not read yet' : 'no Riot key: rank and mastery not read'}`;
+    const also = data.plays.filter((r) => r !== data.role).map((r) => ROLE_LABELS[r]);
+    return `${data.active ? `Our ${data.role_label}${since}` : `On the bench (${data.role_label})`}${also.length ? `, also plays ${also.join(', ')}` : ''} · ${ranks.length ? ranks.join(' · ') : data.has_key ? 'rank not read yet' : 'no Riot key: rank and mastery not read'}`;
   });
 </script>
 
@@ -197,6 +223,15 @@
 
     <Toolbar label="Profile options">
       <ToolGroup label="Figures from"><Segmented label="Games the figures read" value={window_} onchange={setWindow} options={[['20', 'Last 20 games'], ['60d', '60 days']]} /></ToolGroup>
+      <ToolGroup label="Plays">
+        <span class="chips" role="group" aria-label="Roles they play">
+          {#each ROLES as r}
+            {@const now = data.active && r === data.role}
+            <Tag onclick={now ? () => say(`${nameOf(riotId)} plays ${ROLE_LABELS[r]} now: swap them out of it first to take it off.`) : () => toggleRole(r)} pressed={data.plays.includes(r)}
+                 title={now ? `They play ${ROLE_LABELS[r]} now: swap them out of it to take it away` : data.plays.includes(r) ? `Take ${ROLE_LABELS[r]} off their roles` : `Add ${ROLE_LABELS[r]} to their roles, with a pool of its own`}>{ROLE_LABELS[r]}</Tag>
+          {/each}
+        </span>
+      </ToolGroup>
       {#if health}<ToolGroup label="Pool health"><span class="health" class:warn={health.warn}>{health.warn ? '⚠ ' : ''}{health.text}</span></ToolGroup>{/if}
     </Toolbar>
 
@@ -218,7 +253,7 @@
       {@const pending = group.pool.filter((r) => r.suggested_tier).length}
       <section>
         <div class="sechead">
-          <h2>{group.role_label} pool{#if gi > 0} <span class="sub">not their current role</span>{/if}</h2>
+          <h2>{group.role_label} pool{#if gi > 0}<span class="sub">{data.active ? 'another role they play' : 'another of their roles'}</span>{/if}</h2>
           {#if pending && group.editable_tiers}<Button onclick={() => acceptAll(group.role)}>Accept {pending} suggested tier{pending === 1 ? '' : 's'}</Button>{/if}
           <Button variant="ghost" onclick={() => openImport(group.role)}>Import from text</Button>
         </div>
@@ -344,11 +379,20 @@
     </Sheet>
 
     <Sheet dialog bind:open={swapOpen} title="Swap {nameOf(riotId)} in" description="Whoever plays the role now goes to the bench with their pool.">
-      <Segmented label="Role to play" bind:value={swapRole} options={ROLES.map((r) => [r, ROLE_LABELS[r]])} />
+      <!-- their own roles first -->
+      <Segmented label="Role to play" bind:value={swapRole} options={[...data.plays, ...ROLES.filter((r) => !data.plays.includes(r))].map((r) => [r, ROLE_LABELS[r]])} />
       <p class="quiet pad">{data.pools.some((g) => g.role === swapRole && g.pool.length) ? `Their ${ROLE_LABELS[swapRole]} pool comes with them.` : `They have no ${ROLE_LABELS[swapRole]} pool yet: they start with an empty one.`}</p>
       {#snippet footer()}
         <Button variant="ghost" onclick={() => (swapOpen = false)}>Cancel</Button>
         <Button variant="primary" size="md" onclick={() => swapIn(swapRole)}>Swap in as {ROLE_LABELS[swapRole]}</Button>
+      {/snippet}
+    </Sheet>
+
+    <Sheet dialog bind:open={dropOpen} title="Take {ROLE_LABELS[dropping?.role] ?? ''} off {nameOf(riotId)}'s roles?">
+      <p class="body">Their {ROLE_LABELS[dropping?.role] ?? ''} pool goes with it: {dropping?.champs} champion{dropping?.champs === 1 ? '' : 's'}. Their games stay.</p>
+      {#snippet footer()}
+        <Button variant="ghost" onclick={() => (dropOpen = false)}>Cancel</Button>
+        <Button danger size="md" onclick={confirmDrop}>Take {ROLE_LABELS[dropping?.role] ?? ''} off</Button>
       {/snippet}
     </Sheet>
 
@@ -407,4 +451,5 @@
   .narrow { max-width: 640px; }
   .body { margin: 0 0 12px; font-size: 13px; line-height: 1.5; color: var(--text-2); }
   .body strong { color: var(--text-1); }
+  .chips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 </style>

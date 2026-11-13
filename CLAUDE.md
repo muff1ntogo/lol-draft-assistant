@@ -161,7 +161,11 @@ steps: Riot ID lookup, reading their ranked games, reviewing the proposed pool, 
 the team's logged games and History stay). Each player has a **profile** at `#/player/<riot id>` (`Player.svelte`):
 figures, the editable pool per role, roles, lane execution, mastery, the stats bracket. `player_games` keeps KDA, CS,
 vision and length; `players` keep rank, mastery and `active_since`. Lineup changes made during a champ select reach
-Live when the draft ends. To look at these pages without real data: `scripts/seed_demo_games.py` (a scratch database
+Live when the draft ends. **v1.0.2** (13 Nov 2026, section "v1.0.2" in the doc): a player can have several roles
+(`players.roles`, a pool per role, the profile's Plays chips; lineup players can move between roles and trade, Undo puts
+the whole lineup back), Review's per-player panels show only roster players and their pools' champions
+(`pools.roster`), and "Update from games" shows progress, fails fast on a full rate limit with a retry countdown
+(`RiotUnavailable`, one shared rate limiter per app). To look at these pages without real data: `scripts/seed_demo_games.py` (a scratch database
 only; it refuses to run without `DRAFTASSIST_DB`).
 
 Open points:

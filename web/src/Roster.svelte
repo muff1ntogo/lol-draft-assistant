@@ -46,38 +46,79 @@
   }
 
   // ---- swap: from a lineup row (choose who comes in) or from a benched player (choose the role) ----
-  let swapping = $state(null); // { role, player: riot id or '' }
+  // A player can have several roles (v1.0.2), so who can come in is anyone on the bench who plays the role, then
+  // anyone in the lineup who also plays it (they move over: the two trade when the one going out plays their role,
+  // else that role is left empty), then the rest of the bench.
+  let swapping = $state(null); // { role, player: riot id or '', pick }
   let swapOpen = $state(false);
-  const swapOut = $derived(swapping ? roster.lineup.find((r) => r.role === swapping.role)?.riot_id ?? '' : '');
+  const plays = (p) => p.plays ?? [p.role];
+  const playsRole = (p, role) => plays(p).includes(role);
+  const swapOutRow = $derived(swapping ? roster.lineup.find((r) => r.role === swapping.role) : null);
+  const swapOut = $derived(swapOutRow?.riot_id ?? '');
   const candidates = $derived.by(() => {
     if (!swapping) return [];
-    const withPool = roster.bench.filter((b) => b.pool_roles.includes(swapping.role));
-    return [...withPool, ...roster.bench.filter((b) => !withPool.includes(b))];
+    const role = swapping.role;
+    const benchPlays = roster.bench.filter((b) => playsRole(b, role));
+    const lineupPlays = roster.lineup.filter((r) => r.riot_id && r.role !== role && playsRole(r, role));
+    return [...benchPlays, ...lineupPlays, ...roster.bench.filter((b) => !benchPlays.includes(b))];
   });
+  function candidateNote(c, role) {
+    if (c.active) {
+      const trade = swapOutRow?.riot_id && playsRole(swapOutRow, c.role);
+      return `moves over from ${ROLE_LABELS[c.role]}: ${trade ? `${nameOf(swapOutRow.riot_id)} takes ${ROLE_LABELS[c.role]}` : `${ROLE_LABELS[c.role]} is left empty`}`;
+    }
+    return (c.pool_roles.includes(role) ? `${ROLE_LABELS[role]} pool ready` : playsRole(c, role) ? `plays ${ROLE_LABELS[role]}, no pool yet` : `no ${ROLE_LABELS[role]} pool yet`)
+      + (c.games ? ` · ${c.games} games, ${pct(c.win_rate)} won` : '') + (c.rank ? ` · ${c.rank.label}` : '');
+  }
+  const hasCandidates = (role) => roster.bench.length > 0 || roster.lineup.some((r) => r.riot_id && r.role !== role && playsRole(r, role));
   function openSwap(role, player = '') {
-    // the likeliest choice is already made: the first benched player with a pool in this role
-    swapping = { role, player, pick: roster.bench.find((b) => b.pool_roles.includes(role))?.riot_id ?? null };
+    // the likeliest choice is already made: the first who plays this role, on the bench before the lineup
+    swapping = { role, player, pick: null };
+    swapping.pick = candidates.find((c) => playsRole(c, role))?.riot_id ?? null;
     swapOpen = true;
   }
-  const benchedRoles = (b) => (b.pool_roles.length ? b.pool_roles : [b.role]);
+  const benchedRoles = (b) => plays(b);
+  const swapSummary = $derived.by(() => {
+    if (!swapOut) return 'This role is empty: nobody goes to the bench.';
+    const mover = swapping?.player ? null : roster.lineup.find((r) => r.riot_id && r.riot_id === swapping?.pick);
+    if (mover && playsRole(swapOutRow, mover.role)) return `${nameOf(swapOut)} takes ${ROLE_LABELS[mover.role]}: the two trade roles.`;
+    return `${nameOf(swapOut)} goes to the bench with their pool.`;
+  });
   let busy = $state(false);
 
-  async function activate(riotId, role, undoable = true) {
+  // what a swap did, in words, from the lineup before (`undo`) and after
+  function swapText(riotId, role, before, after) {
+    const from = Object.keys(before).find((r) => before[r] && before[r].toLowerCase() === riotId.toLowerCase());
+    const replaced = before[role];
+    if (from && replaced && after.find((r) => r.role === from)?.riot_id === replaced) {
+      return `${nameOf(riotId)} and ${nameOf(replaced)} traded: ${nameOf(riotId)} plays ${ROLE_LABELS[role]}, ${nameOf(replaced)} ${ROLE_LABELS[from]}`;
+    }
+    if (from) return `${nameOf(riotId)} moved from ${ROLE_LABELS[from]} to ${ROLE_LABELS[role]}${replaced ? `, ${nameOf(replaced)} is on the bench` : ''}; ${ROLE_LABELS[from]} is empty`;
+    return replaced ? `Swapped ${nameOf(riotId)} in for ${nameOf(replaced)}` : `${nameOf(riotId)} is our ${ROLE_LABELS[role]} now`;
+  }
+
+  async function activate(riotId, role) {
     busy = true;
     try {
       const out = await api(`${playerPath(riotId)}/activate`, { method: 'POST', body: { role } });
       roster = out.roster;
       swapOpen = false;
-      const undo = out.undo;
-      const text = undo?.riot_id ? `Swapped ${nameOf(riotId)} in for ${nameOf(undo.riot_id)}` : `${nameOf(riotId)} is our ${ROLE_LABELS[role]} now`;
+      if (!out.undo) return;
+      const text = swapText(riotId, role, out.undo, out.roster.lineup);
       say(`${text}.${later()}`);
-      if (undo && undoable) {
-        toast(text, { seconds: 10, action: { label: 'Undo', onclick: () => (undo.riot_id ? activate(undo.riot_id, undo.role, false) : bench(undo.bench, false)) } });
-      }
+      toast(text, { seconds: 10, action: { label: 'Undo', onclick: () => restore(out.undo) } });
     } catch (e) {
       say(`Not swapped: ${e.message}`, true);
     } finally {
       busy = false;
+    }
+  }
+  async function restore(lineup) {
+    try {
+      roster = await api('/api/roster/lineup', { method: 'PUT', body: { lineup } });
+      say(`Lineup put back.${later()}`);
+    } catch (e) {
+      say(`Not undone: ${e.message}`, true);
     }
   }
   async function bench(riotId, undoable = true) {
@@ -85,7 +126,10 @@
     try {
       roster = await api(`${playerPath(riotId)}/bench`, { method: 'POST' });
       say(`${nameOf(riotId)} is on the bench with their pool.${later()}`);
-      if (undoable && row) toast(`${nameOf(riotId)} benched`, { seconds: 10, action: { label: 'Undo', onclick: () => activate(riotId, row.role, false) } });
+      if (undoable && row) {
+        const before = Object.fromEntries(roster.lineup.map((r) => [r.role, r.role === row.role ? riotId : r.riot_id]));
+        toast(`${nameOf(riotId)} benched`, { seconds: 10, action: { label: 'Undo', onclick: () => restore(before) } });
+      }
     } catch (e) {
       say(`Not benched: ${e.message}`, true);
     }
@@ -109,37 +153,74 @@
   }
 
   // ---- update from match history (the learning job) ----
-  let learning = $derived(roster?.learning?.running ?? false);
+  // It reads every active player's ranked games: the line under the header says whose games it is on, and when Riot
+  // couldn't be read (a full rate limit, often a crawl on the same key, or Riot down), why and how long until it can
+  // be tried again. The button counts down to then.
+  let now = $state(Date.now() / 1000);
+  let poll = null;
+  const learning = $derived(roster?.learning?.running ?? false);
+  const progress = $derived(roster?.learning?.progress ?? null);
+  const summary = $derived(roster?.learning?.summary ?? null);
+  const retryIn = $derived(summary?.retry_at ? Math.max(0, Math.ceil(summary.retry_at - now)) : 0);
+  const clockText = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  $effect(() => {
+    const tick = setInterval(() => (now = Date.now() / 1000), 1000);
+    return () => clearInterval(tick);
+  });
+  $effect(() => {
+    if (learning && !poll) watch(); // started here, after a logged game, or at app start: follow it either way
+  });
+  $effect(() => () => { clearInterval(poll); poll = null; });
+  function watch() {
+    clearInterval(poll);
+    poll = setInterval(async () => {
+      const state = await api('/api/learning').catch(() => null);
+      if (!state || !roster) return;
+      roster.learning = state;
+      if (state.running) return;
+      clearInterval(poll);
+      poll = null;
+      await load();
+      const s = state.summary ?? {};
+      if (s.error) say(s.error, true);
+      else if (!s.history_error) say(`Updated from games: ${s.proposals ?? 0} tier change${s.proposals === 1 ? '' : 's'} to review.`);
+      else note = ''; // the status line below the header says what failed
+    }, 1000);
+  }
   async function learn() {
     try {
-      await api('/api/learning/run', { method: 'POST', body: {} });
-      roster.learning = { running: true };
-      const poll = setInterval(async () => {
-        const state = await api('/api/learning').catch(() => null);
-        if (!state || state.running) return;
-        clearInterval(poll);
-        await load();
-        const s = state.summary ?? {};
-        if (s.error) say(s.error, true);
-        else say(`Updated from games: ${s.proposals ?? 0} tier change${s.proposals === 1 ? '' : 's'} to review`
-          + (s.history_error ? `. Match history unavailable: ${s.history_error}` : '.'), !!s.history_error);
-      }, 2000);
+      const state = await api('/api/learning/run', { method: 'POST', body: {} });
+      roster.learning = { ...state, running: true };
+      note = '';
+      watch();
     } catch (e) {
       say(`Couldn't start the update: ${e.message}`, true);
     }
   }
+  const progressText = $derived.by(() => {
+    if (!progress) return 'Starting: linking players and reading their match lists…';
+    const who = `${nameOf(progress.player)} (${progress.players_done + 1} of ${progress.players} players)`;
+    return progress.games ? `Reading ${who}: ${progress.games_read} of ${progress.games} games` : `Reading ${who}: finding their games…`;
+  });
 </script>
 
 <main class="console">
   <PageHeader title="Roster" description="The five who play, the bench, and how each player and their pool are doing. Open a profile for the detail.">
     {#snippet actions()}
-      <Button onclick={learn} disabled={!roster || learning} busy={learning}
-              title="Reads our logged games and, with a Riot key, each player's ranked games of the last 60 days, then re-scores comfort and tiers">
-        {learning ? 'Updating from games…' : 'Update from games'}</Button>
+      <Button onclick={learn} disabled={!roster || learning || retryIn > 0} busy={learning}
+              title={retryIn > 0 ? `Riot can be asked again in ${clockText(retryIn)}` : "Reads our logged games and, with a Riot key, each player's ranked games of the last 60 days, then re-scores comfort and tiers"}>
+        {learning ? 'Updating from games…' : retryIn > 0 ? `Try again in ${clockText(retryIn)}` : 'Update from games'}</Button>
       <Button variant="primary" size="md" disabled={!roster} onclick={() => openAdd()}>Add player</Button>
     {/snippet}
   </PageHeader>
   {#if note}<p class="note" class:failed={noteFailed} role={noteFailed ? 'alert' : 'status'}>{noteFailed ? '⚠ ' : ''}{note}</p>{/if}
+  {#if learning}
+    <p class="note" role="status"><span class="mono">{progressText}</span></p>
+  {:else if summary?.history_error}
+    <p class="note failed" role="alert">⚠ Failed to fetch match history: {summary.history_error}.
+      {#if retryIn > 0}It can be retried in <span class="mono">{clockText(retryIn)}</span>.{:else}You can try again now.{/if}
+      {#if summary.proposals}Logged games still counted: {summary.proposals} tier change{summary.proposals === 1 ? '' : 's'} to review.{/if}</p>
+  {/if}
 
   {#if failed}
     <p class="note failed" role="alert">⚠ {failed} <Button variant="ghost" onclick={load}>Try again</Button></p>
@@ -163,6 +244,7 @@
                 <td>
                   <a class="who" href={profileHref(p.riot_id)}><strong>{nameOf(p.riot_id)}</strong><span class="tag">{tagOf(p.riot_id)}</span></a>
                   <div class="sub">{[p.rank ? rankText(p.rank) : 'Rank not read', p.since_days == null ? null : p.since_days === 0 ? 'since today' : `${p.since_days} day${p.since_days === 1 ? '' : 's'} in the role`].filter(Boolean).join(' · ')}</div>
+                  {#if plays(p).length > 1}<div class="sub">Also plays {plays(p).filter((r) => r !== p.role).map((r) => ROLE_LABELS[r]).join(', ')}</div>{/if}
                 </td>
                 <td>
                   {#if p.pool.size}
@@ -200,7 +282,7 @@
                 <td colspan="7"><span class="quiet">No player</span></td>
                 <td class="acts">
                   <span class="actrow">
-                    {#if roster.bench.length}<Button onclick={() => openSwap(p.role)}>Swap in</Button>{/if}
+                    {#if hasCandidates(p.role)}<Button onclick={() => openSwap(p.role)}>Swap in</Button>{/if}
                     <Button onclick={() => openAdd(p.role)}>Add player</Button>
                   </span>
                 </td>
@@ -215,7 +297,7 @@
       <h2>Bench <span class="sub2">players swapped out keep their pool here</span></h2>
       <Table sticky={false}>
         <thead><tr>
-          <th scope="col">Player</th><th scope="col">Pools in</th><th scope="col">Rank</th>
+          <th scope="col">Player</th><th scope="col">Plays</th><th scope="col">Rank</th>
           <th scope="col" class="num" title="Ranked games in their role, last 60 days">Games</th><th scope="col" class="num">Last played</th>
           <th scope="col"><span class="sr">Actions</span></th>
         </tr></thead>
@@ -223,7 +305,7 @@
           {#each roster.bench as b (b.riot_id)}
             <tr>
               <td><a class="who" href={profileHref(b.riot_id)}><strong>{nameOf(b.riot_id)}</strong><span class="tag">{tagOf(b.riot_id)}</span></a></td>
-              <td>{#if b.pool_roles.length}{b.pool_roles.map((r) => ROLE_LABELS[r]).join(', ')}{:else}<span class="quiet">No pool yet</span>{/if}</td>
+              <td>{plays(b).map((r) => ROLE_LABELS[r] + (b.pool_roles.includes(r) ? '' : ' (no pool)')).join(', ')}</td>
               <td>{#if b.rank}{rankText(b.rank)}{:else}<span class="quiet">—</span>{/if}</td>
               <td class="num mono">{b.games}</td>
               <td class="num mono">{day(b.last_played_ms)}</td>
@@ -246,19 +328,17 @@
 
     <!-- the swap sheet -->
     <Sheet bind:open={swapOpen} title={swapping?.player ? `Swap ${nameOf(swapping.player)} in` : `Swap ${ROLE_LABELS[swapping?.role] ?? ''}`}
-           description={swapOut ? `${nameOf(swapOut)} goes to the bench with their pool.` : 'This role is empty: nobody goes to the bench.'}>
+           description={swapSummary}>
       {#if swapping}
         {#if swapping.player}
           {@const b = roster.bench.find((x) => x.riot_id === swapping.player)}
           <p class="label-caps">Role</p>
           <Segmented label="Role to play" bind:value={swapping.role} options={ROLES.map((r) => [r, ROLE_LABELS[r]])} />
-          <p class="hint">{b?.pool_roles.includes(swapping.role) ? `Their ${ROLE_LABELS[swapping.role]} pool comes with them.` : `They have no ${ROLE_LABELS[swapping.role]} pool yet: they start with an empty one.`}</p>
+          <p class="hint">{b?.pool_roles.includes(swapping.role) ? `Their ${ROLE_LABELS[swapping.role]} pool comes with them.` : `They have no ${ROLE_LABELS[swapping.role]} pool yet: they start with an empty one, and ${ROLE_LABELS[swapping.role]} becomes one of their roles.`}</p>
         {:else}
           <p class="label-caps">Who comes in</p>
           <RadioList label="Who comes in" bind:value={swapping.pick} options={[
-            ...candidates.map((c) => ({ value: c.riot_id, label: c.riot_id,
-              note: (c.pool_roles.includes(swapping.role) ? `${ROLE_LABELS[swapping.role]} pool ready` : `no ${ROLE_LABELS[swapping.role]} pool yet`)
-                + (c.games ? ` · ${c.games} games, ${pct(c.win_rate)} won` : '') + (c.rank ? ` · ${c.rank.label}` : '') })),
+            ...candidates.map((c) => ({ value: c.riot_id, label: c.riot_id, note: candidateNote(c, swapping.role) })),
             { value: '', label: 'Someone new…', note: 'add a player with their Riot ID' }]} />
         {/if}
         {#if roster.in_draft}<p class="hint">A champ select is on: Live keeps the current lineup until this draft ends.</p>{/if}

@@ -16,7 +16,12 @@ from draftassist.data.opgg import (
     parse_lane_meta,
 )
 from draftassist.data.provider import load_engine_inputs
-from draftassist.data.riot import RateLimiter, RiotAuthError, RiotClient
+from draftassist.data.riot import (
+    RateLimiter,
+    RiotAuthError,
+    RiotClient,
+    RiotUnavailable,
+)
 from draftassist.db.models import (
     BracketTotal,
     Champion,
@@ -120,6 +125,27 @@ def test_riot_client_retries_429_with_retry_after(tmp_path):
     c = riot_client(tmp_path, lambda req: next(responses), clock)
     assert c.get("europe", "/m") == 1
     assert 7 in clock.slept
+
+
+def test_riot_client_with_a_max_wait_fails_fast_with_a_retry_time(tmp_path):
+    """Someone waiting on a page (Update from games, Add player): a Retry-After longer than max_wait raises at once,
+    with the wait, instead of sleeping through it; a short one is still waited out."""
+    clock = FakeClock()
+    responses = iter([httpx.Response(429, headers={"Retry-After": "3"}), httpx.Response(200, json=1),
+                      httpx.Response(429, headers={"Retry-After": "95"})])
+    c = RiotClient(FAKE_KEY, tmp_path, limiter=RateLimiter(clock=clock, sleep=clock.sleep), max_wait=10,
+                   transport=httpx.MockTransport(lambda req: next(responses)), sleep=clock.sleep, clock=clock)
+    assert c.get("europe", "/a") == 1 and 3 in clock.slept
+    with pytest.raises(RiotUnavailable, match="rate limit") as e:
+        c.get("europe", "/b")
+    assert e.value.retry_after == 95 and 95 not in clock.slept
+
+
+def test_riot_client_that_keeps_failing_says_when_to_try_again(tmp_path):
+    c = riot_client(tmp_path, lambda req: httpx.Response(503))
+    with pytest.raises(RiotUnavailable, match="giving up") as e:
+        c.get("europe", "/m")
+    assert e.value.retry_after > 0 and isinstance(e.value, RuntimeError)  # older callers still catch it
 
 
 def test_riot_client_rejected_key_is_a_clear_error_without_the_key(tmp_path):

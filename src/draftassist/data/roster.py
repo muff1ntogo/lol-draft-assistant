@@ -19,7 +19,7 @@ from pathlib import Path
 from sqlalchemy import Engine
 from sqlmodel import Session, select
 
-from draftassist.data.pools import DEFAULT_BRACKETS, _free_placeholder
+from draftassist.data.pools import DEFAULT_BRACKETS, _free_placeholder, roles_of
 from draftassist.db.models import Player, PoolEntry
 from draftassist.engine.model import ROLES, TIERS, tier_comfort
 
@@ -47,8 +47,8 @@ def snapshot(db: Engine, name: Callable[[int], str] | None = None) -> dict:
                      **({"champion": name(e.champ_id)} if name else {})} for e in entries]
             if not p.riot_id and not pool:
                 continue
-            players.append({"riot_id": p.riot_id, "role": p.role, "active": p.active, "rank": p.rank,
-                            "bracket": p.bracket, "pool": pool})
+            players.append({"riot_id": p.riot_id, "role": p.role, "roles": roles_of(p, (e["role"] for e in pool)),
+                            "active": p.active, "rank": p.rank, "bracket": p.bracket, "pool": pool})
     return {"version": VERSION, "saved_at": int(time.time()), "players": players}
 
 
@@ -104,7 +104,9 @@ def restore(db: Engine, path: Path, known_champs: set[int] | None = None) -> int
             active = bool(row.get("active", True)) and role not in active_roles
             if active:
                 active_roles.add(role)
+            roles = [r for r in ROLES if r == role or r in (row.get("roles") or [])]  # files before v1.0.2 have none
             p = Player(puuid=_free_placeholder(s, role), riot_id=str(row.get("riot_id") or ""), role=role,
+                       roles=",".join(roles),
                        rank=str(row.get("rank") or ""), bracket=str(row.get("bracket") or DEFAULT_BRACKETS[role]),
                        active=active)
             s.add(p)

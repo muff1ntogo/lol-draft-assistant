@@ -244,6 +244,35 @@ repository is the rewrite.
   It also showed that Ranked 5s games are queue 710 and ranked as `RANKED_PREMADE_5x5`: they count as games, but
   the rank a player is shown is the higher of Solo/Duo and Flex only.
 
+## v1.0.2 (13 Nov 2026): several roles, Review keeps to the roster, Update from games
+
+Asked for: "allow for one player to have multiple roles. The review page should only show champs and players that are
+registered in roster. Roster page update from games is also not very responsive sometimes (a bit behind; if the API
+fails, add a failed to fetch message and show how long until it can be retried)."
+
+- **Several roles.** `players.roles` (comma list) holds every role a player plays; `role` stays the one they play now
+  (or last played, on the bench). A role with a pool always counts as one of theirs (`pools.roles_of`). Add player
+  takes a role plus "Also plays", and onboarding proposes a pool per role from one read. The profile's **Plays** chips
+  add a role (with an empty pool) or take one off (with its pool, after a confirmation; the role an active player plays
+  now can't be taken off). `PUT /api/players/{riot_id}/roles`. `roster.json` keeps `roles`.
+- **Moving in the lineup.** Activating a player who is in the lineup in another role moves them: the player they
+  replace takes the role they left if they play it (the two trade), else goes to the bench and that role is empty. The
+  swap sheet lists benched players who play the role, then lineup players who play it, then the rest of the bench.
+  `activate` returns `undo` = the lineup before (role -> Riot ID) and `replaced`; Undo is `PUT /api/roster/lineup`
+  (`pools.set_lineup`), which puts any lineup back exactly.
+- **Review keeps to the roster.** History's Overview "Players" and Team trends' "Per player" show only roster players
+  (matched by the in-game name the draft logged; a draft with no name is the role's active player's) and only
+  champions in that player's pool for the role (`pools.roster`). History's per-player totals still count every game in
+  the role, with `other_games` for champions outside the pool. Team's own figures, the game list and the recaps are
+  unchanged: they are the team's record.
+- **Update from games.** Every client the app makes shares one rate limiter (`Services.make_riot`). The learning job
+  asks a running crawl to yield, reports progress (`learning.progress`: player, games read of total), commits match by
+  match, and fails fast on a full rate limit (`RiotClient(max_wait=10)` raises `RiotUnavailable` with Riot's
+  Retry-After instead of sleeping through it; 60 s after server or network trouble). The summary carries
+  `history_error`, `retry_at` and `failed_players`; the Roster page shows "Failed to fetch match history: … It can be
+  retried in m:ss" and the button counts down. The page also follows a run it didn't start (after a logged game, at
+  start). Add player shows the same retry time when its read hits the limit, and keeps what it had read.
+
 ## Not in scope
 
 - A list of recent games on the profile (not chosen; History has the team's games).

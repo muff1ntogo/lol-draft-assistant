@@ -206,7 +206,7 @@
         {/each}
       </div>
 
-      <h3>Players <span>champions, games, win rate and gold lead at 15</span></h3>
+      <h3>Players <span>roster players and the champions in their pool: games, win rate and gold lead at 15</span></h3>
       <div class="players">
         {#each stats.players as p}
           <div class="player">
@@ -224,10 +224,15 @@
                     </td>
                     <td class="num mono gv" class:up={c.gold15 > 0} class:down={c.gold15 < 0}>{c.gold15 == null ? '—' : signed(c.gold15)}</td>
                   </tr>
+                {:else}
+                  <tr><td colspan="5" class="quiet">No games on champions in their {p.role_label} pool</td></tr>
                 {/each}
               </tbody>
             </Table>
+            {#if p.other_games}<p class="other">{p.other_games === 1 ? '1 game' : `${p.other_games} games`} on champions outside their pool</p>{/if}
           </div>
+        {:else}
+          <p class="other">No games by players on the Roster in these games.</p>
         {/each}
       </div>
 
@@ -284,4 +289,6 @@
   .scoutline { font-size: 13px; margin: 0; color: var(--text-2); }
   .bans { display: flex; flex-wrap: wrap; gap: 10px 20px; }
   .ban { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); }
+  .other { margin: 6px 0 0; font-size: 12px; color: var(--text-3); }
+  .quiet { color: var(--text-3); }
 </style>

@@ -11,13 +11,17 @@ from draftassist.data.pools import (
     bench_player,
     delete_player,
     import_pools,
+    lineup,
     list_players,
     load_pools,
     load_team,
     parse_pool_text,
+    player_roles,
     remove_player_pool_entry,
     roles_by_puuid,
+    set_lineup,
     set_player_pool_entry,
+    set_player_roles,
     set_players,
     swap_player,
 )
@@ -69,11 +73,53 @@ def test_swapping_back_brings_the_pool_back(db):
     assert [b["riot_id"] for b in bench(db)] == ["Sub#EUW"] and bench(db)[0]["pools"] == {"top": [(150, "main")]}
 
 
-def test_a_player_active_in_another_role_isnt_taken(db):
-    with pytest.raises(ValueError, match="our jungle"):
-        swap_player(db, "top", "Jg#EUW")
+def test_a_player_in_the_lineup_moves_over_and_the_one_replaced_is_benched(db):
+    """v1.0.2: moving an active player to another role. Main doesn't play jungle, so Main goes to the bench and the
+    jungle Jg left is empty."""
+    swap_player(db, "top", "Jg#EUW")
+    assert by_role(db)["top"] == "Jg#EUW" and by_role(db)["jungle"] == ""
+    assert [b["riot_id"] for b in bench(db)] == ["Main#EUW"]
+    assert player_roles(db)["puuid-jg"] == ["top", "jungle"]  # top is one of their roles now; jungle keeps its pool
     with pytest.raises(ValueError, match="Riot ID"):
         swap_player(db, "top", "")
+
+
+def test_two_players_in_the_lineup_trade_roles_when_both_play_them(db):
+    assert set_player_roles(db, "Main#EUW", ["top", "jungle"]) == ["top", "jungle"]
+    swap_player(db, "top", "Jg#EUW")
+    assert by_role(db)["top"] == "Jg#EUW" and by_role(db)["jungle"] == "Main#EUW" and bench(db) == []
+    assert top_pool(db) == [] and sorted(e.champ_id for e in load_pools(db)["jungle"]) == []  # pools stay per role
+    swap_player(db, "jungle", "Jg#EUW")  # and back: Main plays top again with their pool
+    assert (by_role(db)["top"], by_role(db)["jungle"]) == ("Main#EUW", "Jg#EUW") and top_pool(db) == [68, 897]
+
+
+def test_a_players_roles_and_what_taking_one_away_does(db):
+    assert player_roles(db)["puuid-main"] == ["top"]
+    assert set_player_pool_entry(db, "Main#EUW", "mid", 61, "comfortable")
+    assert player_roles(db)["puuid-main"] == ["top", "mid"]  # a pool in a role means they play it
+    assert set_player_roles(db, "Main#EUW", ["top", "mid", "support"]) == ["top", "mid", "support"]
+    assert set_player_roles(db, "Main#EUW", ["top"]) == ["top"]  # mid goes, and its pool with it
+    with Session(db) as s:
+        assert s.exec(select(PoolEntry).where(PoolEntry.puuid == "puuid-main", PoolEntry.role == "mid")).first() is None
+    with pytest.raises(ValueError, match="plays top now"):
+        set_player_roles(db, "Main#EUW", ["mid"])  # the role they play now stays until they are swapped out
+    with pytest.raises(ValueError):
+        set_player_roles(db, "Main#EUW", [])
+    assert set_player_roles(db, "Nobody#EUW", ["top"]) is None
+    bench_player(db, "Main#EUW")
+    assert set_player_roles(db, "Main#EUW", ["mid"]) == ["mid"] and bench(db)[0]["role"] == "mid"  # benched: moves
+
+
+def test_a_lineup_is_put_back_exactly(db):
+    before = lineup(db)
+    swap_player(db, "top", "Sub#EUW")
+    swap_player(db, "mid", "Jg#EUW")
+    set_lineup(db, before)
+    assert by_role(db) == before and [b["riot_id"] for b in bench(db)] == ["Sub#EUW"] and top_pool(db) == [68, 897]
+    with pytest.raises(ValueError, match="one role"):
+        set_lineup(db, {"top": "Main#EUW", "mid": "main#euw"})
+    with pytest.raises(ValueError, match="no player"):
+        set_lineup(db, {"top": "Nobody#EUW"})
 
 
 def test_a_benched_player_can_play_another_role(db):
@@ -154,6 +200,7 @@ def test_the_file_round_trips_into_an_empty_database(db, tmp_path):
         s.add(e)
         s.commit()
     swap_player(db, "top", "Sub#EUW")
+    set_player_roles(db, "Main#EUW", ["top", "support"])  # a role with no pool yet is kept too
     path = tmp_path / "data" / "roster.json"
     assert save(db, path, lambda c: CHAMPS[c][1])
     body = json.loads(path.read_text(encoding="utf-8"))
@@ -163,7 +210,7 @@ def test_the_file_round_trips_into_an_empty_database(db, tmp_path):
     fresh = init_db(tmp_path / "fresh.sqlite")
     assert restore(fresh, path) == 3
     assert by_role(fresh) == {"top": "Sub#EUW", "jungle": "Jg#EUW", "mid": "", "adc": "", "support": ""}
-    assert [b["riot_id"] for b in bench(fresh)] == ["Main#EUW"]
+    assert [(b["riot_id"], b["roles"]) for b in bench(fresh)] == [("Main#EUW", ["top", "support"])]
     with Session(fresh) as s:
         locked = [e for e in s.exec(select(PoolEntry)).all() if e.tier_locked]
     assert [(e.champ_id, e.manual_tier) for e in locked] == [(897, "main")]
@@ -229,9 +276,22 @@ def test_api_roster_profile_and_actions(make_services, db, tmp_path):
         assert '"active": false' in file() and client.post("/api/players/Main%23EUW/bench").status_code == 404
         assert client.post("/api/players/Jg%23EUW/activate", json={"role": "jungle"}).json()["undo"] is None  # already there
         back = client.post("/api/players/Main%23EUW/activate", json={"role": "top"}).json()
-        assert back["roster"]["lineup"][0]["riot_id"] == "Main#EUW" and back["undo"] == {"riot_id": "", "role": "top", "bench": "Main#EUW"}
-        assert client.post("/api/players/Main%23EUW/activate", json={"role": "jungle"}).status_code == 422  # they are our top
+        assert back["roster"]["lineup"][0]["riot_id"] == "Main#EUW" and back["replaced"] == ""
+        assert back["undo"] == {"top": "", "jungle": "Jg#EUW", "mid": "", "adc": "", "support": ""}  # the lineup before
         assert client.post("/api/players/Nobody%23EUW/activate", json={"role": "top"}).status_code == 404
+
+        # several roles: Main also plays mid, then moves there from top; Undo puts the lineup back
+        assert client.put("/api/players/Main%23EUW/roles", json={"roles": ["mid", "top"]}).json() == {"plays": ["top", "mid"], "applied": True}
+        assert client.put("/api/players/Main%23EUW/roles", json={"roles": ["mid"]}).status_code == 422  # they play top now
+        assert client.put("/api/players/Main%23EUW/roles", json={"roles": ["carry"]}).status_code == 422
+        assert client.put("/api/players/Nobody%23EUW/roles", json={"roles": ["top"]}).status_code == 404
+        assert client.get("/api/roster").json()["lineup"][0]["plays"] == ["top", "mid"] and '"roles": [\n' in file()
+        assert [g["role"] for g in client.get("/api/players/Main%23EUW/profile").json()["pools"]] == ["top", "mid"]
+        moved = client.post("/api/players/Main%23EUW/activate", json={"role": "mid"}).json()
+        assert [r["riot_id"] for r in moved["roster"]["lineup"]] == ["", "Jg#EUW", "Main#EUW", "", ""]
+        undone = client.put("/api/roster/lineup", json={"lineup": moved["undo"]}).json()
+        assert [r["riot_id"] for r in undone["lineup"]] == ["Main#EUW", "Jg#EUW", "", "", ""]
+        assert client.put("/api/roster/lineup", json={"lineup": {"top": "Nobody#EUW"}}).status_code == 422
         assert client.delete("/api/players/Main%23EUW", params={"confirm": "wrong"}).status_code == 422
         assert client.delete("/api/players/Main%23EUW").status_code == 422
         gone = client.delete("/api/players/Main%23EUW", params={"confirm": "main#euw"}).json()

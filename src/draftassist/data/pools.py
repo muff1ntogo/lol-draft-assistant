@@ -21,7 +21,7 @@ import difflib
 import json
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -155,8 +155,63 @@ def _by_riot_id(s: Session, riot_id: str) -> Player | None:
     return next((p for p in s.exec(select(Player)).all() if p.riot_id.lower() == riot_id.lower()), None)
 
 
+# ---------- a player's roles (v1.0.2: one player, several roles, a pool in each) ----------
+def roles_of(player: Player, pool_roles: Iterable[str] = ()) -> list[str]:
+    """Every role the player plays, in ROLES order: the roles stored for them, the role they play now, and any role
+    they have a pool in (a pool in a role means they play it)."""
+    have = {r for r in (player.roles or "").split(",") if r} | {player.role} | set(pool_roles)
+    return [r for r in ROLES if r in have]
+
+
+def _pool_roles(s: Session, puuid: str) -> set[str]:
+    return {e.role for e in s.exec(select(PoolEntry).where(PoolEntry.puuid == puuid)).all()}
+
+
+def _roles(s: Session, player: Player) -> list[str]:
+    return roles_of(player, _pool_roles(s, player.puuid))
+
+
+def _play(s: Session, player: Player, role: str) -> None:
+    """Make `role` the one they play now, keeping it among their roles."""
+    player.roles = ",".join(roles_of(player, [*_pool_roles(s, player.puuid), role]))
+    player.role = role
+
+
+def player_roles(db: Engine) -> dict[str, list[str]]:
+    """Every player's roles by internal key."""
+    with Session(db) as s:
+        pools: dict[str, set[str]] = {}
+        for e in s.exec(select(PoolEntry)).all():
+            pools.setdefault(e.puuid, set()).add(e.role)
+        return {p.puuid: roles_of(p, pools.get(p.puuid, ())) for p in s.exec(select(Player)).all()}
+
+
+def set_player_roles(db: Engine, riot_id: str, roles: Iterable[str]) -> list[str] | None:
+    """Set the roles a player plays. A role taken away takes its pool with it. The role an active player plays now
+    can't be taken away (swap them out of it first); a benched player's last role moves to the first one left.
+    Returns their roles, or None if there is no such player."""
+    chosen = {_role(r) for r in roles}
+    if not chosen:
+        raise ValueError("a player needs at least one role")
+    with Session(db) as s:
+        player = _by_riot_id(s, riot_id)
+        if player is None:
+            return None
+        if player.active and player.role not in chosen:
+            raise ValueError(f"{player.riot_id} plays {player.role} now: swap them out of it first")
+        for role in _pool_roles(s, player.puuid) - chosen:
+            s.exec(delete(PoolEntry).where(PoolEntry.puuid == player.puuid, PoolEntry.role == role))
+        ordered = [r for r in ROLES if r in chosen]
+        if player.role not in chosen:
+            player.role = ordered[0]
+        player.roles = ",".join(ordered)
+        s.add(player)
+        s.commit()
+        return ordered
+
+
 def _new_player(s: Session, role: str, riot_id: str = "", bracket: str | None = None) -> Player:
-    player = Player(puuid=_free_placeholder(s, role), riot_id=riot_id, role=role, rank="",
+    player = Player(puuid=_free_placeholder(s, role), riot_id=riot_id, role=role, roles=role, rank="",
                     bracket=bracket or DEFAULT_BRACKETS[role])
     s.add(player)
     s.flush()
@@ -196,17 +251,24 @@ def _resolve(s: Session, player: Player, resolver) -> Player:
 
 def _swap_in(s: Session, role: str, riot_id: str, resolver=None, bracket: str | None = None) -> Player:
     """Make `riot_id` the role's active player: a benched player comes back with their pool, someone new starts with
-    an empty one. The current player goes to the bench."""
+    an empty one. The current player goes to the bench. A player already in the lineup moves over from their role:
+    the current player takes the role they left if they play it (the two trade), else goes to the bench and the role
+    left is empty."""
     current = player_for_role(s, role)
     known = _by_riot_id(s, riot_id)
-    if known is not None and known.active and known.role != role:
-        raise ValueError(f"{known.riot_id} is our {known.role}: swap them out there first")
+    left = known.role if known is not None and known.active and known.role != role else None
     if current is not None and (known is None or known.puuid != current.puuid):
-        _bench(s, current)
+        if left is not None and left in _roles(s, current):
+            current.role, current.active_since = left, datetime.now(UTC)  # they trade roles
+            s.add(current)
+            s.flush()
+        else:
+            _bench(s, current)
     if known is None:
         return _resolve(s, _new_player(s, role, riot_id, bracket), resolver)
     # their pool entries keep their own roles: an old role's pool waits there
-    known.active, known.role, known.active_since = True, role, datetime.now(UTC)
+    _play(s, known, role)
+    known.active, known.active_since = True, datetime.now(UTC)
     s.add(known)
     s.flush()
     return known
@@ -216,7 +278,7 @@ def _move_player(s: Session, old: Player, new_puuid: str) -> Player:
     """Re-key a player (e.g. placeholder -> real PUUID), carrying their pool entries, games and profile data along."""
     if old.puuid == new_puuid:
         return old
-    new = Player(puuid=new_puuid, riot_id=old.riot_id, role=old.role, rank=old.rank, bracket=old.bracket,
+    new = Player(puuid=new_puuid, riot_id=old.riot_id, role=old.role, roles=old.roles, rank=old.rank, bracket=old.bracket,
                  client_puuid=old.client_puuid, api_puuid=old.api_puuid, active=old.active, active_since=old.active_since,
                  rank_json=old.rank_json, mastery_json=old.mastery_json, profile_fetched_at=old.profile_fetched_at)
     s.add(new)
@@ -292,17 +354,20 @@ def swap_player(db: Engine, role: str, riot_id: str, resolver=None) -> list[dict
     return list_players(db)
 
 
-def create_player(db: Engine, riot_id: str, role: str, active: bool, pool: list[dict], fetched=None) -> list[dict]:
+def create_player(db: Engine, riot_id: str, role: str, active: bool, pool: list[dict], fetched=None,
+                  roles: Iterable[str] = ()) -> list[dict]:
     """Add a player with the pool the user reviewed (docs/roster-profiles.md, Add player), in one transaction.
+    `role` is the one they play first; `roles` any others they play (each pool entry names one of them).
     `fetched` is what onboarding read for them, if anything: their API PUUID, rank, mastery and games (rows shaped like
     `player_games`, with their real match ids, so the learning job's later fetch finds them and adds nothing twice).
     Active: the role's current player goes to the bench. Returns the active players."""
     role, riot_id = _role(role), _check_riot_id(riot_id)
     if not riot_id:
         raise ValueError("a Riot ID is needed to add a player")
-    if any(e.get("role", role) != role or e.get("tier") not in TIERS for e in pool):
-        raise ValueError("pool entries must use the player's role and a known tier")
-    if len({e.get("champ_id") for e in pool}) != len(pool):
+    plays = {role} | {_role(r) for r in roles}
+    if any(e.get("role", role) not in plays or e.get("tier") not in TIERS for e in pool):
+        raise ValueError("pool entries must use one of the player's roles and a known tier")
+    if len({(e.get("champ_id"), e.get("role", role)) for e in pool}) != len(pool):
         raise ValueError("a champion can appear only once in a pool")
     with Session(db) as s:
         if _by_riot_id(s, riot_id) is not None:
@@ -318,6 +383,7 @@ def create_player(db: Engine, riot_id: str, role: str, active: bool, pool: list[
             bracket = None
         player = _new_player(s, role, riot_id, bracket)
         player.active = active
+        player.roles = ",".join(r for r in ROLES if r in plays)
         if fetched is not None and fetched.api_puuid:
             player.api_puuid = fetched.api_puuid
             player.rank_json, player.mastery_json = json.dumps(fetched.ranks), json.dumps(fetched.mastery)
@@ -326,8 +392,8 @@ def create_player(db: Engine, riot_id: str, role: str, active: bool, pool: list[
                 s.add(PlayerGame(puuid=player.puuid, source="match-v5", **row))
         s.add(player)
         for item in pool:
-            s.add(PoolEntry(puuid=player.puuid, champ_id=item["champ_id"], role=role, manual_tier=item["tier"],
-                            comfort=tier_comfort(item["tier"])))
+            s.add(PoolEntry(puuid=player.puuid, champ_id=item["champ_id"], role=item.get("role", role),
+                            manual_tier=item["tier"], comfort=tier_comfort(item["tier"])))
         s.commit()
     return list_players(db)
 
@@ -342,8 +408,8 @@ def bench(db: Engine) -> list[dict]:
             for e in sorted(entries, key=lambda e: (TIERS.index(e.manual_tier) if e.manual_tier in TIERS else 9,
                                                      e.champ_id)):
                 pools.setdefault(e.role, []).append((e.champ_id, e.manual_tier))
-            out.append({"riot_id": p.riot_id, "role": p.role, "rank": p.rank, "bracket": p.bracket,
-                        "resolved": p.resolved, "pools": pools})
+            out.append({"riot_id": p.riot_id, "role": p.role, "roles": roles_of(p, pools), "rank": p.rank,
+                        "bracket": p.bracket, "resolved": p.resolved, "pools": pools})
     return sorted(out, key=lambda p: (ROLES.index(p["role"]) if p["role"] in ROLES else 9, p["riot_id"].lower()))
 
 
@@ -373,6 +439,38 @@ def delete_player(db: Engine, riot_id: str) -> bool:
     return True
 
 
+def lineup(db: Engine) -> dict[str, str]:
+    """Role -> the active player's Riot ID ("" when empty): what `set_lineup` puts back."""
+    return {p["role"]: p["riot_id"] for p in list_players(db)}
+
+
+def set_lineup(db: Engine, wanted: Mapping[str, str]) -> None:
+    """Put a lineup back exactly (an Undo after a swap or a move): each named player active in their role, everyone
+    else who is active now on the bench. Roles left out or "" end up empty."""
+    with Session(db) as s:
+        chosen: dict[str, Player] = {}
+        for role, riot_id in wanted.items():
+            role = _role(role)
+            if not riot_id:
+                continue
+            p = _by_riot_id(s, riot_id)
+            if p is None:
+                raise ValueError(f"no player called {riot_id}")
+            chosen[role] = p
+        if len({p.puuid for p in chosen.values()}) != len(chosen):
+            raise ValueError("one player can play only one role at a time")
+        keep = {p.puuid for p in chosen.values()}
+        for p in active_players(s):
+            if p.puuid not in keep:
+                _bench(s, p)
+        for role, p in chosen.items():
+            if not (p.active and p.role == role):
+                _play(s, p, role)
+                p.active, p.active_since = True, datetime.now(UTC)
+                s.add(p)
+        s.commit()
+
+
 def resolve_from_session(db: Engine, members: list[dict]) -> int:
     """Fill in PUUIDs from champ select teammates (`gameName`, `tagLine`, `puuid`). Returns how many."""
     by_riot_id = {f"{m.get('gameName', '')}#{m.get('tagLine', '')}".lower(): m.get("puuid")
@@ -400,6 +498,48 @@ def list_players(db: Engine) -> list[dict]:
     return [{"role": r, "riot_id": rows[r].riot_id if r in rows else "", "rank": rows[r].rank if r in rows else "",
              "bracket": rows[r].bracket if r in rows else DEFAULT_BRACKETS[r],
              "resolved": rows[r].resolved if r in rows else False} for r in ROLES]
+
+
+@dataclass(frozen=True)
+class Registered:
+    """A roster player as the Review pages filter by: their Riot ID, whether they are in the lineup and in which role,
+    and their pool per role."""
+    riot_id: str
+    active: bool
+    role: str
+    pools: dict[str, frozenset[int]]
+
+    @property
+    def name(self) -> str:
+        return self.riot_id.split("#")[0]
+
+
+@dataclass(frozen=True)
+class Roster:
+    """Who is on the roster (lineup and bench), for keeping the Review pages to them (v1.0.2)."""
+    players: tuple[Registered, ...]
+
+    def named(self, name: str | None, role: str) -> Registered | None:
+        """The roster player a logged in-game name (or Riot ID) is. A draft that didn't log a name is the role's
+        active player's."""
+        if not name:
+            return next((p for p in self.players if p.active and p.role == role), None)
+        key = name.split("#")[0].strip().lower()
+        return next((p for p in self.players if p.name.lower() == key), None)
+
+    def in_pool(self, player: Registered, role: str, champ_id: int) -> bool:
+        return champ_id in player.pools.get(role, ())
+
+
+def roster(db: Engine) -> Roster:
+    with Session(db) as s:
+        pools: dict[tuple[str, str], set[int]] = {}
+        for e in s.exec(select(PoolEntry)).all():
+            pools.setdefault((e.puuid, e.role), set()).add(e.champ_id)
+        players = tuple(Registered(p.riot_id, p.active, p.role,
+                                   {r: frozenset(c) for (puuid, r), c in pools.items() if puuid == p.puuid})
+                        for p in s.exec(select(Player)).all() if p.riot_id)
+    return Roster(players)
 
 
 def roles_by_puuid(db: Engine) -> dict[str, str]:

@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 from sqlalchemy import JSON, Column
 from sqlmodel import Field, SQLModel
 
-
 # Tables keyed by a text or composite primary key with small rows: stored WITHOUT ROWID, so the key is the table and isn't
 # kept a second time in a sqlite_autoindex (about a third of the database, docs/shared-data-stage0.md). Older databases are
 # rebuilt by `draftassist db-optimize` (db/optimize.py). Not for integer keys, big rows (drafts, frames, fits) or our own data.
@@ -105,7 +104,10 @@ class Player(SQLModel, table=True):
 
     puuid: str = Field(primary_key=True)  # internal key: "unresolved:<role>[:n]" until linked, then one of the ids below
     riot_id: str  # "Name#TAG"
-    role: str
+    role: str  # the role they play now (active) or last played (bench)
+    # Every role they play, comma-separated in ROLES order (v1.0.2: a player can have several roles, each with its own
+    # pool). `role` is always one of them; None in older databases, where it is `role` plus any role they have a pool in.
+    roles: str | None = None
     rank: str
     bracket: str
     # The League client and the public Riot API use different PUUIDs for the same account: the client's

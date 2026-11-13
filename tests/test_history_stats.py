@@ -5,13 +5,22 @@ import pytest
 from conftest import REAL_NAMES
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
+from test_recap import play
 
 from draftassist.api.history_stats import wilson
 from draftassist.api.main import create_app
-from draftassist.db.models import Champion, Draft, GameExecution, OwnGameParticipant
+from draftassist.data.pools import create_player, set_players
+from draftassist.db.models import (
+    Champion,
+    Draft,
+    GameExecution,
+    OwnGameParticipant,
+    Player,
+    PoolEntry,
+)
 from draftassist.engine.formats import TOURNAMENT
+from draftassist.engine.model import ROLES, tier_comfort
 from draftassist.lcu.demo import demo_sessions
-from test_recap import play
 
 
 @pytest.fixture
@@ -20,6 +29,19 @@ def svc(make_services, engine, session):
         session.add(Champion(champ_id=cid, key=name.replace("'", "").replace(" ", ""), name=name, patch="16.21.1"))
     session.commit()
     return make_services(db=engine)
+
+
+def register(engine, bench=()):
+    """Review shows only roster players and their pools' champions: the demo's players (Player0 top ... Player4
+    support) in the lineup and `bench` (role, name) on the bench, every one with every champion in their pool."""
+    set_players(engine, [{"role": r, "riot_id": f"Player{i}#EUW"} for i, r in enumerate(ROLES)])
+    for role, name in bench:
+        create_player(engine, f"{name}#EUW", role, False, [])
+    with Session(engine) as s:
+        for p in s.exec(select(Player)).all():
+            for cid in REAL_NAMES:
+                s.add(PoolEntry(puuid=p.puuid, champ_id=cid, role=p.role, manual_tier="main", comfort=tier_comfort("main")))
+        s.commit()
 
 
 def stats(svc, **params):
@@ -52,6 +74,7 @@ def test_overview_from_logged_games(svc, engine):
         d.players_json = json.dumps({"mid": "Midder"})
         s.add(d)
         s.commit()
+    register(engine, [("mid", "Midder")])
     body = stats(svc)
     assert body["games"] == 3 and body["overall"]["wins"] == 2 and body["overall"]["ci"]
     assert [t["result"] for t in body["trend"]] == ["win", "loss", "win"]
@@ -61,8 +84,9 @@ def test_overview_from_logged_games(svc, engine):
     assert body["execution"] == [{"game": 1, "draft_id": ids[0], "result": "win", "verdict": "won lane",
                                   "draft": 4.0, "early": 10.0, "conversion": 36.0}]
     players = {p["player"] for p in body["players"]}
-    assert "Midder" in players and len(body["players"]) >= 5
-    assert sum(r["games"] for p in body["players"] for r in p["champions"]) == 15
+    assert "Midder" in players and len(body["players"]) == 6
+    # the red-side demo game logs Player5..9, who aren't on the roster: its five picks are left out
+    assert sum(r["games"] for p in body["players"] for r in p["champions"]) == 10
     assert body["bans"] and all(b["games"] >= 1 for b in body["bans"])
     assert sum(f["games"] for f in body["followed"]) == 3
     # side filter
@@ -72,6 +96,7 @@ def test_overview_from_logged_games(svc, engine):
 def test_lane_gold_feeds_the_player_grid(svc, engine):
     gid = 7_300_000_100
     did = play(svc, demo_sessions(svc.engine, TOURNAMENT, "blue", game_id=gid), gid, "blue", True)
+    register(engine)
     body = stats(svc)
     champ = body["players"][0]["champions"][0]["champ"]["id"]
     with Session(engine) as s:
@@ -79,6 +104,29 @@ def test_lane_gold_feeds_the_player_grid(svc, engine):
         s.commit()
     row = stats(svc)["players"][0]["champions"][0]
     assert row["gold15"] == 420 and row["gold_games"] == 1
+
+
+def test_only_roster_players_and_their_pools_champions_are_shown(svc, engine):
+    """v1.0.2: a teammate who isn't on the roster is left out, and a champion outside the player's pool for the role
+    isn't listed (their totals still count it, as `other_games`)."""
+    gid = 7_300_000_200
+    did = play(svc, demo_sessions(svc.engine, TOURNAMENT, "blue", game_id=gid), gid, "blue", True)
+    with Session(engine) as s:
+        d = s.get(Draft, did)
+        d.players_json = json.dumps({"top": "Randomflex", "mid": "Midder"})
+        s.add(d)
+        s.commit()
+    register(engine, [("mid", "Midder")])
+    shown = {p["role"]: p for p in stats(svc)["players"]}
+    assert "top" not in shown and shown["mid"]["player"] == "Midder" and shown["mid"]["riot_id"] == "Midder#EUW"
+    mid_champ = shown["mid"]["champions"][0]["champ"]["id"]
+
+    with Session(engine) as s:  # take the champion they played out of Midder's mid pool
+        midder = s.exec(select(Player).where(Player.riot_id == "Midder#EUW")).one()
+        s.delete(s.get(PoolEntry, (midder.puuid, mid_champ, "mid")))
+        s.commit()
+    mid = {p["role"]: p for p in stats(svc)["players"]}["mid"]
+    assert mid["champions"] == [] and mid["games"] == 1 and mid["other_games"] == 1
 
 
 def test_timeframe_keeps_the_last_games(svc):

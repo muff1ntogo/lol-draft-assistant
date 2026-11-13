@@ -1,6 +1,6 @@
 <script>
   // Add player (docs/roster-profiles.md): four steps in one sheet, each with Back.
-  //   1 Who (Riot ID and role; the account is looked up)   2 Reading their games (can be skipped)
+  //   1 Who (Riot ID, role, other roles; the account is looked up)   2 Reading their games (can be skipped)
   //   3 Review the proposed pool (edit, add, paste)        4 Where they go (active or bench)
   // Nothing is saved until the last step's confirm. Without a Riot key steps 1-2 are skipped over: the pool is built
   // by hand.
@@ -18,6 +18,7 @@
   let step = $state(1);
   let riotId = $state('');
   let chosenRole = $state('top');
+  let otherRoles = $state([]); // the other roles they play (v1.0.2): a pool is proposed for each
   let goActive = $state(true);
   let found = $state(null); // the lookup's answer
   let looking = $state(false);
@@ -38,12 +39,28 @@
   // a fresh sheet each time it opens
   $effect(() => {
     if (!open) { clearInterval(poll); return; }
-    step = 1; riotId = ''; chosenRole = role; goActive = active; found = null; lookupError = ''; job = null; reading = null;
+    step = 1; riotId = ''; chosenRole = role; otherRoles = []; goActive = active; found = null; lookupError = ''; job = null; reading = null;
     rows = []; alsoPlays = []; addName = ''; addError = ''; pasted = ''; pasteErrors = []; saveError = '';
   });
   const validId = $derived(/^[^#\s][^#]*#[^#\s]+$/.test(riotId.trim()));
   const currentInRole = $derived(lineup.find((r) => r.role === chosenRole)?.riot_id ?? '');
   const included = $derived(rows.filter((r) => r.include));
+  const allRoles = $derived(ROLES.filter((r) => r === chosenRole || otherRoles.includes(r)));
+  const multi = $derived(allRoles.length > 1);
+  const key = (r) => `${r.role}:${r.champ_id}`;
+  function toggleRole(r) {
+    otherRoles = otherRoles.includes(r) ? otherRoles.filter((x) => x !== r) : [...otherRoles, r];
+  }
+  let addRole = $state('top');
+  // a full rate limit: count down to when Riot can be asked again
+  let now = $state(Date.now() / 1000);
+  $effect(() => {
+    if (!reading?.retry_at) return;
+    const tick = setInterval(() => (now = Date.now() / 1000), 1000);
+    return () => clearInterval(tick);
+  });
+  const retryIn = $derived(reading?.retry_at ? Math.max(0, Math.ceil(reading.retry_at - now)) : 0);
+  let pasteRole = $state('top');
 
   async function lookup() {
     if (!validId || looking || found?.for === riotId.trim().toLowerCase()) return;
@@ -75,7 +92,7 @@
     step = 2;
     reading = { status: 'reading', games_read: 0, games_total: 0 };
     try {
-      job = (await api('/api/players/onboard', { method: 'POST', body: { riot_id: riotId.trim(), role: chosenRole } })).job;
+      job = (await api('/api/players/onboard', { method: 'POST', body: { riot_id: riotId.trim(), role: chosenRole, roles: otherRoles } })).job;
     } catch (e) {
       reading = { status: 'error', error: e.message };
       return;
@@ -97,6 +114,7 @@
   function review(status) {
     rows = (status.proposal ?? []).map((r) => ({ ...r, include: true }));
     alsoPlays = status.also_plays ?? [];
+    addRole = pasteRole = chosenRole;
     step = 3;
   }
   function back() {
@@ -110,19 +128,19 @@
     addError = '';
     const champ = champions.find((c) => c.name.toLowerCase() === addName.trim().toLowerCase());
     if (!champ) { addError = `No champion called "${addName.trim()}"`; return; }
-    put(champ.id, champ, addTier, 'added');
+    put(champ.id, champ, addTier, 'added', addRole);
     addName = '';
   }
-  function put(champId, champ, tier, source) {
-    const at = rows.findIndex((r) => r.champ_id === champId);
+  function put(champId, champ, tier, source, inRole) {
+    const at = rows.findIndex((r) => r.champ_id === champId && r.role === inRole);
     if (at >= 0) rows[at] = { ...rows[at], tier, include: true };
-    else rows = [...rows, { champ_id: champId, champ, tier, source, games: 0, wins: 0, mastery: 0, include: true }];
+    else rows = [...rows, { champ_id: champId, role: inRole, champ, tier, source, games: 0, wins: 0, mastery: 0, include: true }];
   }
   async function readPaste() {
     pasteErrors = [];
     try {
-      const out = await api('/api/pools/parse', { method: 'POST', body: { text: pasted, role: chosenRole } });
-      for (const e of out.entries) put(e.champ_id, e.champ, e.tier, 'pasted');
+      const out = await api('/api/pools/parse', { method: 'POST', body: { text: pasted, role: pasteRole } });
+      for (const e of out.entries) put(e.champ_id, e.champ, e.tier, 'pasted', pasteRole);
       pasteErrors = out.errors;
       if (!out.errors.length) pasted = '';
     } catch (e) {
@@ -135,7 +153,8 @@
     saveError = '';
     try {
       const roster = await api('/api/players', { method: 'POST', body: {
-        riot_id: riotId.trim(), role: chosenRole, active: goActive, pool: included.map((r) => ({ champ_id: r.champ_id, role: chosenRole, tier: r.tier })) } });
+        riot_id: riotId.trim(), role: chosenRole, roles: otherRoles, active: goActive,
+        pool: included.map((r) => ({ champ_id: r.champ_id, role: r.role ?? chosenRole, tier: r.tier })) } });
       open = false;
       oncreated(roster, riotId.trim(), chosenRole, goActive);
     } catch (e) {
@@ -154,7 +173,16 @@
       <Field label="Riot ID" bind:value={riotId} placeholder="Name#TAG" autocomplete="off" spellcheck="false" onblur={lookup}
              oninput={() => { found = null; lookupError = ''; }}
              hint="As it shows in the client, with the tag after #" />
-      <Field label="Role" bind:value={chosenRole} options={ROLES.map((r) => [r, ROLE_LABELS[r]])} />
+      <Field label="Role" bind:value={chosenRole} options={ROLES.map((r) => [r, ROLE_LABELS[r]])}
+             onchange={() => (otherRoles = otherRoles.filter((r) => r !== chosenRole))} />
+      <div class="roles" role="group" aria-label="Other roles they play">
+        <span class="label-caps">Also plays</span>
+        <span class="chips">
+          {#each ROLES.filter((r) => r !== chosenRole) as r}
+            <Tag onclick={() => toggleRole(r)} pressed={otherRoles.includes(r)} title="A pool is proposed for each role they play">{ROLE_LABELS[r]}</Tag>
+          {/each}
+        </span>
+      </div>
       <div class="result" aria-live="polite">
         {#if looking}<p class="quiet">Looking them up…</p>
         {:else if lookupError}<p class="bad" role="alert">⚠ {lookupError}</p>
@@ -172,8 +200,14 @@
   {:else if step === 2}
     <div class="stack" aria-live="polite">
       {#if reading?.status === 'error'}
-        <p class="bad" role="alert">⚠ {reading.error}</p>
-        <p class="quiet">You can go back and fix the Riot ID, or go on and build the pool by hand.</p>
+        <p class="bad" role="alert">⚠ Failed to fetch: {reading.error}.</p>
+        {#if reading.retry_at}
+          <p class="quiet">{retryIn > 0 ? `It can be retried in ${Math.floor(retryIn / 60)}:${String(retryIn % 60).padStart(2, '0')}.` : 'You can try again now.'}
+            {reading.games_read ? `The ${reading.games_read} game${reading.games_read === 1 ? '' : 's'} read so far are kept in the proposal.` : ''}
+            Or go on and build the pool by hand.</p>
+        {:else}
+          <p class="quiet">You can go back and fix the Riot ID, or go on and build the pool by hand.</p>
+        {/if}
       {:else}
         <p class="reading"><strong>{riotId}</strong>: ranked games of the last 60 days, mastery and rank.</p>
         <p class="progress mono">{reading?.games_total ? `${reading.games_read} of ${reading.games_total} games` : 'Finding their games…'}</p>
@@ -186,13 +220,14 @@
     <div class="stack">
       {#if rows.length}
         <Table dense sticky={false}>
-          <thead><tr><th scope="col"><span class="sr">Include</span></th><th scope="col">Champion</th><th scope="col">Tier</th>
+          <thead><tr><th scope="col"><span class="sr">Include</span></th>{#if multi}<th scope="col">Role</th>{/if}<th scope="col">Champion</th><th scope="col">Tier</th>
             <th scope="col" class="num" title="Games in this role, last 60 days">Games</th><th scope="col" class="num">Won</th>
             <th scope="col" class="num">Mastery</th><th scope="col">From</th></tr></thead>
           <tbody>
-            {#each rows as r (r.champ_id)}
+            {#each rows as r (key(r))}
               <tr class:off={!r.include}>
                 <td class="tick"><Field type="checkbox" label="" aria-label="Include {r.champ?.name}" bind:checked={r.include} /></td>
+                {#if multi}<td class="role mono">{ROLE_LABELS[r.role]}</td>{/if}
                 <td><span class="c"><Champ champ={r.champ} size={20} /><strong>{r.champ?.name}</strong></span></td>
                 <td><Field label="Tier for {r.champ?.name}" hideLabel width="132px" bind:value={r.tier} options={TIER_OPTIONS} disabled={!r.include} /></td>
                 <td class="num mono">{r.games || '—'}</td>
@@ -204,19 +239,21 @@
           </tbody>
         </Table>
       {:else}
-        <p class="quiet">{found?.no_key ? 'No Riot key, so nothing was read.' : `No ${ROLE_LABELS[chosenRole]} games or mastery to go on.`} Add their champions below.</p>
+        <p class="quiet">{found?.no_key ? 'No Riot key, so nothing was read.' : `No ${allRoles.map((r) => ROLE_LABELS[r]).join(' or ')} games or mastery to go on.`} Add their champions below.</p>
       {/if}
       {#if alsoPlays.length}
-        <p class="quiet">Also plays {alsoPlays.map((a) => `${ROLE_LABELS[a.role]} (${pct(a.share)} of their games)`).join(', ')}.</p>
+        <p class="quiet">Also plays {alsoPlays.map((a) => `${ROLE_LABELS[a.role]} (${pct(a.share)} of their games)`).join(', ')}. To give them a pool there too, go back and add the role.</p>
       {/if}
       <form class="addrow" onsubmit={(e) => { e.preventDefault(); addChampion(); }}>
         <Field label="Add a champion" bind:value={addName} list="add-player-champs" placeholder="Champion name" autocomplete="off" error={addError} />
+        {#if multi}<Field label="Role" bind:value={addRole} options={allRoles.map((r) => [r, ROLE_LABELS[r]])} width="110px" />{/if}
         <Field label="Tier" bind:value={addTier} options={TIER_OPTIONS} width="140px" />
         <Button type="submit" disabled={!addName.trim()}>Add</Button>
       </form>
       <datalist id="add-player-champs">{#each champions as c}<option value={c.name}></option>{/each}</datalist>
       <details class="paste">
         <summary>Paste a pool</summary>
+        {#if multi}<Field label="Into the pool for" bind:value={pasteRole} options={allRoles.map((r) => [r, ROLE_LABELS[r]])} width="160px" />{/if}
         <Field label="One champion a line, with its tier" type="textarea" mono bind:value={pasted} placeholder={"K'Sante: main\nRumble: comfortable\nGnar: learning"} />
         {#each pasteErrors as e}<p class="bad">⚠ {e}</p>{/each}
         <div><Button onclick={readPaste} disabled={!pasted.trim()}>Read into the pool</Button></div>
@@ -224,7 +261,7 @@
     </div>
   {:else}
     <div class="stack">
-      <p class="reading"><strong>{riotId}</strong> · {ROLE_LABELS[chosenRole]} · {included.length} champion{included.length === 1 ? '' : 's'} in the pool</p>
+      <p class="reading"><strong>{riotId}</strong> · {allRoles.map((r) => ROLE_LABELS[r]).join(', ')} · {included.length} champion{included.length === 1 ? '' : 's'} in {multi ? 'their pools' : 'the pool'}</p>
       <RadioList label="Where they go" bind:value={goActive} options={[
         { value: true, label: `Active ${ROLE_LABELS[chosenRole]}`,
           note: currentInRole ? `${nameOf(currentInRole)} goes to the bench with their pool.` : 'The role is empty: nobody is benched.' },
@@ -240,7 +277,8 @@
         {found?.no_key ? 'Build the pool by hand' : 'Read their games'}</Button>
     {:else if step === 2}
       {#if reading?.status === 'error'}
-        <Button variant="primary" size="md" onclick={() => review({})}>Build the pool by hand</Button>
+        {#if reading.retry_at}<Button size="md" disabled={retryIn > 0} onclick={startReading}>{retryIn > 0 ? `Try again in ${Math.floor(retryIn / 60)}:${String(retryIn % 60).padStart(2, '0')}` : 'Try again'}</Button>{/if}
+        <Button variant="primary" size="md" onclick={() => review(reading.retry_at ? reading : {})}>{reading.proposal?.length ? 'Go on with what was read' : 'Build the pool by hand'}</Button>
       {:else}
         <Button size="md" disabled={!job} onclick={skip} title="Go on with the games read so far">Skip the rest</Button>
       {/if}
@@ -279,4 +317,7 @@
   .paste summary { cursor: pointer; font-size: 13px; color: var(--text-2); margin-bottom: 8px; }
   .paste > div { margin-top: 8px; }
   .backwrap { margin-right: auto; }
+  .roles { display: flex; flex-direction: column; gap: 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .role { font-size: 11px; text-transform: uppercase; color: var(--text-3); }
 </style>
