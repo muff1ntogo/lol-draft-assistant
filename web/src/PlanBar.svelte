@@ -21,7 +21,7 @@
   <footer class="planbar {bar.state}" aria-label="Pinned plan">
     <div class="head">
       <span class="t">Plan</span>
-      <span class="pill {bar.state}">{bar.label}</span>
+ <span class="state {bar.state}">{bar.label}</span>
       <button class="unpin" onclick={unpin} title="Stop using this plan">Unpin</button>
     </div>
 
@@ -79,25 +79,24 @@
 {/if}
 
 <style>
-  .planbar { position: fixed; left: var(--rail-w-collapsed); right: 0; bottom: 0; z-index: 20; display: flex; align-items: center; gap: 22px;
-             padding: 6px 20px; min-height: 64px; background: var(--nav); border-top: 2px solid var(--side-blue); }
-  .planbar.at_risk { border-top-color: var(--down); background: var(--nav); }
-  .planbar.broken { border-top-color: var(--side-red); background: var(--nav); }
-  .spacer { height: 76px; }
-  .t { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+ .planbar { position: fixed; left: var(--rail-w-collapsed); right: 0; bottom: 0; z-index: 20; display: flex; align-items: center; gap: 18px;
+ padding: 4px 20px; min-height: 56px; background: var(--rail); border-top: 1px solid var(--hairline-strong); overflow-x: auto; }
+ .planbar.at_risk { border-top-color: var(--down); }
+ .planbar.broken { border-top-color: var(--side-red); }
+ .spacer { height: 68px; }
+ .t { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
   .head { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; flex: none; }
-  .pill { font-size: 13px; font-weight: 700; padding: 0 6px; border-radius: 4px; background: var(--side-blue-bg); color: var(--link); }
-  .pill.at_risk { background: var(--down-bg); color: var(--down-text); }
-  .pill.broken { background: var(--side-red-bg); color: var(--side-red-text); }
-  .unpin { font: inherit; font-size: 12px; background: none; color: var(--muted); border: 1px solid var(--line);
-           border-radius: 5px; padding: 0 8px; cursor: pointer; }
+ .state { font-size: 12px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
+ .state.at_risk { color: var(--down-text); }
+ .state.broken { color: var(--side-red-text); }
+ .unpin { font: inherit; font-size: 12px; background: none; color: var(--text-3); border: 0; padding: 0; cursor: pointer; }
   .slots { display: flex; gap: 14px; flex: none; }
   .slot { display: flex; align-items: center; gap: 7px; }
   .ic { position: relative; flex: none; }
-  .actual { position: absolute; right: -8px; bottom: -6px; border: 2px solid var(--nav); border-radius: 6px; line-height: 0; }
+ .actual { position: absolute; right: -8px; bottom: -6px; border: 2px solid var(--rail); border-radius: 6px; line-height: 0; }
   .txt { display: flex; flex-direction: column; line-height: 1.15; }
   .name { font-size: 14px; font-weight: 600; }
-  .st { font-size: 12px; color: var(--muted); }
+ .st { font-size: 11px; color: var(--text-3); white-space: nowrap; }
   .slot.picked .st { color: var(--up-text); }
   .slot.replaced .st, .slot.at_risk .st { color: var(--down-text); }
   .slot.banned .st, .slot.taken .st { color: var(--side-red-text); }
@@ -110,12 +109,12 @@
   .srow { display: flex; align-items: center; gap: 8px; font-size: 13px; }
   .srow .t { width: 34px; }
   .dmg { display: flex; width: 110px; height: 8px; border-radius: 3px; overflow: hidden; gap: 1px; }
-  .phys { background: #d95926; }
-  .magic { background: #3987e5; }
-  .true { background: #199e70; }
+ .phys { background: var(--viz-matchup); }
+ .magic { background: var(--viz-threat); }
+ .true { background: var(--viz-comp); }
   .lbl { font-weight: 700; min-width: 44px; }
   .timing.early { color: var(--down-text); }
-  .timing.late { color: var(--link); }
+ .timing.late { color: var(--text-1); }
   .small { font-size: 12px; color: var(--text-2); }
-  .muted { color: var(--muted); font-weight: 500; }
+ .muted { color: var(--text-3); font-weight: 500; }
 </style>

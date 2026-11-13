@@ -24,7 +24,7 @@
       team's game plan once all ten are locked.</p>
   {:else}
     {#if strategy.complete && strategy.team}
-      <section class="team">
+<section class="team">
         <h2>Game plan <small>{strategy.team.ours.style}{strategy.team.ours.timing ? ` · ${strategy.team.ours.timing}` : ''} vs
           {strategy.team.theirs.style}{strategy.team.theirs.timing ? ` · ${strategy.team.theirs.timing}` : ''}</small></h2>
         <ul>{#each strategy.team.lines as l}<li>{l}</li>{/each}</ul>
@@ -48,7 +48,7 @@
       <p class="muted">The game plan appears once all ten champions are locked.</p>
     {/if}
 
-    <div class="players">
+<div class="players">
       {#each strategy.players as p}
         <article class="player">
           <header>
@@ -157,38 +157,40 @@
 </main>
 
 <style>
-  .strategy { padding: 18px 28px 80px; }
-  .muted { color: var(--muted); }
-  .big { font-size: 18px; text-align: center; margin-top: 60px; }
-  .small { font-size: 13px; }
-  h2 { font-size: 22px; margin: 0 0 8px; }
-  h2 small, h4 small, .pname small { font-size: 13px; font-weight: 400; color: var(--muted); margin-left: 6px; }
-  h3 { font-size: 16px; margin: 14px 0 8px; }
-  h4 { font-size: 14px; margin: 14px 0 4px; color: var(--gold); }
+ .strategy { max-width: 1440px; padding: 20px 24px 80px; }
+ .muted { color: var(--text-3); }
+ .big { max-width: 52ch; font-size: 16px; text-align: center; margin: 60px auto; }
+ .small { font-size: 12px; }
+ h2 { font-size: 20px; margin: 0 0 8px; }
+ h2 small, h4 small, .pname small { font-size: 12px; font-weight: 400; color: var(--text-3); margin-left: 6px; }
+ h3 { font-size: 16px; margin: 16px 0 8px; }
+ h4 { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; margin: 16px 0 6px; color: var(--text-3); }
   h4 small { display: block; margin: 2px 0 0; }
   ol.core { margin: 0; padding-left: 18px; }
   ul { margin: 4px 0; padding-left: 20px; line-height: 1.5; }
-  .team { background: var(--panel); border-radius: 10px; padding: 16px 20px; margin-bottom: 18px; }
-  .threats { display: flex; gap: 24px; flex-wrap: wrap; }
-  .threat { display: flex; gap: 10px; align-items: flex-start; max-width: 520px; }
-  .players { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; }
-  @media (max-width: 520px) { .players { grid-template-columns: 1fr; } }
-  .player { background: var(--panel); border-radius: 10px; padding: 14px 18px; }
+ .team { padding: 0 0 18px; margin-bottom: 18px; border-bottom: 1px solid var(--hairline); }
+ .threats { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px 24px; }
+ .threat { display: flex; gap: 10px; align-items: flex-start; }
+ .players { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 0 28px; }
+ @media (max-width: 720px) { .strategy { padding-inline: 16px; } .players { grid-template-columns: 1fr; } }
+ .player { padding: 16px 0 20px; border-top: 1px solid var(--hairline); }
+ .players .player:nth-child(-n + 2) { border-top: 0; }
+ @media (max-width: 720px) { .players .player { border-top: 1px solid var(--hairline); } .players .player:first-child { border-top: 0; } }
   header { display: flex; align-items: center; gap: 12px; }
-  .pname { font-size: 18px; font-weight: 600; }
+ .pname { font-size: 18px; font-weight: 650; }
   .vs { margin-left: auto; }
   .summary { margin: 2px 0; }
-  .rows { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
-  .row { display: grid; grid-template-columns: 80px 1fr; gap: 8px; }
-  .k { color: var(--muted); }
+ .rows { display: flex; flex-direction: column; gap: 5px; font-size: 13px; }
+ .row { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; }
+ .k { color: var(--text-3); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
   .opt { margin-right: 10px; }
   .opt.first { font-weight: 600; }
-  small { color: var(--muted); }
-  em { color: var(--link); font-style: normal; }
-  .why { color: var(--muted); font-size: 13px; }
+ small { color: var(--text-3); }
+ em { color: var(--text-2); font-style: normal; }
+ .why { color: var(--text-3); font-size: 12px; }
   code { font-size: 12px; }
-  .matchup { background: var(--panel-2); border-radius: 8px; padding: 8px 10px; margin: 4px 0 8px; font-size: 14px; display: grid; gap: 4px; }
-  .tip { color: var(--link); }
-  .powerline { font-size: 14px; margin: 2px 0; }
-  .mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; letter-spacing: 0.5px; }
+ .matchup { background: var(--surface-2); border-left: 2px solid var(--hairline-strong); padding: 8px 10px; margin: 6px 0 8px; font-size: 13px; display: grid; gap: 4px; }
+ .tip { color: var(--text-2); }
+ .powerline { font-size: 13px; margin: 3px 0; }
+ .mono { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0; }
 </style>

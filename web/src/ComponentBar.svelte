@@ -32,7 +32,7 @@
   .bar { display: flex; gap: 2px; height: 6px; margin-top: 8px; width: 100%; max-width: 320px; cursor: help; }
   .seg { min-width: 3px; }
   .seg:last-child { border-radius: 0 4px 4px 0; }
-  .threat { background: #3987e5; }
-  .matchup { background: #d95926; }
-  .comp { background: #199e70; }
+ .threat { background: var(--viz-threat); }
+ .matchup { background: var(--viz-matchup); }
+ .comp { background: var(--viz-comp); }
 </style>

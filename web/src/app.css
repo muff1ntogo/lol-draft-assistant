@@ -56,6 +56,11 @@
   --viz-threat: #3987e5;
   --viz-matchup: #d95926;
   --viz-comp: #199e70;
+--viz-engage: #c98500;
+--viz-poke: #d55181;
+--viz-pick: #008300;
+--viz-protect: #9085e9;
+--viz-split: #e66767;
   /* ---------- status: with an icon or a word, never colour alone ---------- */
   --warn: #f0b429;
   --error: #ff6b6b;

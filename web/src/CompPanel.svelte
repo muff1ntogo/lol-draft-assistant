@@ -4,6 +4,7 @@
   // this screen), validated as an adjacent stack on the panel surface #161b22 and again on #101a30 (palette.js) (dataviz validator: all checks
   // pass). Every segment is also labelled with its share in text and listed in the tooltip, so colour is
   // never the only signal.
+ import Stat from './ui/Stat.svelte';
   let { comp, title } = $props();
   const STYLES = [
     ['engage', 'Engage', 'Eng'],
@@ -16,19 +17,17 @@
   const tip = $derived(STYLES.map(([k, label]) => `${label} ${pct(comp.shares[k] ?? 0)}`).join(' · '));
 </script>
 
-<div class="comp">
+<section class="comp">
   <div class="head">
     <span class="t">{title}</span>
     <span class="conf" title="{comp.picks} of 5 picks: labels settle as the comp fills">
       {#each [0, 1, 2, 3, 4] as i}<i class:on={i < comp.picks}></i>{/each}
     </span>
   </div>
-  <div class="labels">
-    <span class="field"><small>Type</small>
-      <span class="timing {comp.timing ?? ''}" title={comp.curve == null ? 'No timing data yet' : `Mean power curve ${comp.curve > 0 ? '+' : ''}${comp.curve}`}>
-        {comp.picks && comp.timing ? comp.timing_label : '—'}</span></span>
-    <span class="field"><small>Style</small>
-      <span class="style" class:mixed={comp.style === 'mixed'}>{comp.picks ? comp.style_label : '—'}</span></span>
+ <div class="labels">
+ <Stat size="sm" label="Type" value={comp.picks && comp.timing ? comp.timing_label : '—'} tone={comp.timing === 'early' ? 'down' : null}
+ title={comp.curve == null ? 'No timing data yet' : `Mean power curve ${comp.curve > 0 ? '+' : ''}${comp.curve}`} />
+ <Stat size="sm" label="Style" value={comp.picks ? comp.style_label : '—'} />
   </div>
   {#if comp.picks}
     <div class="bar" title={tip} aria-label={tip} role="img">
@@ -45,32 +44,27 @@
       Picks lean {comp.target.label} <small>({comp.target.source === 'team' ? 'team style' : 'from our picks'})</small>
     </div>
   {/if}
-</div>
+</section>
 
 <style>
-  .comp { background: var(--panel); border-radius: 8px; padding: 8px 12px; margin-top: 8px; }
+ .comp { padding: 12px 0 0; margin-top: 12px; border-top: 1px solid var(--hairline); }
   .head { display: flex; justify-content: space-between; align-items: center; }
-  .t { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+ .t { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
   .conf { display: inline-flex; gap: 3px; }
-  .conf i { width: 10px; height: 6px; border-radius: 2px; background: var(--line); }
-  .conf i.on { background: var(--muted); }
-  .labels { display: flex; gap: 18px; align-items: baseline; margin-top: 2px; font-size: 20px; font-weight: 700; }
-  .field { display: flex; flex-direction: column; }
-  .field small { font-size: 11px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
-  .timing.early { color: var(--down-text); }
-  .timing.late { color: var(--link); }
-  .style.mixed { color: var(--muted); font-weight: 500; }
+ .conf i { width: 10px; height: 4px; background: var(--hairline); }
+ .conf i.on { background: var(--text-3); }
+ .labels { display: flex; gap: 24px; align-items: baseline; margin-top: 8px; }
   .bar { display: flex; gap: 2px; height: 6px; margin-top: 6px; cursor: help; }
   .seg { min-width: 3px; }
   .seg:first-child { border-radius: 4px 0 0 4px; }
   .seg:last-child { border-radius: 0 4px 4px 0; }
-  .legend { display: flex; flex-wrap: wrap; column-gap: 10px; margin-top: 4px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .target { margin-top: 4px; font-size: 12px; color: var(--muted); }
+ .legend { display: flex; flex-wrap: wrap; column-gap: 10px; margin-top: 4px; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+ .target { margin-top: 6px; font-size: 12px; color: var(--text-3); }
   .target small { font-size: 11px; }
   .key { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
-  .engage { background: #c98500; }
-  .poke { background: #d55181; }
-  .pick { background: #008300; }
-  .protect { background: #9085e9; }
-  .split { background: #e66767; }
+ .engage { background: var(--viz-engage); }
+ .poke { background: var(--viz-poke); }
+ .pick { background: var(--viz-pick); }
+ .protect { background: var(--viz-protect); }
+ .split { background: var(--viz-split); }
 </style>

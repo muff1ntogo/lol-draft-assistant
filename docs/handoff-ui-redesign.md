@@ -41,13 +41,14 @@ the first ten shared components in every state.
 | 6 Crawl | Done | see `git log` ("step 6") |
 | 7 Settings | Done | see `git log` ("step 7 (first part)") |
 | 7 Tags, Rules | Done | this commit |
-| 8 Live's remaining parts | **To do** | |
-| 9 Clean up | **To do** | |
+| 8 Live's remaining parts | Done | current worktree |
+| 9 Clean up | Partial | current worktree |
 
-Still in the old layout (they render in graphite and lime through the alias tokens, and work): inside Live
-`StrategyView.svelte`, `PlanBar.svelte`, `CompPanel.svelte`, `ScoutBox.svelte`,
-`PowerChart.svelte`, `ComponentBar.svelte`, `ComponentLegend.svelte`, `Champ.svelte`. The idle Live screen's markup
-is in `App.svelte` (`.idle`).
+Step 8's remaining Live surfaces are now redesigned: `StrategyView.svelte` is a dense ruled strategy desk,
+`PlanBar.svelte` is the 56px written-status bar, `CompPanel.svelte` uses shared `Stat`s and the validated identity
+series, and compact `ScoutBox.svelte` is a native disclosure at the rail foot. The existing API/data contracts,
+lazy power chart and D/S switch remain unchanged. `ComponentBar.svelte`, `ComponentLegend.svelte` and `Champ.svelte`
+now consume named visual tokens. The idle Live screen's markup remains in `App.svelte` (`.idle`).
 
 ## The shared components (`web/src/ui/`)
 
@@ -133,12 +134,12 @@ As the doc says. Notes:
 - Strategy needs data to look at: demo mode fills some of it; say what you could not see.
 
 ### Step 9: Clean up
-
-- Remove `#/kit`: `Kit.svelte` and its `LOADERS` / `PAGES` entries and the `kit` filter in `preloadAll`
+- `#/kit`: **done** — `Kit.svelte` and its `LOADERS` / `PAGES` entries and the `kit` preload exception are removed.
   (`App.svelte`). Decision 11.
 - Remove the alias tokens from `app.css` (`--panel`, `--gold`, `--muted`, `--blue`, `--line`, ...) once
-  `rg -- '--gold|--panel|--muted|--blue|--link|--line\b|--text\b|--red|--good' web/src` finds no use, and `GOLD` from
-  `palette.js`.
+`rg -- '--gold|--panel|--muted|--blue|--link|--line\b|--text\b|--red|--good' web/src` finds no use, and remove
+`GOLD` from `palette.js`. **Deferred:** aliases still support completed non-Live pages; migrate their consumers first
+rather than breaking them in one cleanup commit.
 - Replace every hard-coded colour in components (`rg -n '#[0-9a-fA-F]{3,6}' web/src --glob '*.svelte'`) with a token
   or a `palette.js` constant.
 - Remove the old roster routes no page calls any more, with their tests moved or dropped: `PUT /api/players`,

@@ -5,10 +5,10 @@
 </span>
 
 <style>
-  .legend { display: inline-flex; gap: 14px; font-size: 13px; color: var(--muted); }
+ .legend { display: inline-flex; gap: 14px; font-size: 11px; color: var(--text-3); }
   .legend span { display: inline-flex; align-items: center; gap: 5px; }
   i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
-  .threat { background: #3987e5; }
-  .matchup { background: #d95926; }
-  .comp { background: #199e70; }
+ .threat { background: var(--viz-threat); }
+ .matchup { background: var(--viz-matchup); }
+ .comp { background: var(--viz-comp); }
 </style>

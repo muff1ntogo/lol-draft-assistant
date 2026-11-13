@@ -261,6 +261,13 @@ and its inline save/remove flow; Rules keeps its locally edited prior and refit-
   (`--viz-threat`, `--viz-engage`, …).
 - Update `CLAUDE.md`'s "Colour identity" lesson to point at this doc (done in this commit).
 
+**Built in part (13 Nov 2026).** The unused `#/kit` component gallery and its route/preload entries are removed.
+The Step 8 Live components now use the graphite/token system, with named `--viz-*` tokens for all component,
+damage-split and comp-identity series; `Champ`'s ban slash also reads the named error token. Alias-token removal is
+intentionally deferred: a source inventory still finds the compatibility aliases across earlier, already-completed
+pages, so deleting them now would regress those surfaces. Remove each alias only after its remaining consumers have
+been migrated.
+
 ## The system in numbers
 
 ### Colour (tokens in `app.css`)

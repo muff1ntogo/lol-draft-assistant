@@ -14,14 +14,13 @@
   // Crawl and Settings as icons. Every page keeps its own address; a tab stays lit on the pages it groups.
   const TABS = [['live', 'Live'], ['prep', 'Prep'], ['history', 'Review'], ['pools', 'Roster']];
   const ICONS = [['crawl', 'Crawl: data jobs'], ['settings', 'Settings']];
-  const PAGES = ['live', 'prep', 'pools', 'player', 'history', 'team', 'crawl', 'settings', 'tags', 'champions', 'rules', 'kit'];
+const PAGES = ['live', 'prep', 'pools', 'player', 'history', 'team', 'crawl', 'settings', 'tags', 'champions', 'rules'];
   const GROUP = { team: 'history', tags: 'settings', champions: 'settings', rules: 'settings', player: 'pools' };
   const navKey = (p) => GROUP[p] ?? p;
   const LOADERS = {
     pools: () => import('./Roster.svelte'), player: () => import('./Player.svelte'), prep: () => import('./Prep.svelte'), history: () => import('./History.svelte'),
     team: () => import('./Team.svelte'), crawl: () => import('./Crawl.svelte'), settings: () => import('./Settings.svelte'),
-    tags: () => import('./Tags.svelte'), champions: () => import('./Tags.svelte'), rules: () => import('./Rules.svelte'),
-    kit: () => import('./Kit.svelte'), // the component samples (docs/ui-redesign.md, step 1): no rail item, removed in step 9
+ tags: () => import('./Tags.svelte'), champions: () => import('./Tags.svelte'), rules: () => import('./Rules.svelte'),
   };
   const loaded = {}; // page -> promise of its component (each chunk is fetched once)
   function loadPage(key) {
@@ -32,7 +31,7 @@
   // warm the rest once the first page is up, so later switches only wait for their data
   function preloadAll() {
     const idle = window.requestIdleCallback ?? ((fn) => setTimeout(fn, 300));
-    idle(() => Object.keys(LOADERS).filter((k) => k !== 'kit').forEach((k) => loadPage(k).catch(() => {})));
+ idle(() => Object.keys(LOADERS).forEach((k) => loadPage(k).catch(() => {})));
   }
   // "#/player/<riot id>": a page with one parameter (the rest of the address, still URL-encoded)
   const paramFromHash = () => location.hash.slice(2).split('/').slice(1).join('/');
