@@ -477,6 +477,19 @@ class DraftEngine:
 
         return (one(ours, theirs) - one(theirs, ours)) / 2
 
+    def draft_terms(self, ours: Mapping[str, int], theirs: Mapping[str, int]) -> dict[str, float]:
+        """`draft_logodds` split into its parts, each from `ours`' side and unweighted by alpha (data/draft_eval.py):
+        draft_logodds = (alpha + 1) / 2 * meta + lane + syn + team + damage when both teams are in one bracket."""
+        def one(a: Mapping[str, int], b: Mapping[str, int]) -> Terms:
+            a_roles, b_roles = {c: r for r, c in a.items()}, {c: r for r, c in b.items()}
+            return self._terms(list(a_roles), a_roles, list(b_roles), b_roles)
+
+        ab, ba = one(ours, theirs), one(theirs, ours)
+        alpha = self.cfg.alpha or 1.0
+        return {"meta": (ab.meta_us / alpha - ab.meta_them + ba.meta_them - ba.meta_us / alpha) / 2,
+                "lane": (ab.lane - ba.lane) / 2, "syn": ab.syn_us - ab.syn_them,
+                "team": (ab.team - ba.team) / 2, "damage": (ab.damage - ba.damage) / 2}
+
     def draft_comfort(self, ours: Mapping[str, int]) -> float:
         """What our players' comfort adds to a finished draft, the part `draft_logodds` leaves out."""
         return sum(self.cfg.beta * self._comfort(c, r) for r, c in ours.items())

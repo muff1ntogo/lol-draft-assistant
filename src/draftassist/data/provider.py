@@ -111,7 +111,8 @@ def strength_win_rate(wins: float, games: float, prior: float) -> float:
 
 
 def bracket_stats(s: Session, patch: str, bracket: str, boot: Bootstrap | None,
-                  model=None, lane_slopes: Mapping | None = None) -> tuple[BracketStats | None, int]:
+                  model=None, lane_slopes: Mapping | None = None,
+                  role_prior_games: float = ROLE_PRIOR_GAMES) -> tuple[BracketStats | None, int]:
     """One bracket's stats: our crawled games blended with the OP.GG prior. Returns (stats, crawled
     matches); stats is None when there is neither crawl data nor a bootstrap.
 
@@ -136,7 +137,7 @@ def bracket_stats(s: Session, patch: str, bracket: str, boot: Bootstrap | None,
         if row:
             crawled_bans[c] = row.bans
         prior_wr = boot.win_rate.get((c, r), 0.5) if boot else 0.5
-        win_rate = (wins + ROLE_PRIOR_GAMES * prior_wr) / (games + ROLE_PRIOR_GAMES)
+        win_rate = (wins + role_prior_games * prior_wr) / (games + role_prior_games)
         strength[(c, r)] = logit(strength_win_rate(wins, games, prior_wr))
         if boot:
             pick_rate = (picks + RATE_PRIOR_MATCHES * boot.pick_rate.get((c, r), 0.0)) / (n + RATE_PRIOR_MATCHES)
@@ -184,8 +185,10 @@ def stats_version(db: Engine) -> tuple:
     return totals, tuple(boot), tuple(pools), players
 
 
-def load_engine_inputs(db: Engine, use_matchup_model: bool = True) -> EngineInputs:
-    """`use_matchup_model=False`: the old 50% shrinkage, to compare (scripts/ban_audit.py)."""
+def load_engine_inputs(db: Engine, use_matchup_model: bool = True, stats_patch: str | None = None,
+                       role_prior_games: float = ROLE_PRIOR_GAMES, pair_k: float | None = None) -> EngineInputs:
+    """`use_matchup_model=False`: the old 50% shrinkage, to compare (scripts/ban_audit.py). `stats_patch` and
+    `role_prior_games`, `pair_k`: another patch's stats, another win rate or pair synergy shrinkage, to compare (data/draft_eval.py)."""
     catalog = load_catalog(db)
     names = {c: name for c, (_, name) in catalog.champs.items()}
     if not names:
@@ -195,7 +198,7 @@ def load_engine_inputs(db: Engine, use_matchup_model: bool = True) -> EngineInpu
     if patch:
         from draftassist.data.datasets import SEL, active_selection
 
-        stats_key = SEL if active_selection(db) else patch  # a user's data selection (docs/shared-data.md, Stage 4)
+        stats_key = stats_patch or (SEL if active_selection(db) else patch)  # a user's data selection (docs/shared-data.md, Stage 4)
         model = load_matchup_model(db) if use_matchup_model else None
         lane_slopes = model.lane_slopes() if model is not None else None
         with Session(db) as s:
@@ -204,14 +207,14 @@ def load_engine_inputs(db: Engine, use_matchup_model: bool = True) -> EngineInpu
             brackets: dict[str, BracketStats] = {}
             crawled: dict[str, int] = {}
             for b in needed:
-                stats, crawled[b] = bracket_stats(s, stats_key, b, boot, model, lane_slopes)
+                stats, crawled[b] = bracket_stats(s, stats_key, b, boot, model, lane_slopes, role_prior_games)
                 if stats is not None:
                     brackets[b] = stats
         if len(brackets) == len(needed):
             from draftassist.data.settings_store import get_synergy_bracket
             from draftassist.data.synergy import load_damage, load_synergy
 
-            synergy = load_synergy(db, bracket=get_synergy_bracket(db))
+            synergy = load_synergy(db, bracket=get_synergy_bracket(db), k=pair_k)
             data = EngineData(brackets, names, synergy=synergy, damage=load_damage(db, synergy.window or patch),
                               profiles=load_profiles(db, stats_key), bot=model.bot() if model is not None else None,
                               traits=load_traits(db) if model is not None else None,

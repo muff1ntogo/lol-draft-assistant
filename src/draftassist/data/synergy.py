@@ -141,8 +141,8 @@ def latest_window(db: Engine, conn=None) -> str | None:
         return pick(c)
 
 
-def load_synergy(db: Engine, window: str | None = None, bracket: str = ALL) -> SynergyTable:
-    """Score every stored pair of one window (default: the latest) and bracket."""
+def load_synergy(db: Engine, window: str | None = None, bracket: str = ALL, k: float | None = None) -> SynergyTable:
+    """Score every stored pair of one window (default: the latest) and bracket. `k`: another shrinkage (data/draft_eval.py)."""
     window = window or latest_window(db)
     if window is None:
         return EMPTY
@@ -155,7 +155,7 @@ def load_synergy(db: Engine, window: str | None = None, bracket: str = ALL) -> S
     for r in rows:
         a, b = (r.role_a, r.champ_a), (r.role_b, r.champ_b)
         pairs[(a, b)] = pair_score(r.wins_w, r.games_w, strengths.get(a, 0.5), strengths.get(b, 0.5),
-                                   raw_games=r.games)
+                                   raw_games=r.games, **({} if k is None else {"k": k}))
     return SynergyTable(window, bracket, pairs, strengths)
 
 
