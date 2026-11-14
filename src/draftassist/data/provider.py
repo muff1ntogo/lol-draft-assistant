@@ -19,7 +19,7 @@ from dataclasses import dataclass, replace
 from sqlalchemy import Engine
 from sqlmodel import Session, select
 
-from draftassist.data.aggregate import PAIR_K, ROLE_K, shrink
+from draftassist.data.aggregate import PAIR_K, shrink
 from draftassist.data.crawler import brackets_in_use, display_patch
 from draftassist.data.ddragon import BASE_URL
 from draftassist.data.matchup_model import (
@@ -43,7 +43,10 @@ from draftassist.engine.simulate import TEAM_BRACKETS, synthetic_data
 
 log = logging.getLogger(__name__)
 
-ROLE_PRIOR_GAMES = ROLE_K  # OP.GG's win rate weighs as much as this many of the bracket's own games
+# OP.GG's win rate weighs as much as this many of the bracket's own games. Was ROLE_K (50); 500 since 14 Nov 2026:
+# the bracket's own rates vary beyond OP.GG's by only 1-2.5pp, and on 1,203 held-out games (data/draft_eval.py) 500
+# scored a Brier 0.0033 better (95% interval 0.0006..0.0061) and AUC 0.550 vs 0.539. 1,000 scored the same as 500.
+ROLE_PRIOR_GAMES = 500
 RATE_PRIOR_MATCHES = 1000  # OP.GG's pick/ban rates weigh as much as this many crawled matches
 FULL_CRAWL_MATCHES = 20_000  # per bracket: enough for every real lane (coverage target)
 FIXTURE_NOTE = "Synthetic stats and pools (real stats arrive with the Phase 3 crawl, pools with Phase 4)"

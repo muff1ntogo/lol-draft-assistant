@@ -363,7 +363,8 @@ def test_provider_blends_opgg_with_crawl(engine, session, tmp_path):
     inp = load_engine_inputs(engine)
     assert inp.sources["gold"] == "blend" and inp.sources["iron"] == "opgg" and inp.data_source == "blend"
     gold = inp.data.brackets["gold"]
-    assert gold.role_stat(1, "top").win_rate == pytest.approx((1 + 50 * 0.52) / (2 + 50))
+    from draftassist.data.provider import ROLE_PRIOR_GAMES as k
+    assert gold.role_stat(1, "top").win_rate == pytest.approx((1 + k * 0.52) / (2 + k))
     assert gold.role_stat(1, "top").pick_rate == pytest.approx((2 + 1000 * 0.1) / (2 + 1000))
     assert gold.ban_rates[1] == pytest.approx((0 + 1000 * 0.05) / (2 + 1000))
     assert gold.matchup_wr("top", 1, 11) == pytest.approx(shrink(1, 2, 200))  # crawl matchups used at once
@@ -376,7 +377,7 @@ def test_blend_converges_to_the_bracket_with_many_games():
 
     prior, games = 0.52, 20_000
     blended = (0.47 * games + ROLE_PRIOR_GAMES * prior) / (games + ROLE_PRIOR_GAMES)
-    assert blended == pytest.approx(0.47, abs=0.0002)  # the tier's own 47% wins out
+    assert blended == pytest.approx(0.47, abs=0.002)  # the tier's own 47% wins out
     assert (0 + RATE_PRIOR_MATCHES * 0.1) / (20_000 + RATE_PRIOR_MATCHES) < 0.005  # unplayed in tier fades
 
 

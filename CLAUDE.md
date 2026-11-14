@@ -52,6 +52,7 @@ Since `docs/shared-data.md`: the Riot cache is one `cache/cache.sqlite` (zstd wi
 | Crawl Master+ for the Matchup tree only (own database, `data/master.sqlite`; resumable) | `uv run python -m draftassist.data.crawl --master --ids-per-queue 100 --hours 12` |
 | Fetch timelines again for the newer stats, then stop (prints its cost first; resumable; add `--master` for that database) | `uv run python -m draftassist.data.crawl --timelines-refetch --share 1` |
 | Fit the expectations and state model (a few minutes; after a refetch or a big crawl) | `uv run python -m draftassist.data.execution_model` |
+| Draft model check: score crawled games the stats haven't seen, out of fold, part by part and per variant (`--variant app k500=k:500 p21=patch:16.21`) | `uv run python -m draftassist.data.draft_eval --stats-db ... --games-db ... --patch 16.22 --after <last publish>` |
 | Crawl coverage / Phase 3 acceptance | `uv run python -m draftassist.data.coverage` |
 | Learning job (link players, history, comfort) | `uv run python -m draftassist.learning.jobs` |
 | Confirm logged games via match-v5, and store their timelines | `uv run python -m draftassist.data.postgame` |

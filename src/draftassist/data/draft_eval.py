@@ -186,7 +186,7 @@ def engine_terms(stats_db: Engine, variant: Variant) -> Callable[[Game], dict[st
                                                       replace(cfg, enemy_bracket=bracket))
         t = engine.draft_terms(g.blue, g.red)
         t["current"] = engine.draft_logodds(g.blue, g.red)
-        stats = engine.enemy_stats()
+        stats = engine.enemy_stats
         t["off_role"] = float(sum(stats.role_stat(c, r) is None for r, c in g.blue.items())
                               - sum(stats.role_stat(c, r) is None for r, c in g.red.items()))
         t["meta_on"] = t["meta"] - t["off_role"] * logit(engine.cfg.off_role_wr)
