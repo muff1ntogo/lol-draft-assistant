@@ -381,6 +381,30 @@ def test_blend_converges_to_the_bracket_with_many_games():
     assert (0 + RATE_PRIOR_MATCHES * 0.1) / (20_000 + RATE_PRIOR_MATCHES) < 0.005  # unplayed in tier fades
 
 
+def test_thin_patch_borrows_the_previous_patch_win_rates_and_roles(engine, session):
+    from draftassist.data.provider import bracket_stats, previous_patch
+    from draftassist.db.models import BracketTotal, ChampRoleStats
+
+    for patch, bracket, n in (("16.20", "gold", 900), ("16.21", "gold", 3000), ("16.21", "silver", 3000),
+                              ("16.22", "gold", 30), ("selection", "gold", 5000)):
+        session.add(BracketTotal(patch=patch, bracket=bracket, matches=n))
+    session.add(ChampRoleStats(patch="16.22", bracket="gold", champ_id=1, role="top", games=10, wins=5, picks=10))
+    session.add(ChampRoleStats(patch="16.21", bracket="gold", champ_id=1, role="top", games=1000, wins=560, picks=1000))
+    session.add(ChampRoleStats(patch="16.21", bracket="gold", champ_id=1, role="mid", games=40, wins=20, picks=40))
+    session.commit()
+    assert previous_patch(session, "16.22", "gold") == "16.21"  # the latest earlier one, not 16.20 or "selection"
+    assert previous_patch(session, "16.21", "silver") is None
+    assert previous_patch(session, "selection", "gold") is None  # a data selection already pools patches
+
+    stats, n = bracket_stats(session, "16.22", "gold", None, role_prior_games=500, prev_weight=0.5)
+    assert n == 30
+    assert stats.role_stat(1, "top").win_rate == pytest.approx((5 + 0.5 * 560 + 250) / (10 + 0.5 * 1000 + 500))
+    assert stats.role_stat(1, "mid") is not None  # played there last patch: a role, not an off-role pick
+    alone, _ = bracket_stats(session, "16.22", "gold", None, role_prior_games=500, prev_weight=0)
+    assert alone.role_stat(1, "top").win_rate == pytest.approx((5 + 250) / (10 + 500))
+    assert alone.role_stat(1, "mid") is None
+
+
 def test_provider_falls_back_to_fixture_without_stats(engine, session):
     add_champions(session, (1, 2, 3))
     assert load_engine_inputs(engine).data_source == "fixture"

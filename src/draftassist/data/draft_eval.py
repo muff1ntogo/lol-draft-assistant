@@ -162,18 +162,20 @@ class Variant:
     stats_patch: str | None = None  # None: what the app reads
     role_prior_games: float | None = None  # None: provider.ROLE_PRIOR_GAMES
     pair_k: float | None = None  # None: engine/synergy.K
+    prev_weight: float | None = None  # None: provider.PREV_PATCH_WEIGHT
 
 
 def engine_terms(stats_db: Engine, variant: Variant) -> Callable[[Game], dict[str, float]]:
     """The engine built as Live builds it (synergy v2 attached), one per bracket, both teams in the game's bracket."""
     from draftassist.api.main import with_synergy_v2
-    from draftassist.data.provider import ROLE_PRIOR_GAMES, load_engine_inputs
+    from draftassist.data.provider import PREV_PATCH_WEIGHT, ROLE_PRIOR_GAMES, load_engine_inputs
     from draftassist.data.settings_store import engine_config
     from draftassist.engine.engine import DraftEngine
     from draftassist.engine.model import OurTeam
 
     inputs = load_engine_inputs(stats_db, stats_patch=variant.stats_patch,
-                                role_prior_games=variant.role_prior_games or ROLE_PRIOR_GAMES, pair_k=variant.pair_k)
+                                role_prior_games=variant.role_prior_games or ROLE_PRIOR_GAMES, pair_k=variant.pair_k,
+                                prev_weight=PREV_PATCH_WEIGHT if variant.prev_weight is None else variant.prev_weight)
     data = with_synergy_v2(stats_db, inputs)
     cfg = engine_config(stats_db)
     engines: dict[str, DraftEngine] = {}
@@ -248,7 +250,7 @@ def format_report(r: dict) -> str:
 
 
 def parse_variants(specs: Sequence[str]) -> list[Variant]:
-    """"app", or name=patch:<p>,k:<games>,pairk:<games>"."""
+    """"app", or name=patch:<p>,k:<games>,pairk:<games>,prev:<weight>"."""
     out = []
     for spec in specs:
         if spec == "app":
@@ -264,6 +266,8 @@ def parse_variants(specs: Sequence[str]) -> list[Variant]:
                 kw["role_prior_games"] = float(value)
             elif key == "pairk":
                 kw["pair_k"] = float(value)
+            elif key == "prev":
+                kw["prev_weight"] = float(value)
             else:
                 raise ValueError(f"unknown option {key!r} in {spec!r}")
         out.append(Variant(name, **kw))
@@ -288,7 +292,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--patch", help="only games of this patch")
     parser.add_argument("--brackets", nargs="+")
     parser.add_argument("--variant", nargs="+", default=["app"],
-                        help='"app", or name=patch:16.21,k:500,pairk:2000 (another patch\'s stats, win rate or pair shrinkage)')
+                        help='"app", or name=patch:16.21,k:500,pairk:2000,prev:0.5 (another patch\'s stats, win rate or pair shrinkage, previous patch weight)')
     parser.add_argument("--json", help="also write the report here")
     args = parser.parse_args(argv)
     after = 0

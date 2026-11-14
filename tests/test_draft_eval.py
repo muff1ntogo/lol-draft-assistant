@@ -121,8 +121,8 @@ def test_load_games_keeps_complete_games_after_the_cutoff(tmp_path):
 
 
 def test_variants_parse():
-    a, b = parse_variants(["app", "p21=patch:16.21,k:500"])
-    assert a.stats_patch is None and a.role_prior_games is None
-    assert (b.name, b.stats_patch, b.role_prior_games) == ("p21", "16.21", 500.0)
+    a, b = parse_variants(["app", "p21=patch:16.21,k:500,prev:0"])
+    assert a.stats_patch is None and a.role_prior_games is None and a.prev_weight is None
+    assert (b.name, b.stats_patch, b.role_prior_games, b.prev_weight) == ("p21", "16.21", 500.0, 0.0)
     with pytest.raises(ValueError):
         parse_variants(["x=foo:1"])

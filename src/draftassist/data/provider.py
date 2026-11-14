@@ -47,6 +47,9 @@ log = logging.getLogger(__name__)
 # the bracket's own rates vary beyond OP.GG's by only 1-2.5pp, and on 1,203 held-out games (data/draft_eval.py) 500
 # scored a Brier 0.0033 better (95% interval 0.0006..0.0061) and AUC 0.550 vs 0.539. 1,000 scored the same as 500.
 ROLE_PRIOR_GAMES = 500
+# The previous patch's games count at this weight in a bracket's win rates (data/draft_eval.py, 14 Nov 2026): a new or
+# thinly crawled patch otherwise runs on OP.GG's all-tier rates alone.
+PREV_PATCH_WEIGHT = 0.5
 RATE_PRIOR_MATCHES = 1000  # OP.GG's pick/ban rates weigh as much as this many crawled matches
 FULL_CRAWL_MATCHES = 20_000  # per bracket: enough for every real lane (coverage target)
 FIXTURE_NOTE = "Synthetic stats and pools (real stats arrive with the Phase 3 crawl, pools with Phase 4)"
@@ -113,13 +116,35 @@ def strength_win_rate(wins: float, games: float, prior: float) -> float:
     return (wins + STRENGTH_K * prior) / (games + STRENGTH_K)
 
 
+def previous_patch(s: Session, patch: str, bracket: str) -> str | None:
+    """The latest patch before `patch` with crawled matches in `bracket`; None for a data selection (it already pools
+    patches) or when there is none."""
+    try:
+        current = _version_key(patch)
+    except ValueError:
+        return None
+    earlier = [t.patch for t in s.exec(select(BracketTotal).where(BracketTotal.bracket == bracket)).all()
+               if t.matches and t.patch != patch and _is_version(t.patch) and _version_key(t.patch) < current]
+    return max(earlier, key=_version_key, default=None)
+
+
+def _is_version(v: str) -> bool:
+    try:
+        _version_key(v)
+    except ValueError:
+        return False
+    return True
+
+
 def bracket_stats(s: Session, patch: str, bracket: str, boot: Bootstrap | None,
                   model=None, lane_slopes: Mapping | None = None,
-                  role_prior_games: float = ROLE_PRIOR_GAMES) -> tuple[BracketStats | None, int]:
+                  role_prior_games: float = ROLE_PRIOR_GAMES,
+                  prev_weight: float = PREV_PATCH_WEIGHT) -> tuple[BracketStats | None, int]:
     """One bracket's stats: our crawled games blended with the OP.GG prior. Returns (stats, crawled
     matches); stats is None when there is neither crawl data nor a bootstrap.
 
-    win rate  = (wins + k * prior) / (games + k),   k = 50, prior = OP.GG win rate (else 50%)
+    win rate  = (wins + w * prev wins + k * prior) / (games + w * prev games + k),   k = 500, w = 0.5,
+                prior = OP.GG win rate (else 50%), prev = the previous patch with games in this bracket
     pick/ban  = (count + M * prior) / (matches + M), M = 1,000 matches
     matchups come from the crawl; with a fitted `model` they shrink towards its prediction (k_r per role), without
     one towards 50% (k = 200)."""
@@ -129,7 +154,12 @@ def bracket_stats(s: Session, patch: str, bracket: str, boot: Bootstrap | None,
         return None, 0
     crawl = {(r.champ_id, r.role): r for r in s.exec(
         select(ChampRoleStats).where(ChampRoleStats.patch == patch, ChampRoleStats.bracket == bracket))}
-    keys = set(crawl) | (set(boot.win_rate) | set(boot.pick_rate) if boot else set())
+    prev_patch = previous_patch(s, patch, bracket) if prev_weight > 0 else None
+    prev = {(r.champ_id, r.role): (r.games, r.wins) for r in s.exec(
+        select(ChampRoleStats).where(ChampRoleStats.patch == prev_patch, ChampRoleStats.bracket == bracket))} \
+        if prev_patch else {}
+    # A role played last patch is a role, not an off-role pick at off_role_wr, while this patch's crawl is thin
+    keys = set(crawl) | set(prev) | (set(boot.win_rate) | set(boot.pick_rate) if boot else set())
 
     meta: dict[int, dict[str, RoleStat]] = {}
     strength: dict[tuple[int, str], float] = {}
@@ -140,7 +170,9 @@ def bracket_stats(s: Session, patch: str, bracket: str, boot: Bootstrap | None,
         if row:
             crawled_bans[c] = row.bans
         prior_wr = boot.win_rate.get((c, r), 0.5) if boot else 0.5
-        win_rate = (wins + role_prior_games * prior_wr) / (games + role_prior_games)
+        prev_games, prev_wins = prev.get((c, r), (0, 0))
+        win_rate = ((wins + prev_weight * prev_wins + role_prior_games * prior_wr)
+                    / (games + prev_weight * prev_games + role_prior_games))
         strength[(c, r)] = logit(strength_win_rate(wins, games, prior_wr))
         if boot:
             pick_rate = (picks + RATE_PRIOR_MATCHES * boot.pick_rate.get((c, r), 0.0)) / (n + RATE_PRIOR_MATCHES)
@@ -189,9 +221,11 @@ def stats_version(db: Engine) -> tuple:
 
 
 def load_engine_inputs(db: Engine, use_matchup_model: bool = True, stats_patch: str | None = None,
-                       role_prior_games: float = ROLE_PRIOR_GAMES, pair_k: float | None = None) -> EngineInputs:
+                       role_prior_games: float = ROLE_PRIOR_GAMES, pair_k: float | None = None,
+                       prev_weight: float = PREV_PATCH_WEIGHT) -> EngineInputs:
     """`use_matchup_model=False`: the old 50% shrinkage, to compare (scripts/ban_audit.py). `stats_patch` and
-    `role_prior_games`, `pair_k`: another patch's stats, another win rate or pair synergy shrinkage, to compare (data/draft_eval.py)."""
+    `role_prior_games`, `pair_k`, `prev_weight`: another patch's stats, another win rate or pair synergy shrinkage, another
+    weight for the previous patch's win rates, to compare (data/draft_eval.py)."""
     catalog = load_catalog(db)
     names = {c: name for c, (_, name) in catalog.champs.items()}
     if not names:
@@ -210,7 +244,8 @@ def load_engine_inputs(db: Engine, use_matchup_model: bool = True, stats_patch: 
             brackets: dict[str, BracketStats] = {}
             crawled: dict[str, int] = {}
             for b in needed:
-                stats, crawled[b] = bracket_stats(s, stats_key, b, boot, model, lane_slopes, role_prior_games)
+                stats, crawled[b] = bracket_stats(s, stats_key, b, boot, model, lane_slopes, role_prior_games,
+                                                            prev_weight)
                 if stats is not None:
                     brackets[b] = stats
         if len(brackets) == len(needed):
